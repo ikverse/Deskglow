@@ -1,9 +1,22 @@
 package com.ikverse.deskglow.ui
 
+import android.graphics.Bitmap
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onChildAt
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -19,9 +32,14 @@ import com.ikverse.deskglow.FakeFontsHttp
 import com.ikverse.deskglow.display.WidgetHost
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
 import com.ikverse.deskglow.ui.editor.EditorScreen
+import com.ikverse.deskglow.ui.editor.EditorState
 import com.ikverse.deskglow.widgets.ClockWidget
+import com.ikverse.deskglow.widgets.Common
 import com.ikverse.deskglow.widgets.DefaultLayout
+import com.ikverse.deskglow.widgets.WeatherWidget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -41,7 +59,7 @@ import java.io.File
 @Config(qualifiers = "w412dp-h848dp-xxhdpi")
 class EditorScreenTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private lateinit var graph: AppGraph
     private val http = FakeFontsHttp()
@@ -93,6 +111,8 @@ class EditorScreenTest {
     fun `the corner handle resizes, pushing the widgets below`() {
         val ring = idOf("ring")
         compose.onNodeWithTag("widget $ring").performClick()
+        // The ring's corner lies under the settings sheet, so, as a person would, fold the sheet to reach it.
+        compose.onNodeWithContentDescription("Fold settings").performClick()
         val stat = layout.items.first { it.type == "stat" }.id
         val statBefore = layout.find(stat)!!.box.y
         compose.onNodeWithTag("handle").performTouchInput { swipe(center, center + Offset(0f, 150f), 400) }
@@ -146,5 +166,88 @@ class EditorScreenTest {
     fun `Done leaves the editor`() {
         compose.onNodeWithText("Done").performClick()
         assertTrue(done)
+    }
+
+    @Test
+    fun `a font that cannot be downloaded says so, on top of the font list rather than under it`() {
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("strip").performScrollToNode(hasText("More fonts"))
+        compose.onNodeWithText("More fonts").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Inter").fetchSemanticsNodes().isNotEmpty() }
+        http.failDownloads = true
+        compose.onNodeWithText("Inter").performClick()
+        val message = "Couldn't download Inter. Check the connection."
+        compose.waitUntil(5_000) { compose.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(message).assertIsDisplayed()
+
+        // Being in the tree is not enough: the message must be what is actually drawn there. Far right of
+        // the bar, clear of its text, is the bar's own colour if it is on top, and the list's if it is not.
+        val view = compose.activity.window.decorView
+        val screen = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(android.graphics.Canvas(screen))
+        val x = with(compose.density) { 392.dp.roundToPx() }
+        val y = with(compose.density) { 76.dp.roundToPx() }
+        val drawn = screen.getPixel(x, y)
+        val bar = Palette.ToastFill.toArgb()
+        assertTrue(
+            "the message bar is hidden: pixel is #${Integer.toHexString(drawn)}, the bar is #${Integer.toHexString(bar)}",
+            kotlin.math.abs(android.graphics.Color.red(drawn) - android.graphics.Color.red(bar)) <= 4 &&
+                kotlin.math.abs(android.graphics.Color.green(drawn) - android.graphics.Color.green(bar)) <= 4,
+        )
+    }
+
+    @Test
+    fun `a setting's switch is named by its label, and the whole row toggles it`() {
+        compose.onNodeWithText("Weather").performScrollTo().performClick()
+        compose.onNodeWithText("Show city").performScrollTo().assertIsOn()
+        compose.onNodeWithText("Show city").performClick()
+        compose.onNodeWithText("Show city").assertIsOff()
+        assertEquals(false, layout.find(idOf("weather"))!!.settings[WeatherWidget.SHOW_CITY])
+    }
+
+    @Test
+    fun `a screen reader can move and resize a widget with actions, and the widget has a name`() {
+        val clock = idOf("clock")
+        val before = layout.find(clock)!!.box
+        val body = compose.onNodeWithTag("widget $clock").onChildAt(0)
+        body.assertContentDescriptionEquals("Clock")
+        val actions = body.fetchSemanticsNode().config[SemanticsActions.CustomActions]
+        assertEquals(
+            listOf("Move up", "Move down", "Move left", "Move right", "Wider", "Narrower", "Taller", "Shorter"),
+            actions.map { it.label },
+        )
+        compose.runOnUiThread { actions.first { it.label == "Move right" }.action() }
+        compose.waitForIdle()
+        assertEquals(before.copy(x = before.x + EditorState.STEP), layout.find(clock)!!.box)
+        compose.runOnUiThread { actions.first { it.label == "Wider" }.action() }
+        compose.waitForIdle()
+        assertEquals(before.w + EditorState.STEP, layout.find(clock)!!.box.w)
+        assertNoOverlaps()
+    }
+
+    @Test
+    fun `the canvas sits below the top bar, so nothing on it is covered`() {
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        // The bar is 48 dp and its rule 1 dp. The clock is the highest widget, so its red cross is the highest chrome.
+        assertTrue(compose.onNodeWithTag("delete").getUnclippedBoundsInRoot().top >= 49.dp)
+    }
+
+    @Test
+    fun `the red cross, the handle and the fold chevron have names`() {
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithContentDescription("Delete Clock").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Resize Clock").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Fold settings").performClick()
+        compose.onNodeWithContentDescription("Unfold settings").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tabs and swatches say what they are, and the undo message is announced`() {
+        compose.onNodeWithText("Widgets").assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithContentDescription("Green").performScrollTo().performClick()
+        assertEquals(0xFF44B98A.toInt(), layout.find(idOf("clock"))!!.settings[Common.COLOUR])
+        compose.onNodeWithTag("delete").performClick()
+        compose.onNodeWithText("Clock deleted").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion))
     }
 }

@@ -10,18 +10,25 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -46,6 +53,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -115,7 +125,7 @@ private fun ColumnScope.SheetContent(state: EditorState, graph: AppGraph, foldab
 
 @Composable
 private fun Tabs(state: EditorState, foldable: Boolean) {
-    Row(Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 46.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Tab("Widgets", state.tab == SheetTab.Widgets) { state.tab = SheetTab.Widgets; state.sheetOpen = true }
         Tab("Settings", state.tab == SheetTab.Settings && state.selected != null, enabled = state.selected != null) {
             state.tab = SheetTab.Settings
@@ -123,7 +133,12 @@ private fun Tabs(state: EditorState, foldable: Boolean) {
         }
         Spacer(Modifier.weight(1f))
         if (foldable) {
-            Box(Modifier.size(44.dp).clickable { state.sheetOpen = !state.sheetOpen }, contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(44.dp)
+                    .clickable(role = Role.Button) { state.sheetOpen = !state.sheetOpen }
+                    .semantics { contentDescription = if (state.sheetOpen) "Fold settings" else "Unfold settings" },
+                contentAlignment = Alignment.Center,
+            ) {
                 Canvas(Modifier.size(14.dp).rotate(if (state.sheetOpen) 0f else 180f)) {
                     val w = 2.dp.toPx()
                     drawLine(Palette.Muted, Offset(0f, size.height * 0.3f), Offset(size.width / 2, size.height * 0.75f), w, StrokeCap.Round)
@@ -137,7 +152,7 @@ private fun Tabs(state: EditorState, foldable: Boolean) {
 @Composable
 private fun Tab(text: String, on: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Column(
-        Modifier.clickable(enabled = enabled, onClick = onClick).padding(horizontal = 12.dp),
+        Modifier.selectable(selected = on, enabled = enabled, role = Role.Tab, onClick = onClick).padding(horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -152,14 +167,21 @@ private fun Tab(text: String, on: Boolean, enabled: Boolean = true, onClick: () 
 @Composable
 private fun WidgetsTab(state: EditorState) {
     state.layout.items.forEach { item ->
-        Row(Modifier.fillMaxWidth().height(50.dp), verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = item.visible, onCheckedChange = { state.setVisible(item.id, it) })
+        Row(Modifier.fillMaxWidth().heightIn(min = 50.dp), verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = item.visible,
+                onCheckedChange = { state.setVisible(item.id, it) },
+                modifier = Modifier.semantics { contentDescription = "Show ${state.titleOf(item)}" },
+            )
             Text(
                 state.titleOf(item), fontSize = 15.sp,
                 color = when { item.id == state.selectedId -> Palette.Select; item.visible -> Palette.Ink; else -> Palette.Muted },
                 modifier = Modifier.weight(1f).clickable(enabled = item.visible) { state.select(item.id) }.padding(horizontal = 12.dp, vertical = 14.dp),
             )
-            TextButton(onClick = { state.delete(item.id) }) { Text("×", fontSize = 20.sp, color = Palette.Muted) }
+            TextButton(
+                onClick = { state.delete(item.id) },
+                modifier = Modifier.semantics { contentDescription = "Delete ${state.titleOf(item)}" },
+            ) { Text("×", fontSize = 20.sp, color = Palette.Muted) }
         }
         Rule()
     }
@@ -187,11 +209,18 @@ private fun SettingsTab(state: EditorState, graph: AppGraph) {
 @Composable
 private fun FieldRow(field: Field, settings: Settings, state: EditorState, graph: AppGraph) {
     when (field) {
-        is ToggleField -> Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(field.label, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            Switch(checked = settings[field.key], onCheckedChange = { state.set(field.key, it) })
+        is ToggleField -> {
+            // The whole row is the switch, so a screen reader hears the label with it ("Show city, switch, on").
+            val on = settings[field.key]
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp).toggleable(value = on, role = Role.Switch) { state.set(field.key, it) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(field.label, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Switch(checked = on, onCheckedChange = null)
+            }
         }
-        is ChoiceField -> Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+        is ChoiceField -> Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(field.label, fontSize = 15.sp, modifier = Modifier.weight(1f))
             var open by remember { mutableStateOf(false) }
             Box {
@@ -208,7 +237,7 @@ private fun FieldRow(field: Field, settings: Settings, state: EditorState, graph
                 }
             }
         }
-        is SliderField -> Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+        is SliderField -> Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(field.label, fontSize = 15.sp, modifier = Modifier.weight(1f))
             Slider(
                 value = settings[field.key].toFloat(),
@@ -216,7 +245,7 @@ private fun FieldRow(field: Field, settings: Settings, state: EditorState, graph
                 valueRange = field.range.first.toFloat()..field.range.last.toFloat(),
                 modifier = Modifier.width(150.dp),
             )
-            Text("${settings[field.key]}${field.suffix}", fontSize = 13.sp, color = Palette.Muted, modifier = Modifier.width(46.dp).padding(start = 8.dp))
+            Text("${settings[field.key]}${field.suffix}", fontSize = 13.sp, color = Palette.Muted, maxLines = 1, modifier = Modifier.widthIn(min = 46.dp).padding(start = 8.dp))
         }
         is ColourField -> ColourRow(field, settings, state)
         is StyleField -> StyleStrip(field, settings, state, graph)
@@ -225,29 +254,36 @@ private fun FieldRow(field: Field, settings: Settings, state: EditorState, graph
 
 private val SWATCHES = listOf(0xFFFFFFFF, 0xFF44B98A, 0xFF4FC3F7, 0xFFF5B942, 0xFFF2766B, 0xFFB48CF2, 0xFF9A9A9A).map { it.toInt() }
 
+/** What a screen reader calls each of [SWATCHES], in the same order. */
+private val SWATCH_NAMES = listOf("White", "Green", "Sky blue", "Amber", "Coral", "Violet", "Grey")
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColourRow(field: ColourField, settings: Settings, state: EditorState) {
     var custom by remember { mutableStateOf(false) }
     val current = settings[field.key]
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
         Text(field.label, fontSize = 15.sp)
-        Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            SWATCHES.forEach { colour ->
-                Box(
-                    Modifier.size(28.dp).clip(CircleShape)
-                        .border(if (colour == current) 2.dp else 1.dp, if (colour == current) Palette.Select else Color(0xFF444444), CircleShape)
-                        .padding(3.dp).clip(CircleShape).background(Color(colour))
-                        .clickable { state.set(field.key, colour) },
-                )
+        // Each swatch is 28 dp to look at and 48 dp to touch. They wrap onto a second line where the row is narrow.
+        FlowRow(Modifier.padding(top = 4.dp)) {
+            SWATCHES.forEachIndexed { index, colour ->
+                SwatchButton(SWATCH_NAMES[index], selected = colour == current, onClick = { state.set(field.key, colour) }) {
+                    Box(
+                        Modifier.size(28.dp).clip(CircleShape)
+                            .border(if (colour == current) 2.dp else 1.dp, if (colour == current) Palette.Select else Palette.EdgeStrong, CircleShape)
+                            .padding(3.dp).clip(CircleShape).background(Color(colour)),
+                    )
+                }
             }
             val isCustom = current !in SWATCHES
-            Box(
-                Modifier.size(28.dp).clip(CircleShape)
-                    .border(if (isCustom) 2.dp else 1.dp, if (isCustom) Palette.Select else Color(0xFF444444), CircleShape)
-                    .clickable { custom = true },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isCustom) Box(Modifier.size(20.dp).clip(CircleShape).background(Color(current))) else Text("+", color = Palette.Muted, fontSize = 16.sp)
+            SwatchButton("Custom colour", selected = isCustom, onClick = { custom = true }) {
+                Box(
+                    Modifier.size(28.dp).clip(CircleShape)
+                        .border(if (isCustom) 2.dp else 1.dp, if (isCustom) Palette.Select else Palette.EdgeStrong, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isCustom) Box(Modifier.size(20.dp).clip(CircleShape).background(Color(current))) else Text("+", color = Palette.Muted, fontSize = 16.sp)
+                }
             }
         }
     }
@@ -255,6 +291,18 @@ private fun ColourRow(field: ColourField, settings: Settings, state: EditorState
         custom = false
         state.set(field.key, it)
     }
+}
+
+/** A 48 dp touch target around a swatch, named and marked selected for a screen reader. */
+@Composable
+private fun SwatchButton(name: String, selected: Boolean, onClick: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    Box(
+        Modifier.size(48.dp).clip(CircleShape)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .semantics { contentDescription = name },
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
 }
 
 /** Any colour, by hue, strength and brightness. */

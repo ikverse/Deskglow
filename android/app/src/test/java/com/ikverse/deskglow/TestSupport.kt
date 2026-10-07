@@ -30,6 +30,9 @@ class FakeFeeds : Feeds {
  */
 class FakeFontsHttp(private val online: Boolean = true) : Http {
     val requests = mutableListOf<String>()
+
+    /** When set, the font catalogue still loads but every font file fails to download, as on a connection that drops. */
+    var failDownloads = false
     private val catalog = javaClass.classLoader!!.getResource("google-fonts-catalog.json")!!.readText()
     private val font = File("src/main/res/font/outfit.ttf").readBytes()
 
@@ -40,7 +43,7 @@ class FakeFontsHttp(private val online: Boolean = true) : Http {
             url.startsWith("https://fonts.google.com/metadata/fonts") -> catalog.toByteArray()
             url.startsWith("https://fonts.googleapis.com/css2") ->
                 "@font-face { src: url(https://fonts.gstatic.com/fake/${url.hashCode()}.ttf) format('truetype'); }".toByteArray()
-            url.startsWith("https://fonts.gstatic.com/") -> font
+            url.startsWith("https://fonts.gstatic.com/") -> if (failDownloads) throw IOException("download dropped") else font
             else -> throw IOException("unexpected $url")
         }
     }

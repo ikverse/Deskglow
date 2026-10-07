@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
@@ -129,12 +132,16 @@ private fun Tile(label: String, selected: Boolean, enabled: Boolean, onClick: ()
     val shape = RoundedCornerShape(6.dp)
     Column(
         Modifier.width(104.dp).alpha(if (enabled) 1f else 0.35f).clip(shape)
-            .border(if (selected) 2.dp else 1.dp, if (selected) Palette.Select else Color(0xFF2C2C2C), shape)
+            .border(if (selected) 2.dp else 1.dp, if (selected) Palette.Select else Palette.Edge, shape)
             .clickable(enabled = enabled, onClick = onClick).padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.fillMaxWidth().height(56.dp).background(Color.Black).padding(4.dp), contentAlignment = Alignment.Center) { preview() }
-        Text(label, fontSize = 11.5.sp, color = if (selected) Palette.Ink else Palette.Muted, maxLines = 1, modifier = Modifier.padding(top = 4.dp))
+        // Two lines, so "Seven-segment · Western only" is read in full; anything longer ends in "…" rather than being cut mid-letter.
+        Text(
+            label, fontSize = 11.5.sp, color = if (selected) Palette.Ink else Palette.Muted,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -198,7 +205,8 @@ fun MoreFontsSheet(kind: StyleKind, state: EditorState, graph: AppGraph, modifie
             placeholder = { Text("Search by name") },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        // Scrolls sideways, so six buttons never run off a narrow screen or a large font.
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
             (listOf<FontCategory?>(null) + FontCategory.entries).forEach { c ->
                 TextButton(onClick = { category = c; shown = PAGE }) {
                     Text(c?.label ?: "All", fontSize = 13.sp, color = if (category == c) Palette.Ink else Palette.Muted)
@@ -279,7 +287,7 @@ private fun FontCell(font: CatalogFont, kind: StyleKind, settings: Settings, gra
                 else -> Text("…", color = Palette.Muted)
             }
         }
-        Text(font.family, fontSize = 14.sp, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+        Text(font.family, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
         Text(font.category.label, fontSize = 12.sp, color = Palette.Muted)
     }
 }

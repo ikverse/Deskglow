@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Deskglow Mockup</title>
 <style>
 /* Bundled free fonts (SIL Open Font License, from Google Fonts). Licences sit beside them in fonts/. */
@@ -19,6 +19,7 @@
 @font-face { font-family: "Bungee"; src: url("fonts/Bungee-Regular.ttf") format("truetype"); }
 
 :root {
+  color-scheme: dark; /* native controls and scrollbars draw dark, like the page */
   --page: #050505;
   --ink: #ffffff;
   --muted: #8c8c8c;
@@ -185,6 +186,12 @@ body { display: flex; align-items: center; justify-content: center; overflow: hi
   background: #1d1d1d; color: var(--ink); border: 1px solid #333; border-radius: 4px;
   font: inherit; padding: 7px 8px; max-width: 190px;
 }
+/* iOS zooms the page when a field under 16px gets focus, and does not zoom back. */
+@media (pointer: coarse) { .row select { font-size: 16px; } }
+
+/* Press feedback on touch-down for every button: the tap highlight is off, so this is all the feedback there is. */
+button { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+button:active { transform: scale(0.97); }
 .row input[type=range] { width: 160px; accent-color: var(--select); }
 .row output { width: 42px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 

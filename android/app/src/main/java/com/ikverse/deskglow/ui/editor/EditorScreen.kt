@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -70,7 +71,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ikverse.deskglow.AppGraph
@@ -113,13 +123,17 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
             if (orientation == Orientation.Landscape) {
                 LandscapeEditor(state, graph, onDone)
             } else {
-                Stage(state, Modifier.fillMaxSize())
-                TopBar(state, onDone, Modifier.align(Alignment.TopCenter))
+                // The canvas sits below the top bar, not under it; only the settings sheet lies over it, at the bottom.
+                Column(Modifier.fillMaxSize()) {
+                    TopBar(state, onDone, Modifier)
+                    Stage(state, Modifier.weight(1f).fillMaxWidth())
+                }
                 EditorSheet(state, graph, Modifier.align(Alignment.BottomCenter))
             }
-            state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.TopCenter)) }
             if (state.pickerOpen) AddPicker(state, Modifier.fillMaxSize())
             state.moreFonts?.let { MoreFontsSheet(it, state, graph, Modifier.fillMaxSize()) }
+            // Drawn last, so a message (a font that could not be downloaded) is never hidden under the sheet that caused it.
+            state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.TopCenter)) }
         }
     }
 }
@@ -176,15 +190,19 @@ private fun Stage(state: EditorState, modifier: Modifier) {
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val unit = min(constraints.maxWidth / canvas.width.toFloat(), constraints.maxHeight / canvas.height.toFloat())
         val density = LocalDensity.current
-        Box(
-            Modifier
-                .size(with(density) { (canvas.width * unit).toDp() }, with(density) { (canvas.height * unit).toDp() })
-                .pointerInput(Unit) { detectTapGestures { state.select(null) } },
-        ) {
-            GridDots(unit)
-            for (item in state.layout.items) {
-                if (!item.visible || Widgets.find(item.type) == null) continue
-                key(item.id) { EditableWidget(state, item, unit) }
+        // The canvas is a drawing in fixed coordinates, not text: it is never mirrored for a right-to-left
+        // language, or a widget would move opposite to the finger that drags it.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Box(
+                Modifier
+                    .size(with(density) { (canvas.width * unit).toDp() }, with(density) { (canvas.height * unit).toDp() })
+                    .pointerInput(Unit) { detectTapGestures { state.select(null) } },
+            ) {
+                GridDots(unit)
+                for (item in state.layout.items) {
+                    if (!item.visible || Widgets.find(item.type) == null) continue
+                    key(item.id) { EditableWidget(state, item, unit) }
+                }
             }
         }
     }
@@ -218,6 +236,7 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
     val chrome = with(density) { CHROME.roundToPx() }
     val selected = state.selectedId == item.id
     val dragging = state.dragId != null
+    val actions = remember(item.id) { widgetActions(state, item.id) }
     val target = IntOffset((item.box.x * unit).roundToInt() - chrome, (item.box.y * unit).roundToInt() - chrome)
     // Widgets pushed out of the way glide; the one being dragged follows the finger exactly.
     val offset by animateIntOffsetAsState(target, if (dragging && state.dragId != item.id) tween(150) else snap(), label = "widget")
@@ -234,6 +253,12 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
             Modifier
                 .padding(CHROME)
                 .fillMaxSize()
+                // For TalkBack: the widget has a name, and moving and resizing, which a screen reader
+                // cannot drag, are offered as actions.
+                .semantics(mergeDescendants = true) {
+                    contentDescription = state.titleOf(item)
+                    customActions = actions
+                }
                 .drawBehind {
                     if (selected) {
                         drawRect(Palette.Select, style = Stroke(1.5.dp.toPx()))
@@ -263,7 +288,9 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
             Box(
                 Modifier.align(Alignment.TopStart).padding(start = CHROME - 11.dp, top = CHROME - 11.dp).size(22.dp)
                     .clip(CircleShape).background(Palette.Danger).border(3.dp, Color.Black, CircleShape)
-                    .clickable { state.delete(item.id) }.testTag("delete"),
+                    .clickable(role = Role.Button) { state.delete(item.id) }
+                    .semantics { contentDescription = "Delete ${state.titleOf(item)}" }
+                    .testTag("delete"),
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(Modifier.size(9.dp)) {
@@ -275,6 +302,7 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
             // Resize: a 32 dp touch area around a 22 dp dot, so it is easy to catch with a thumb.
             Box(
                 Modifier.align(Alignment.BottomEnd).size(32.dp).testTag("handle")
+                    .semantics { contentDescription = "Resize ${state.titleOf(item)}" }
                     .pointerInput(item.id, unit) {
                         var total = Offset.Zero
                         detectDragGestures(
@@ -296,6 +324,23 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
     }
 }
 
+/** Moving and resizing as actions a screen reader can offer, each one step of [EditorState.STEP] units. */
+private fun widgetActions(state: EditorState, id: String): List<CustomAccessibilityAction> {
+    fun action(label: String, dx: Int, dy: Int, resize: Boolean) =
+        CustomAccessibilityAction(label) { state.nudge(id, dx, dy, resize); true }
+    val step = EditorState.STEP
+    return listOf(
+        action("Move up", 0, -step, resize = false),
+        action("Move down", 0, step, resize = false),
+        action("Move left", -step, 0, resize = false),
+        action("Move right", step, 0, resize = false),
+        action("Wider", step, 0, resize = true),
+        action("Narrower", -step, 0, resize = true),
+        action("Taller", 0, step, resize = true),
+        action("Shorter", 0, -step, resize = true),
+    )
+}
+
 @Composable
 private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
     var armed by remember { mutableStateOf(false) }
@@ -305,20 +350,26 @@ private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
             armed = false
         }
     }
-    Column(modifier.fillMaxWidth().background(Color(0xF00A0A0A))) {
+    Column(modifier.fillMaxWidth().background(Palette.Bar)) {
+        // Each button has a slot of its own, so "Reset" turning into "Tap again to reset" cannot push the others about.
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = {
-                if (armed) {
-                    armed = false
-                    state.reset()
-                } else armed = true
-            }) { Text(if (armed) "Tap again to reset" else "Reset", color = if (armed) Palette.Danger else Palette.Select, fontSize = 15.sp) }
-            TextButton(onClick = { state.pickerOpen = true }) { Text("+ Add widget", color = Palette.Select, fontSize = 15.sp) }
-            TextButton(onClick = onDone) { Text("Done", color = Palette.Select, fontSize = 15.sp) }
+            Box(Modifier.weight(1.3f), contentAlignment = Alignment.CenterStart) {
+                TextButton(onClick = {
+                    if (armed) {
+                        armed = false
+                        state.reset()
+                    } else armed = true
+                }) { Text(if (armed) "Tap again to reset" else "Reset", color = if (armed) Palette.Danger else Palette.Select, fontSize = 15.sp) }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                TextButton(onClick = { state.pickerOpen = true }) { Text("+ Add widget", color = Palette.Select, fontSize = 15.sp) }
+            }
+            Box(Modifier.weight(0.7f), contentAlignment = Alignment.CenterEnd) {
+                TextButton(onClick = onDone) { Text("Done", color = Palette.Select, fontSize = 15.sp) }
+            }
         }
         Rule()
     }
@@ -332,11 +383,15 @@ private fun ToastBar(state: EditorState, toast: Toast, modifier: Modifier) {
     }
     Row(
         modifier.statusBarsPadding().padding(top = 56.dp, start = 12.dp, end = 12.dp).fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp)).background(Color(0xFF232323)).border(1.dp, Color(0xFF343434), RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(6.dp)).background(Palette.ToastFill).border(1.dp, Palette.ToastEdge, RoundedCornerShape(6.dp))
             .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(toast.message, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(vertical = 12.dp))
+        // A live region: a screen reader says "Clock deleted" when it appears, without being asked.
+        Text(
+            toast.message, fontSize = 14.sp,
+            modifier = Modifier.weight(1f).padding(vertical = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
+        )
         toast.undo?.let { undo ->
             TextButton(onClick = {
                 state.toast = null

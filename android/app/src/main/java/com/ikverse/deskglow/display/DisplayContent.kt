@@ -16,7 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.em
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.PlatformTextStyle
@@ -52,20 +54,24 @@ fun DisplayContent(layout: Layout, burnIn: Boolean, modifier: Modifier = Modifie
     BoxWithConstraints(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         val unit = min(constraints.maxWidth / orientation.width.toFloat(), constraints.maxHeight / orientation.height.toFloat())
         val density = LocalDensity.current
-        Box(
-            Modifier
-                .size(with(density) { (orientation.width * unit).toDp() }, with(density) { (orientation.height * unit).toDp() })
-                .graphicsLayer {
-                    if (burnIn) {
-                        val (dx, dy) = burnInShift(minute)
-                        translationX = dx * density.density
-                        translationY = dy * density.density
-                    }
-                },
-        ) {
-            for (item in layout.items) {
-                if (!item.visible) continue
-                key(item.id) { WidgetSlot(item, unit) }
+        // The canvas is a drawing in fixed coordinates, not text: it is never mirrored for a right-to-left
+        // phone, or every widget would swap sides and "left" would mean right.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Box(
+                Modifier
+                    .size(with(density) { (orientation.width * unit).toDp() }, with(density) { (orientation.height * unit).toDp() })
+                    .graphicsLayer {
+                        if (burnIn) {
+                            val (dx, dy) = burnInShift(minute)
+                            translationX = dx * density.density
+                            translationY = dy * density.density
+                        }
+                    },
+            ) {
+                for (item in layout.items) {
+                    if (!item.visible) continue
+                    key(item.id) { WidgetSlot(item, unit) }
+                }
             }
         }
     }

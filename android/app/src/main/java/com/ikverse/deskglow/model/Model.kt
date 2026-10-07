@@ -9,10 +9,10 @@ import androidx.compose.runtime.Immutable
  */
 enum class Orientation(val width: Int, val height: Int, val visibleY: IntRange) {
     /**
-     * The phone upright. The editor's top bar covers the top of the canvas and its sheet the bottom,
-     * so new widgets prefer to land between [visibleY].
+     * The phone upright. The editor's settings sheet lies over the bottom of the canvas (from about
+     * 440 down), so new widgets prefer to land above it, and not hard against the top edge: [visibleY].
      */
-    Portrait(412, 848, 48..472),
+    Portrait(412, 848, 48..440),
 
     /** The phone on its side, for a dock. The editor's panel sits beside the canvas, so none of it is covered. */
     Landscape(848, 412, 0..412);

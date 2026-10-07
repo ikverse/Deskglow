@@ -24,6 +24,16 @@ object Palette {
     val Select = Color(0xFF4F9DFF)
     val Danger = Color(0xFFF23645)
     val Accent = Color(0xFF44B98A)
+
+    /** The outline of a tile in a strip. */
+    val Edge = Color(0xFF2C2C2C)
+    /** The outline of a colour swatch. */
+    val EdgeStrong = Color(0xFF444444)
+    /** The message bar that carries Undo, and its outline. */
+    val ToastFill = Color(0xFF232323)
+    val ToastEdge = Color(0xFF343434)
+    /** The editor's top bar: near-black, a little see-through. */
+    val Bar = Color(0xF00A0A0A)
 }
 
 @Composable

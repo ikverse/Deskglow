@@ -126,6 +126,30 @@ class EditorStateTest {
         assertNull(state.selectedId)
     }
 
+    @Test
+    fun `a nudge from a screen reader moves or resizes by one step, saves, and stays on the canvas`() {
+        val clock = state.layout.items.first { it.type == "clock" }
+        state.nudge(clock.id, EditorState.STEP, 0, resize = false)
+        assertEquals(clock.box.copy(x = clock.box.x + EditorState.STEP), state.layout.find(clock.id)!!.box)
+        state.nudge(clock.id, EditorState.STEP, 0, resize = true)
+        assertEquals(clock.box.w + EditorState.STEP, state.layout.find(clock.id)!!.box.w)
+        assertEquals(state.layout, saved.last())
+        assertNull(state.dragId)
+        assertEquals(clock.id, state.selectedId)
+        // Pushed all the way to the left edge, it stops there.
+        repeat(20) { state.nudge(clock.id, -EditorState.STEP, 0, resize = false) }
+        assertEquals(0, state.layout.find(clock.id)!!.box.x)
+        noOverlaps(state.layout)
+    }
+
+    @Test
+    fun `a nudge into another widget pushes it, like a drag, and never overlaps`() {
+        val date = state.layout.items.first { it.type == "date" }
+        repeat(6) { state.nudge(date.id, 0, -EditorState.STEP, resize = false) } // up, into the clock
+        assertTrue(state.layout.find(date.id)!!.box.y < date.box.y)
+        noOverlaps(state.layout)
+    }
+
     // ---- landscape: the same editor on the 848 x 412 canvas ----
 
     private val saved2 = mutableListOf<Layout>()
