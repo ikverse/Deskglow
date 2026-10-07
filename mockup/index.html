@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Deskglow Mockup</title>
+<style>
+/* Bundled free fonts (SIL Open Font License, from Google Fonts). Licences sit beside them in fonts/. */
+@font-face { font-family: "Outfit"; src: url("fonts/Outfit.ttf") format("truetype"); font-weight: 100 900; }
+@font-face { font-family: "Orbitron"; src: url("fonts/Orbitron.ttf") format("truetype"); font-weight: 400 900; }
+@font-face { font-family: "Michroma"; src: url("fonts/Michroma-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Audiowide"; src: url("fonts/Audiowide-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Righteous"; src: url("fonts/Righteous-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Bebas Neue"; src: url("fonts/BebasNeue-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Cinzel"; src: url("fonts/Cinzel.ttf") format("truetype"); font-weight: 400 900; }
+@font-face { font-family: "Share Tech Mono"; src: url("fonts/ShareTechMono-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Dancing Script"; src: url("fonts/DancingScript.ttf") format("truetype"); font-weight: 400 700; }
+@font-face { font-family: "Monoton"; src: url("fonts/Monoton-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Bungee"; src: url("fonts/Bungee-Regular.ttf") format("truetype"); }
+
+:root {
+  --page: #050505;
+  --ink: #ffffff;
+  --muted: #8c8c8c;
+  --rule: #262626;
+  --sheet: #141414;
+  --select: #4f9dff;
+  --danger: #f23645;
+  --accent: #44b98a;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  background: var(--page);
+  color: var(--ink);
+  font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+body { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+
+/* The phone: 412 x 848 css px is the Note 9's 1080 x 2220 at 2.625 density. */
+#frame { position: relative; flex: none; width: 0; height: 0; overflow: hidden; box-shadow: 0 0 0 1px #1d1d1d; }
+#screen {
+  position: absolute; left: 0; top: 0;
+  width: 412px; height: 848px;
+  background: #000;
+  overflow: hidden;
+  transform-origin: 0 0;
+  user-select: none; -webkit-user-select: none;
+  touch-action: none;
+  border-radius: 22px;
+}
+#screen.editing {
+  background-image: radial-gradient(rgba(255, 255, 255, .16) 1px, transparent 1.3px);
+  background-size: 16px 16px;
+}
+#stage { position: absolute; inset: 0; }
+
+/* Widgets */
+.w {
+  position: absolute;
+  container-type: size;
+  color: var(--c, #fff);
+}
+.w > .in { position: absolute; inset: 0; }
+#screen.editing .w { outline: 1px dashed rgba(255, 255, 255, .3); cursor: grab; }
+#screen.editing .w.sel { outline: 1.5px solid var(--select); }
+#picker .w { outline: none !important; cursor: pointer; }
+/* widgets that get pushed out of the way glide instead of jumping */
+#screen.dragging .w:not(.sel) { transition: top .15s ease; }
+.handle {
+  position: absolute; right: -11px; bottom: -11px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--select); border: 3px solid #000;
+  cursor: nwse-resize; touch-action: none; z-index: 3;
+}
+.del {
+  position: absolute; left: -11px; top: -11px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--danger); border: 3px solid #000;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; touch-action: none; z-index: 3;
+}
+.del svg { width: 10px; height: 10px; }
+.w svg { display: block; }
+
+/* clock / date (drawn as scaled SVG) */
+.fit { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+
+/* charging ring */
+.ring {
+  position: absolute; left: 50%; top: 50%;
+  width: min(100cqw, 100cqh); height: min(100cqw, 100cqh);
+  transform: translate(-50%, -50%);
+  container-type: size;
+}
+.ring > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rc {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2.4cqmin;
+}
+.rc .bolt { width: 8cqmin; height: 11cqmin; color: var(--a, #44b98a); }
+.rc b { font-size: 16.5cqmin; font-weight: 500; line-height: 1; letter-spacing: -.01em; }
+.rc span { font-size: 5.6cqmin; letter-spacing: .06em; color: var(--muted); line-height: 1; }
+
+/* stat */
+.stat { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; }
+.stat.al-left { align-items: flex-start; text-align: left; }
+.stat.al-center { align-items: center; text-align: center; }
+.stat.al-right { align-items: flex-end; text-align: right; }
+.sv { font-size: min(56cqh, 22cqw); line-height: 1; font-weight: 300; white-space: nowrap; letter-spacing: -.01em; }
+.sv i { font-style: normal; font-size: .64em; margin-left: .14em; font-weight: 400; color: var(--a, #44b98a); }
+.sl { margin-top: 6cqh; font-size: min(26cqh, 11cqw); color: var(--muted); line-height: 1; }
+
+/* event / weather / media text blocks */
+.blk { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 5cqh; overflow: hidden; }
+.blk.al-left { align-items: flex-start; text-align: left; }
+.blk.al-center { align-items: center; text-align: center; }
+.blk.al-right { align-items: flex-end; text-align: right; }
+.blk .h { font-size: min(17cqh, 6cqw); letter-spacing: .08em; color: var(--muted); line-height: 1; }
+.blk .t { font-size: min(32cqh, 11cqw); font-weight: 400; line-height: 1.05; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.blk .s { font-size: min(21cqh, 7.5cqw); color: var(--muted); line-height: 1.05; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.wx { position: absolute; inset: 0; display: flex; align-items: center; gap: 8cqh; }
+.wx .ic { flex: none; height: 74cqh; width: 74cqh; color: var(--a, #f5b942); }
+.wx .tx { display: flex; flex-direction: column; justify-content: center; gap: 4cqh; min-width: 0; }
+.wx .big { font-size: min(44cqh, 15cqw); font-weight: 300; line-height: 1; }
+.wx .s { font-size: min(19cqh, 7cqw); color: var(--muted); line-height: 1.05; white-space: nowrap; }
+.media { position: absolute; inset: 0; display: flex; align-items: center; gap: 10cqh; }
+.media .ic { flex: none; height: 62cqh; width: 62cqh; color: var(--muted); }
+.media .tx { display: flex; flex-direction: column; justify-content: center; gap: 6cqh; min-width: 0; flex: 1; }
+.media .bar { height: 3cqh; min-height: 2px; background: #222; margin-top: 4cqh; }
+.media .bar i { display: block; height: 100%; background: currentColor; }
+
+/* notification icons */
+.nf { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 0; }
+.nf svg { height: 62cqh; width: 62cqh; margin: 0 calc(62cqh * .32); flex: none; }
+.nf em { font-style: normal; font-size: 46cqh; color: var(--muted); }
+
+/* Edit chrome */
+#editBtn {
+  position: absolute; right: 8px; top: 8px; z-index: 4;
+  background: none; border: 0; color: #fff; opacity: .32;
+  font: 500 13px/1 "Segoe UI", Roboto, sans-serif; padding: 10px;
+}
+#screen.editing #editBtn { display: none; }
+#topbar {
+  position: absolute; left: 0; right: 0; top: 0; height: 44px; z-index: 5;
+  display: none; align-items: center; justify-content: space-between;
+  padding: 0 6px; background: rgba(10, 10, 10, .94); border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+#screen.editing #topbar { display: flex; }
+#topbar button { background: none; border: 0; color: var(--select); font: inherit; font-weight: 500; padding: 11px 12px; }
+#topbar button.warn { color: var(--danger); }
+
+#sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 376px; z-index: 6;
+  display: none; flex-direction: column;
+  background: var(--sheet); border-top: 1px solid var(--rule);
+  transition: opacity .15s;
+  font-size: 14px;
+}
+#screen.editing #sheet { display: flex; }
+#sheet.collapsed { height: 44px; }
+#screen.dragging #sheet { opacity: .14; pointer-events: none; }
+.tabs { display: flex; align-items: center; height: 44px; flex: none; border-bottom: 1px solid var(--rule); padding: 0 6px; }
+.tabs button { background: none; border: 0; color: var(--muted); font: inherit; font-weight: 500; padding: 12px 12px; border-bottom: 2px solid transparent; }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--select); }
+.tabs button:disabled { opacity: .35; }
+.tabs .chev { margin-left: auto; padding: 12px; color: var(--muted); border: 0; }
+.tabs .chev svg { display: block; transition: transform .15s; }
+#sheet.collapsed .chev svg { transform: rotate(180deg); }
+.body { flex: 1; overflow-y: auto; touch-action: pan-y; padding: 0 14px 14px; }
+#sheet.collapsed .body { display: none; }
+
+.row { display: flex; align-items: center; gap: 10px; min-height: 46px; border-bottom: 1px solid var(--rule); }
+.row > span { flex: 1; }
+.row > span.sw-wrap { flex: none; }
+.row.col { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 0; }
+.row.col > span { flex: none; }
+.row select {
+  background: #1d1d1d; color: var(--ink); border: 1px solid #333; border-radius: 4px;
+  font: inherit; padding: 7px 8px; max-width: 190px;
+}
+.row input[type=range] { width: 160px; accent-color: var(--select); }
+.row output { width: 42px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* sideways-scrolling preview strip (clock styles, date fonts) */
+.row.col .cur { font-style: normal; color: var(--muted); margin-left: 10px; }
+.strip {
+  display: flex; gap: 8px; margin: 0 -2px; padding: 2px 2px 8px;
+  overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; touch-action: pan-x;
+  scrollbar-width: thin; scrollbar-color: #3a3a3a transparent;
+}
+.strip.drag { scroll-snap-type: none; cursor: grabbing; }
+.tile {
+  flex: none; width: 104px; scroll-snap-align: start;
+  display: flex; flex-direction: column; gap: 4px; padding: 6px;
+  background: none; border: 1px solid #2c2c2c; border-radius: 6px;
+  color: var(--ink); font: inherit; text-align: center; cursor: pointer;
+}
+.tile.on { border-color: var(--select); box-shadow: 0 0 0 1px var(--select); }
+.tile .tv { position: relative; height: 56px; }
+.tile .tvi { position: absolute; inset: 4px; }
+.tile small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile.on small { color: var(--ink); }
+
+/* toggle switch */
+.sw-wrap { position: relative; display: inline-block; width: 42px; height: 24px; flex: none; }
+.sw-wrap input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; z-index: 1; }
+.sw-wrap i { position: absolute; inset: 0; background: #3a3a3a; border-radius: 12px; transition: background .12s; }
+.sw-wrap i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #bbb; transition: transform .12s, background .12s; }
+.sw-wrap input:checked + i { background: var(--select); }
+.sw-wrap input:checked + i::after { transform: translateX(18px); background: #fff; }
+
+.sws { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sg { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #000; box-shadow: 0 0 0 1px #444; padding: 0; }
+.sg.on { box-shadow: 0 0 0 2px var(--select); }
+.sws input[type=color] { width: 34px; height: 28px; padding: 0; border: 1px solid #444; background: none; }
+
+.lrow { display: flex; align-items: center; gap: 10px; min-height: 48px; border-bottom: 1px solid var(--rule); }
+.lrow.sel .nm { color: var(--select); }
+.lrow .nm { flex: 1; background: none; border: 0; color: var(--ink); font: inherit; text-align: left; padding: 13px 0; }
+.lrow .x { background: none; border: 0; color: var(--muted); padding: 10px; font-size: 20px; line-height: 1; }
+.lrow.off .nm { color: var(--muted); }
+.btn { background: none; border: 0; color: var(--select); font: inherit; font-weight: 500; padding: 14px 0; text-align: left; }
+.btn.danger { color: var(--danger); }
+.acts { display: flex; gap: 24px; padding-top: 4px; }
+.note { color: var(--muted); font-size: 12.5px; line-height: 1.4; padding: 10px 0 2px; }
+
+/* Add-widget picker */
+#picker {
+  position: absolute; left: 0; right: 0; top: 44px; bottom: 0; z-index: 8;
+  display: none; flex-direction: column; background: #0b0b0b; font-size: 14px;
+}
+#picker.open { display: flex; }
+#picker .ph {
+  display: flex; align-items: center; justify-content: space-between; flex: none;
+  height: 46px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--rule); color: var(--muted);
+}
+#picker .ph button { background: none; border: 0; color: var(--select); font: inherit; font-weight: 500; padding: 12px; }
+#picker .pg { flex: 1; overflow-y: auto; touch-action: pan-y; display: grid; grid-template-columns: 1fr 1fr; align-content: start; }
+.card {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: none; border: 0; border-bottom: 1px solid var(--rule); border-right: 1px solid var(--rule);
+  padding: 12px 12px 10px; color: var(--ink); font: inherit;
+}
+.card:nth-child(2n) { border-right: 0; }
+.card b { font-weight: 500; margin-top: 8px; }
+.card small { color: var(--muted); font-size: 12px; }
+.pv { height: 92px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pvin { position: relative; flex: none; }
+.pvin .w { left: 0; top: 0; transform-origin: 0 0; }
+
+/* Undo bar */
+#toast {
+  position: absolute; left: 12px; right: 12px; top: 52px; z-index: 9;
+  display: none; align-items: center; justify-content: space-between;
+  background: #232323; border: 1px solid #343434; border-radius: 6px;
+  padding: 2px 4px 2px 14px; font-size: 14px;
+}
+#toast.show { display: flex; }
+#toast button { background: none; border: 0; color: var(--select); font: inherit; font-weight: 600; padding: 12px; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="screen">
+    <div id="stage"></div>
+    <button id="editBtn" type="button">Edit</button>
+    <div id="topbar">
+      <button id="resetBtn" type="button">Reset</button>
+      <button id="addBtn" type="button">+ Add widget</button>
+      <button id="doneBtn" type="button">Done</button>
+    </div>
+    <div id="sheet"></div>
+    <div id="picker">
+      <div class="ph"><span>Add a widget</span><button id="pickClose" type="button">Cancel</button></div>
+      <div class="pg"></div>
+    </div>
+    <div id="toast"><span></span><button type="button">Undo</button></div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+const W = 412, H = 848, GRID = 4, MIN = 24;
+const KEY = 'deskScreenMockup.layout.v1';
+
+// Real readings from the Note 9 over adb on 2026-10-07 (dumpsys battery, media_session, notification).
+// Battery: 100 %, full, USB powered, 4224 mV, 335 tenths of a degree, 296 mA.
+// Media: the only session (SoundCloud) is inactive, so nothing is playing.
+// Notifications: batterymeter, facebook, google (x2), signallab, samsung sharelive + smartcapture, android (system, skipped).
+const PHONE = {
+  level: 100, status: 'full', plugged: true,
+  voltageMv: 4224, tempC: 33.5, currentMa: 296,
+  notifApps: ['bolt', 'fb', 'google', 'trend', 'bell'],
+  media: null
+};
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const snap = v => Math.round(v / GRID) * GRID;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ---------- small glyphs ----------
+const GLYPHS = {
+  bolt:  '<path d="M13 2L5 14h6l-1 8 8-12h-6z" fill="currentColor"/>',
+  fb:    '<circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M13.2 21v-7.6h2.5l.4-3h-2.9V8.6c0-.9.3-1.4 1.5-1.4h1.5V4.5c-.3 0-1.2-.1-2.2-.1-2.2 0-3.7 1.3-3.7 3.8v2.2H7.8v3h2.5V21z" fill="#000"/>',
+  google:'<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><text x="12" y="16.6" text-anchor="middle" font-size="12.5" font-weight="700" fill="currentColor" font-family="Segoe UI, Roboto, sans-serif">G</text>',
+  trend: '<path d="M3 17l6-6 4 4 7-7M15 8h5v5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  bell:  '<path d="M12 22a2.2 2.2 0 0 0 2.2-2.2H9.8A2.2 2.2 0 0 0 12 22zm7-6v-5c0-3.1-1.6-5.600-4.500-6.300V4a2.500 2.500 0 0 0-5 0v.7C6.600 5.400 5 7.900 5 11v5l-2 2v1h18v-1z" fill="currentColor"/>',
+  sun:   '<circle cx="12" cy="12" r="4.4" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.500 12h3M5.300 5.300l2.100 2.100M16.600 16.600l2.100 2.100M5.300 18.700l2.100-2.100M16.600 7.400l2.100-2.100" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  note:  '<path d="M9 17V5.500l10-2V15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.800" cy="17.500" r="2.600" fill="currentColor"/><circle cx="16.800" cy="15.500" r="2.600" fill="currentColor"/>'
+};
+const svg24 = (k, extra = '') => `<svg viewBox="0 0 24 24" ${extra} aria-hidden="true">${GLYPHS[k]}</svg>`;
+const CHROME = '<div class="del" role="button" aria-label="Delete widget"><svg viewBox="0 0 12 12"><path d="M2.500 2.500l7 7M9.500 2.500l-7 7" stroke="#fff" stroke-width="1.900" stroke-linecap="round" fill="none"/></svg></div><div class="handle"></div>';
+
+// ---------- clock drawing: every style returns an <svg> that scales to its widget box ----------
+const svgBox = (vb, inner) => `<svg class="fit" viewBox="${vb}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${inner}</svg>`;
+
+// Squared: 96 wide x 100 tall boxes drawn with round-jointed strokes, like the reference clock.
+const SQ = {
+  '0': 'M6,6H90V94H6Z',
+  '1': 'M24,24L48,6V94',
+  '2': 'M6,6H90V50H6V94H90',
+  '3': 'M6,6H90V94H6M34,50H90',
+  '4': 'M6,6V50H90M90,6V94',
+  '5': 'M90,6H6V50H90V94H6',
+  '6': 'M90,6H6V94H90V50H6',
+  '7': 'M6,6H90V94',
+  '8': 'M6,6H90V94H6ZM6,50H90',
+  '9': 'M90,50H6V6H90V94H6'
+};
+function squaredBody(str) {
+  const DW = 96, GAP = 14, CW = 12;
+  let x = 0, body = '';
+  for (const ch of str) {
+    if (ch === ':') { body += `<path d="M${x + 6},32h.01M${x + 6},68h.01"/>`; x += CW + GAP; }
+    else { body += `<path transform="translate(${x} 0)" d="${SQ[ch]}"/>`; x += DW + GAP; }
+  }
+  return { body, total: x - GAP };
+}
+const strokeG = (w, color, body) => `<g fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${body}</g>`;
+const squaredSvg = str => { const q = squaredBody(str); return svgBox(`0 0 ${q.total} 100`, strokeG(12, 'currentColor', q.body)); };
+// Outline: the same digits drawn as a thick line with a black line on top, so only two edges show.
+const outlineSvg = str => { const q = squaredBody(str); return svgBox(`-2 -2 ${q.total + 4} 104`, strokeG(16, 'currentColor', q.body) + strokeG(6, '#000', q.body)); };
+// Stacked: hours over minutes (and seconds), centred.
+function stackedSvg(s) {
+  const p = clockParts(s), rows = [p.hh, p.mm].concat(s.seconds ? [p.ss] : []).map(squaredBody);
+  const maxW = Math.max(...rows.map(r => r.total));
+  const g = rows.map((r, i) => `<g transform="translate(${(maxW - r.total) / 2} ${i * 120})">${r.body}</g>`).join('');
+  return svgBox(`0 0 ${maxW} ${rows.length * 100 + (rows.length - 1) * 20}`, strokeG(12, 'currentColor', g));
+}
+
+// Seven-segment: all seven bars per digit, unlit ones faint, leaning slightly like an LCD.
+const SEG_POLY = {
+  a: '7,5 12,0 48,0 53,5 48,10 12,10', g: '7,50 12,45 48,45 53,50 48,55 12,55', d: '7,95 12,90 48,90 53,95 48,100 12,100',
+  f: '5,8 10,13 10,43 5,48 0,43 0,13', e: '5,52 10,57 10,87 5,92 0,87 0,57',
+  b: '55,8 60,13 60,43 55,48 50,43 50,13', c: '55,52 60,57 60,87 55,92 50,87 50,57'
+};
+const SEG_ON = { '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abcdfg' };
+function segSvg(str) {
+  let x = 0, out = '';
+  for (const ch of str) {
+    if (ch === ':') { out += `<rect x="${x}" y="28" width="11" height="11"/><rect x="${x}" y="61" width="11" height="11"/>`; x += 27; continue; }
+    let lit = '', off = '';
+    for (const k in SEG_POLY) { const p = `<polygon points="${SEG_POLY[k]}"/>`; if (SEG_ON[ch].includes(k)) lit += p; else off += p; }
+    out += `<g transform="translate(${x} 0)"><g opacity=".09">${off}</g>${lit}</g>`; x += 76;
+  }
+  return svgBox(`-13 -1 ${x - 16 + 14} 102`, `<g fill="currentColor" transform="skewX(-7)">${out}</g>`);
+}
+
+// Dot matrix: a 5 x 7 grid of dots per digit, unlit dots faint.
+const DOT = {
+  '0': '01110 10001 10011 10101 11001 10001 01110', '1': '00100 01100 00100 00100 00100 00100 01110',
+  '2': '01110 10001 00001 00010 00100 01000 11111', '3': '11110 00001 00001 01110 00001 00001 11110',
+  '4': '00010 00110 01010 10010 11111 00010 00010', '5': '11111 10000 11110 00001 00001 10001 01110',
+  '6': '00110 01000 10000 11110 10001 10001 01110', '7': '11111 00001 00010 00100 01000 01000 01000',
+  '8': '01110 10001 10001 01110 10001 10001 01110', '9': '01110 10001 10001 01111 00001 00010 01100'
+};
+function dotsSvg(str) {
+  let x = 0, lit = '', off = '';
+  const dot = (cx, cy, on) => { const c = `<circle cx="${cx}" cy="${cy}" r=".42"/>`; if (on) lit += c; else off += c; };
+  for (const ch of str) {
+    if (ch === ':') { for (let r = 0; r < 7; r++) dot(x + .5, r + .5, r === 2 || r === 4); x += 2; continue; }
+    DOT[ch].split(' ').forEach((row, r) => [...row].forEach((v, c) => dot(x + c + .5, r + .5, v === '1')));
+    x += 6;
+  }
+  return svgBox(`0 0 ${x - 1} 7`, `<g fill="currentColor"><g opacity=".1">${off}</g>${lit}</g>`);
+}
+
+// Rounded: thick strokes with big rounded corners (a polyline whose corners are cut with curves).
+function roundPath(pts, r, closed) {
+  const n = pts.length;
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const corner = i => {
+    const p = pts[(i + n - 1) % n], c = pts[i], q = pts[(i + 1) % n];
+    return [lerp(c, p, Math.min(r, dist(c, p) / 2) / dist(c, p)), c, lerp(c, q, Math.min(r, dist(c, q) / 2) / dist(c, q))];
+  };
+  let d = '';
+  if (closed) {
+    for (let i = 0; i < n; i++) { const [a, c, b] = corner(i); d += (i ? 'L' : 'M') + a + 'Q' + c + ' ' + b; }
+    return d + 'Z';
+  }
+  d = 'M' + pts[0];
+  for (let i = 1; i < n - 1; i++) { const [a, c, b] = corner(i); d += 'L' + a + 'Q' + c + ' ' + b; }
+  return d + 'L' + pts[n - 1];
+}
+const RD = (() => {
+  const xl = 10, xr = 60, yt = 10, ym = 50, yb = 90, o = (p) => ({ p }), c = (p) => ({ p, c: 1 });
+  return {
+    '0': [c([[xl, yt], [xr, yt], [xr, yb], [xl, yb]])],
+    '1': [o([[22, 30], [38, yt], [38, yb]])],
+    '2': [o([[xl, yt], [xr, yt], [xr, ym], [xl, ym], [xl, yb], [xr, yb]])],
+    '3': [o([[xl, yt], [xr, yt], [xr, yb], [xl, yb]]), o([[28, ym], [xr, ym]])],
+    '4': [o([[xl, yt], [xl, ym], [xr, ym]]), o([[xr, yt], [xr, yb]])],
+    '5': [o([[xr, yt], [xl, yt], [xl, ym], [xr, ym], [xr, yb], [xl, yb]])],
+    '6': [o([[xr, yt], [xl, yt], [xl, yb], [xr, yb], [xr, ym], [xl, ym]])],
+    '7': [o([[xl, yt], [xr, yt], [xr, yb]])],
+    '8': [c([[xl, yt], [xr, yt], [xr, ym], [xl, ym]]), c([[xl, ym], [xr, ym], [xr, yb], [xl, yb]])],
+    '9': [o([[xr, ym], [xl, ym], [xl, yt], [xr, yt], [xr, yb], [xl, yb]])]
+  };
+})();
+function roundedSvg(str) {
+  let x = 0, body = '';
+  for (const ch of str) {
+    if (ch === ':') { body += `<path d="M${x + 9},34h.01M${x + 9},66h.01"/>`; x += 18 + 12; continue; }
+    body += `<path transform="translate(${x} 0)" d="${RD[ch].map(s => roundPath(s.p, 22, !!s.c)).join('')}"/>`; x += 70 + 12;
+  }
+  return svgBox(`0 0 ${x - 12} 100`, strokeG(18, 'currentColor', body));
+}
+
+// Text styles: drawn as SVG text inside a box that hugs the real digit (or letter) height and ink width.
+const measure = document.createElement('canvas').getContext('2d');
+function inkSvg(text, family, weight, sample, stable) {
+  measure.font = `${weight} 100px ${family}`;
+  const v = measure.measureText(sample), asc = v.actualBoundingBoxAscent, desc = v.actualBoundingBoxDescent;
+  // stable: size the box from a string of zeros so a narrow "1" does not make the clock jump in size
+  const m = measure.measureText(stable ? text.replace(/\d/g, '0') : text);
+  const left = m.actualBoundingBoxLeft, w = Math.max(1, left + m.actualBoundingBoxRight), h = Math.max(1, asc + desc);
+  return svgBox(`${-left} ${-asc} ${w} ${h}`,
+    `<text x="${stable ? m.width / 2 : 0}" y="0" text-anchor="${stable ? 'middle' : 'start'}" fill="currentColor" font-family='${family}' font-weight="${weight}" font-size="100">${esc(text)}</text>`);
+}
+const SYS_THIN = '"Segoe UI Light","Segoe UI",Roboto,sans-serif';
+const SYS_BOLD = '"Segoe UI",Roboto,sans-serif';
+const fam = n => `"${n}",sans-serif`;
+const CLOCK_FONTS = {
+  thin: { f: SYS_THIN, w: 300 }, bold: { f: SYS_BOLD, w: 700 },
+  serif: { f: fam('Cinzel'), w: 600 }, condensed: { f: fam('Bebas Neue'), w: 400 }, mono: { f: fam('Share Tech Mono'), w: 400 },
+  heavy: { f: fam('Bungee'), w: 400 }, script: { f: fam('Dancing Script'), w: 700 }
+};
+const DATE_FONTS = {
+  thin: { label: 'Thin (default)', f: SYS_THIN, w: 400 },
+  outfit: { label: 'Outfit', f: fam('Outfit'), w: 300 },
+  orbitron: { label: 'Orbitron', f: fam('Orbitron'), w: 500 },
+  michroma: { label: 'Michroma', f: fam('Michroma'), w: 400 },
+  audiowide: { label: 'Audiowide', f: fam('Audiowide'), w: 400 },
+  righteous: { label: 'Righteous', f: fam('Righteous'), w: 400 },
+  bebas: { label: 'Bebas Neue', f: fam('Bebas Neue'), w: 400 },
+  cinzel: { label: 'Cinzel', f: fam('Cinzel'), w: 500 },
+  sharetech: { label: 'Share Tech Mono', f: fam('Share Tech Mono'), w: 400 },
+  dancing: { label: 'Dancing Script', f: fam('Dancing Script'), w: 600 },
+  monoton: { label: 'Monoton', f: fam('Monoton'), w: 400 }
+};
+const CLOCK_STYLES = [
+  ['squared', 'Squared'], ['thin', 'Thin'], ['bold', 'Bold'],
+  ['seg', 'Seven-segment'], ['dots', 'Dot matrix'], ['outline', 'Outline'], ['rounded', 'Rounded'], ['stacked', 'Stacked'],
+  ['serif', 'Serif'], ['condensed', 'Condensed'], ['mono', 'Monospace'], ['heavy', 'Heavy'], ['script', 'Script']
+];
+
+// ---------- data ----------
+function clockParts(s) {
+  const d = new Date();
+  let h = d.getHours();
+  if (!s.h24) h = h % 12 || 12;
+  return { hh: s.h24 ? String(h).padStart(2, '0') : String(h), mm: String(d.getMinutes()).padStart(2, '0'), ss: String(d.getSeconds()).padStart(2, '0') };
+}
+function clockText(s) {
+  const p = clockParts(s);
+  return s.seconds ? `${p.hh}:${p.mm}:${p.ss}` : `${p.hh}:${p.mm}`;
+}
+function dateText(f) {
+  const d = new Date();
+  if (f === 'long') return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  if (f === 'numeric') return d.toLocaleDateString('en-GB');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+const METRICS = {
+  temp:    { name: 'Temperature', label: 'Temp',     get: () => ({ v: PHONE.tempC.toFixed(1), u: '°C' }) },
+  voltage: { name: 'Voltage',     label: 'Voltage',  get: () => ({ v: (PHONE.voltageMv / 1000).toFixed(3), u: 'V' }) },
+  power:   { name: 'Power',       label: 'Power',    get: () => ({ v: (PHONE.voltageMv * PHONE.currentMa / 1e6).toFixed(2), u: 'W' }) },
+  current: { name: 'Current',     label: 'Current',  get: () => ({ v: String(PHONE.currentMa), u: 'mA' }) },
+  time:    { name: 'Time to full', label: 'Estimate', get: () => PHONE.status === 'full' ? { v: 'Full', u: '' } : { v: '1h 44m', u: '' } },
+  level:   { name: 'Battery level', label: 'Battery', get: () => ({ v: String(PHONE.level), u: '%' }) }
+};
+const toF = c => Math.round(c * 9 / 5 + 32);
+
+// ---------- widget types ----------
+const OPACITY = { k: 'opacity', t: 'range', label: 'Brightness', min: 20, max: 100, step: 5, fmt: v => v + '%' };
+const COLOR = { k: 'color', t: 'color', label: 'Colour' };
+const ALIGN = { k: 'align', t: 'select', label: 'Alignment', options: [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']] };
+const base = { color: '#ffffff', opacity: 100 };
+
+const TYPES = {
+  clock: {
+    label: 'Clock', blurb: 'Big time, 13 styles', size: [220, 64],
+    s: { ...base, style: 'squared', h24: false, seconds: false },
+    fields: [
+      { k: 'style', t: 'strip', label: 'Style', options: CLOCK_STYLES, preview: (s, v) => TYPES.clock.render({ ...s, style: v }) },
+      { k: 'h24', t: 'toggle', label: '24-hour time' },
+      { k: 'seconds', t: 'toggle', label: 'Show seconds' }, COLOR, OPACITY],
+    render(s) {
+      const t = clockText(s);
+      switch (s.style) {
+        case 'seg': return segSvg(t);
+        case 'dots': return dotsSvg(t);
+        case 'outline': return outlineSvg(t);
+        case 'rounded': return roundedSvg(t);
+        case 'stacked': return stackedSvg(s);
+        case 'thin': case 'bold': case 'serif': case 'condensed': case 'mono': case 'heavy': case 'script': {
+          const c = CLOCK_FONTS[s.style];
+          return inkSvg(t, c.f, c.w, '0123456789', true);
+        }
+        default: return squaredSvg(t);
+      }
+    }
+  },
+  date: {
+    label: 'Date', blurb: 'Day and date, 11 fonts', size: [164, 24],
+    s: { ...base, color: '#d8d8d8', format: 'short', font: 'thin' },
+    fields: [
+      { k: 'font', t: 'strip', label: 'Font', options: Object.entries(DATE_FONTS).map(([k, f]) => [k, f.label]), preview: (s, v) => TYPES.date.render({ ...s, font: v }) },
+      { k: 'format', t: 'select', label: 'Format', options: [['short', 'Wed, Oct 7'], ['long', 'Wednesday 7 October'], ['numeric', '07/10/2026']] },
+      COLOR, OPACITY],
+    render(s) {
+      const c = DATE_FONTS[s.font] || DATE_FONTS.thin;
+      return inkSvg(dateText(s.format), c.f, c.w, 'Wdgjy0', false);
+    }
+  },
+  notifs: {
+    label: 'Notifications', blurb: 'Icons of apps with unread items', size: [164, 28],
+    s: { ...base, color: '#cfcfcf', max: 5, more: true },
+    fields: [
+      { k: 'max', t: 'range', label: 'Icons shown', min: 3, max: 8, step: 1, fmt: v => v },
+      { k: 'more', t: 'toggle', label: 'Show +N when there are more' }, COLOR, OPACITY],
+    render(s) {
+      const icons = PHONE.notifApps.slice(0, s.max);
+      const extra = PHONE.notifApps.length - icons.length;
+      return `<div class="nf">${icons.map(k => svg24(k)).join('')}${s.more && extra > 0 ? `<em>+${extra}</em>` : ''}</div>`;
+    }
+  },
+  ring: {
+    label: 'Charging ring', blurb: 'Battery level as a ring', size: [264, 264],
+    s: { ...base, accent: '#44b98a', thickness: 6, showLabel: true, showBolt: true },
+    fields: [
+      { k: 'accent', t: 'color', label: 'Ring colour' },
+      { k: 'thickness', t: 'range', label: 'Ring thickness', min: 3, max: 12, step: 1, fmt: v => v },
+      { k: 'showLabel', t: 'toggle', label: 'Show status text' },
+      { k: 'showBolt', t: 'toggle', label: 'Show bolt icon' }, COLOR, OPACITY],
+    render(s) {
+      const R = 46 - s.thickness / 2, c = 50;
+      const pt = deg => [c + R * Math.cos(deg * Math.PI / 180), c + R * Math.sin(deg * Math.PI / 180)];
+      const arc = sweep => {
+        const [x0, y0] = pt(135), [x1, y1] = pt(135 + sweep);
+        return `M${x0.toFixed(2)},${y0.toFixed(2)}A${R},${R} 0 ${sweep > 180 ? 1 : 0} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
+      };
+      const sweep = 270 * clamp(PHONE.level, 0, 100) / 100;
+      const status = PHONE.status === 'full' ? 'FULL' : PHONE.plugged ? 'CHARGING' : 'ON BATTERY';
+      return `<div class="ring"><svg viewBox="0 0 100 100" aria-hidden="true">` +
+        `<path d="${arc(270)}" fill="none" stroke="#1b1b1b" stroke-width="${s.thickness}" stroke-linecap="round"/>` +
+        (sweep > 0 ? `<path d="${arc(sweep)}" fill="none" stroke="${s.accent}" stroke-width="${s.thickness}" stroke-linecap="round"/>` : '') +
+        `</svg><div class="rc">${s.showBolt && PHONE.plugged ? svg24('bolt', 'class="bolt"') : ''}<b>${PHONE.level}%</b>${s.showLabel ? `<span>${status}</span>` : ''}</div></div>`;
+    }
+  },
+  stat: {
+    label: 'Stat', blurb: 'One battery number', size: [112, 56],
+    s: { ...base, accent: '#44b98a', metric: 'temp', align: 'left', showLabel: true },
+    fields: [
+      { k: 'metric', t: 'select', label: 'Shows', options: Object.entries(METRICS).map(([k, m]) => [k, m.name]) },
+      ALIGN,
+      { k: 'showLabel', t: 'toggle', label: 'Show label' },
+      { k: 'accent', t: 'color', label: 'Unit colour' }, COLOR, OPACITY],
+    name: s => 'Stat · ' + METRICS[s.metric].name,
+    render(s) {
+      const m = METRICS[s.metric], d = m.get();
+      return `<div class="stat al-${s.align}"><div class="sv"><span>${esc(d.v)}</span>${d.u ? `<i>${esc(d.u)}</i>` : ''}</div>${s.showLabel ? `<div class="sl">${m.label}</div>` : ''}</div>`;
+    }
+  },
+  weather: {
+    label: 'Weather', blurb: 'Temperature and conditions', size: [176, 64],
+    note: 'Sample values in this mockup. The real app needs a weather source.',
+    s: { ...base, accent: '#f5b942', units: 'c', showIcon: true, showCondition: true, showRange: true, showCity: true },
+    fields: [
+      { k: 'units', t: 'select', label: 'Units', options: [['c', '°C'], ['f', '°F']] },
+      { k: 'showIcon', t: 'toggle', label: 'Show icon' },
+      { k: 'showCondition', t: 'toggle', label: 'Show condition' },
+      { k: 'showRange', t: 'toggle', label: 'Show high and low' },
+      { k: 'showCity', t: 'toggle', label: 'Show city' },
+      { k: 'accent', t: 'color', label: 'Icon colour' }, COLOR, OPACITY],
+    render(s) {
+      const f = s.units === 'f', cv = c => (f ? toF(c) : c) + '°';
+      const l2 = [s.showCondition && 'Sunny', s.showCity && 'Cairo'].filter(Boolean).join(' · ');
+      return `<div class="wx">${s.showIcon ? svg24('sun', 'class="ic"') : ''}<div class="tx"><div class="big">${cv(29)}</div>` +
+        (l2 ? `<div class="s">${l2}</div>` : '') + (s.showRange ? `<div class="s">H ${cv(31)}  L ${cv(22)}</div>` : '') + `</div></div>`;
+    }
+  },
+  event: {
+    label: 'Next event', blurb: 'Your next calendar item', size: [176, 64],
+    note: 'Sample values in this mockup. The real app would read your calendar.',
+    s: { ...base, align: 'left', showHeading: true, showTime: true },
+    fields: [
+      { k: 'showHeading', t: 'toggle', label: 'Show “NEXT” heading' },
+      { k: 'showTime', t: 'toggle', label: 'Show time' }, ALIGN, COLOR, OPACITY],
+    render: s => `<div class="blk al-${s.align}">${s.showHeading ? '<div class="h">NEXT</div>' : ''}<div class="t">Team call</div>${s.showTime ? '<div class="s">8:30 PM · Today</div>' : ''}</div>`
+  },
+  media: {
+    label: 'Now playing', blurb: 'Track and artist', size: [372, 52],
+    s: { ...base, align: 'left', showArtist: true, showProgress: true },
+    fields: [
+      { k: 'showArtist', t: 'toggle', label: 'Show artist' },
+      { k: 'showProgress', t: 'toggle', label: 'Show progress bar' }, ALIGN, COLOR, OPACITY],
+    noteFn: () => PHONE.media ? '' : 'Nothing is playing on the phone right now, so this shows its idle state.',
+    render(s) {
+      const m = PHONE.media;
+      if (!m) return `<div class="media">${svg24('note', 'class="ic"')}<div class="tx"><div class="t" style="font-size:min(34cqh,5cqw);color:var(--muted)">Nothing playing</div></div></div>`;
+      return `<div class="media">${svg24('note', 'class="ic"')}<div class="tx"><div class="t" style="font-size:min(34cqh,5cqw)">${esc(m.title)}</div>` +
+        (s.showArtist ? `<div class="s" style="font-size:min(24cqh,4cqw)">${esc(m.artist)}</div>` : '') +
+        (s.showProgress ? `<div class="bar"><i style="width:${m.progress}%"></i></div>` : '') + `</div></div>`;
+    }
+  }
+};
+
+// ---------- layout state ----------
+const DEFAULT_LAYOUT = [
+  { type: 'clock',   x: 96,  y: 56,  w: 220, h: 64 },
+  { type: 'date',    x: 124, y: 136, w: 164, h: 24 },
+  { type: 'notifs',  x: 124, y: 172, w: 164, h: 28 },
+  { type: 'ring',    x: 74,  y: 252, w: 264, h: 264 },
+  { type: 'stat',    x: 20,  y: 524, w: 112, h: 56, s: { metric: 'temp', align: 'left' } },
+  { type: 'stat',    x: 148, y: 524, w: 116, h: 56, s: { metric: 'voltage', align: 'center' } },
+  { type: 'stat',    x: 280, y: 524, w: 112, h: 56, s: { metric: 'time', align: 'right' } },
+  { type: 'weather', x: 20,  y: 612, w: 176, h: 64 },
+  { type: 'event',   x: 216, y: 612, w: 176, h: 64 },
+  { type: 'media',   x: 20,  y: 696, w: 372, h: 52 },
+  { type: 'stat',    x: 132, y: 764, w: 148, h: 56, s: { metric: 'power', align: 'center', showLabel: false, accent: '#ffffff' } }
+];
+let seq = 0;
+const make = d => ({ id: 'w' + (++seq), visible: true, ...d, s: { ...TYPES[d.type].s, ...(d.s || {}) } });
+const defaults = () => DEFAULT_LAYOUT.map(make);
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || o.v !== 1 || !Array.isArray(o.items)) return null;
+    const items = o.items.filter(i => TYPES[i.type]).map(i => ({ ...i, s: { ...TYPES[i.type].s, ...(i.s || {}) } }));
+    seq = items.reduce((m, i) => Math.max(m, parseInt(String(i.id).slice(1), 10) || 0), 0);
+    return items;
+  } catch (e) { return null; }
+}
+let saveTimer = 0;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(KEY, JSON.stringify({ v: 1, items: layout })); } catch (e) { /* storage blocked: layout just isn't remembered */ }
+  }, 120);
+}
+
+let layout = load() || defaults();
+let editing = false, selId = null, tab = 'widgets', sheetOpen = true, resetArmed = 0;
+const byId = id => layout.find(i => i.id === id);
+const nameOf = i => TYPES[i.type].name ? TYPES[i.type].name(i.s) : TYPES[i.type].label;
+
+// ---------- no overlaps: widgets in the way are pushed down, and return when the pusher leaves ----------
+const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+const rectOf = i => ({ id: i.id, x: i.x, y: i.y, w: i.w, h: i.h });
+const visibleRects = skipId => layout.filter(i => i.visible && i.id !== skipId).map(rectOf);
+// Lay everything out again from the "others" as they were (not as they are now), with `fixed` held in place.
+// Top to bottom, each widget drops below whatever it would touch. Returns id -> rect, or null if something runs off the screen.
+function resolve(fixed, others) {
+  const placed = [fixed], out = { [fixed.id]: { ...fixed } };
+  for (const r of others.filter(o => o.id !== fixed.id).sort((a, b) => a.y - b.y || a.x - b.x)) {
+    let y = r.y, hit;
+    while ((hit = placed.find(p => hits(p, { x: r.x, y, w: r.w, h: r.h })))) y = hit.y + hit.h;
+    if (y + r.h > H) return null;
+    const p = { id: r.id, x: r.x, y, w: r.w, h: r.h };
+    placed.push(p); out[r.id] = p;
+  }
+  return out;
+}
+function applyRects(map) {
+  for (const it of layout) {
+    const r = map[it.id];
+    if (r) { it.x = r.x; it.y = r.y; it.w = r.w; it.h = r.h; }
+  }
+}
+// Put an item on the screen without overlap: at `prefer` if given (pushing others), else where the least has to move.
+function placeWidget(item, prefer) {
+  const others = visibleRects(item.id), w = item.w, h = item.h;
+  const attempt = (x, y) => {
+    const r = resolve({ id: item.id, x, y, w, h }, others);
+    return r && { r, cost: others.reduce((s, o) => s + Math.abs(r[o.id].y - o.y), 0) };
+  };
+  let best = prefer ? attempt(prefer.x, prefer.y) : null;
+  if (!best) {
+    for (const x of [snap((W - w) / 2), 0, W - w]) {
+      for (let y = 0; y + h <= H; y += 8) {
+        const a = attempt(x, y); if (!a) continue;
+        // prefer spots you can see: below the top bar and above the edit sheet
+        a.cost += y >= 48 && y + h <= 472 ? 0 : 300;
+        if (!best || a.cost < best.cost) best = a;
+      }
+    }
+  }
+  if (!best) return false;
+  applyRects(best.r);
+  return true;
+}
+// A saved layout that already overlaps gets tidied once: top to bottom, each widget drops below what it touches.
+function tidyAll() {
+  const placed = [];
+  for (const it of layout.filter(i => i.visible).sort((a, b) => a.y - b.y || a.x - b.x)) {
+    let y = it.y, hit;
+    while ((hit = placed.find(p => hits(p, { x: it.x, y, w: it.w, h: it.h })))) y = hit.y + hit.h;
+    it.y = Math.min(y, H - it.h);
+    placed.push(rectOf(it));
+  }
+}
+{ const before = JSON.stringify(layout.map(rectOf)); tidyAll(); if (JSON.stringify(layout.map(rectOf)) !== before) save(); }
+
+// ---------- screen ----------
+const screen = $('#screen'), stage = $('#stage'), frame = $('#frame'), sheet = $('#sheet');
+let scale = 1;
+
+function paintInto(el, type, s) {
+  el.style.setProperty('--c', s.color);
+  el.style.setProperty('--a', s.accent || s.color);
+  el.style.opacity = s.opacity / 100;
+  el.firstElementChild.innerHTML = TYPES[type].render(s);
+}
+const paint = (el, item) => paintInto(el, item.type, item.s);
+function place(el, item) {
+  el.style.left = item.x + 'px'; el.style.top = item.y + 'px';
+  el.style.width = item.w + 'px'; el.style.height = item.h + 'px';
+}
+function renderStage() {
+  stage.innerHTML = '';
+  for (const item of layout) {
+    if (!item.visible) continue;
+    const el = document.createElement('div');
+    el.className = 'w' + (editing && item.id === selId ? ' sel' : '');
+    el.dataset.id = item.id;
+    el.innerHTML = '<div class="in"></div>';
+    place(el, item); paint(el, item);
+    if (editing && item.id === selId) el.insertAdjacentHTML('beforeend', CHROME);
+    stage.appendChild(el);
+  }
+}
+const elOf = id => stage.querySelector(`.w[data-id="${id}"]`);
+function repaint(id) { const it = byId(id), el = elOf(id); if (it && el) paint(el, it); }
+
+// ---------- edit sheet ----------
+const chevron = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const SWATCHES = ['#ffffff', '#44b98a', '#4fc3f7', '#f5b942', '#f2766b', '#b48cf2', '#9a9a9a'];
+
+// A strip is a row of preview tiles: each option drawn as it would look on the widget, in the widget's own colour and settings.
+const tilesHtml = (f, s) => f.options.map(([val, txt]) =>
+  `<button type="button" class="tile${val === s[f.k] ? ' on' : ''}" data-act="tile" data-k="${f.k}" data-v="${val}">` +
+  `<div class="tv" style="color:${s.color}"><div class="tvi">${f.preview(s, val)}</div></div><small>${esc(txt)}</small></button>`).join('');
+const curName = (f, s) => (f.options.find(o => o[0] === s[f.k]) || ['', ''])[1];
+const STRIP_DEPS = ['style', 'font', 'color', 'h24', 'seconds', 'format'];
+function refreshStrips() {
+  const it = byId(selId); if (!it) return;
+  for (const f of TYPES[it.type].fields) {
+    const st = f.t === 'strip' && sheet.querySelector(`.strip[data-strip="${f.k}"]`); if (!st) continue;
+    const left = st.scrollLeft;
+    st.innerHTML = tilesHtml(f, it.s); st.scrollLeft = left;
+    st.parentElement.querySelector('.cur').textContent = curName(f, it.s);
+  }
+}
+function fieldHtml(f, s) {
+  const v = s[f.k];
+  if (f.t === 'strip') return `<div class="row col"><span>${f.label}<em class="cur">${esc(curName(f, s))}</em></span><div class="strip" data-strip="${f.k}">${tilesHtml(f, s)}</div></div>`;
+  if (f.t === 'toggle') return `<label class="row"><span>${f.label}</span><span class="sw-wrap"><input type="checkbox" data-k="${f.k}" ${v ? 'checked' : ''}><i></i></span></label>`;
+  if (f.t === 'select') return `<label class="row"><span>${f.label}</span><select data-k="${f.k}">${f.options.map(([val, txt]) => `<option value="${val}" ${val === v ? 'selected' : ''}>${esc(txt)}</option>`).join('')}</select></label>`;
+  if (f.t === 'range') return `<label class="row"><span>${f.label}</span><input type="range" data-k="${f.k}" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}"><output>${f.fmt(v)}</output></label>`;
+  if (f.t === 'color') return `<div class="row col"><span>${f.label}</span><div class="sws">${SWATCHES.map(c => `<button type="button" class="sg${c === v ? ' on' : ''}" style="background:${c}" data-act="swatch" data-k="${f.k}" data-v="${c}" aria-label="${c}"></button>`).join('')}<input type="color" data-k="${f.k}" value="${v}" aria-label="Custom colour"></div></div>`;
+  return '';
+}
+function sheetHtml() {
+  const sel = byId(selId);
+  let h = `<div class="tabs"><button type="button" data-tab="widgets" class="${tab === 'widgets' ? 'on' : ''}">Widgets</button>` +
+    `<button type="button" data-tab="settings" class="${tab === 'settings' && sel ? 'on' : ''}" ${sel ? '' : 'disabled'}>Settings</button>` +
+    `<button type="button" class="chev" data-act="collapse" aria-label="Collapse">${chevron}</button></div><div class="body">`;
+  if (tab === 'settings' && sel) {
+    const T = TYPES[sel.type];
+    const note = T.note || (T.noteFn ? T.noteFn() : '');
+    h += `<div class="row"><span style="font-weight:500">${esc(nameOf(sel))}</span></div>`;
+    h += T.fields.map(f => fieldHtml(f, sel.s)).join('');
+    if (note) h += `<div class="note">${esc(note)}</div>`;
+    h += `<div class="acts"><button type="button" class="btn" data-act="hide">Hide</button><button type="button" class="btn danger" data-act="delete">Delete</button></div>`;
+  } else {
+    h += layout.map(i => `<div class="lrow${i.id === selId ? ' sel' : ''}${i.visible ? '' : ' off'}" data-id="${i.id}">` +
+      `<label class="sw-wrap"><input type="checkbox" data-act="vis" ${i.visible ? 'checked' : ''}><i></i></label>` +
+      `<button type="button" class="nm" data-act="pick">${esc(nameOf(i))}</button>` +
+      `<button type="button" class="x" data-act="del" aria-label="Delete ${esc(nameOf(i))}">×</button></div>`).join('');
+    h += `<button type="button" class="btn" data-act="openpicker">+ Add widget</button>`;
+  }
+  return h + '</div>';
+}
+function renderSheet() {
+  const keep = sheet.querySelector('.body');
+  const top = keep ? keep.scrollTop : 0;
+  // keep each strip where it was while editing the same widget; a newly opened widget starts on its chosen tile
+  const lefts = {};
+  if (sheet.dataset.sel === String(selId)) sheet.querySelectorAll('.strip').forEach(s => { lefts[s.dataset.strip] = s.scrollLeft; });
+  sheet.dataset.sel = String(selId);
+  sheet.className = sheetOpen ? '' : 'collapsed';
+  sheet.innerHTML = sheetHtml();
+  const b = sheet.querySelector('.body'); if (b) b.scrollTop = top;
+  sheet.querySelectorAll('.strip').forEach(s => {
+    const k = s.dataset.strip, on = s.querySelector('.tile.on');
+    if (k in lefts) s.scrollLeft = lefts[k];
+    else if (on) s.scrollLeft = on.offsetLeft - (s.clientWidth - on.offsetWidth) / 2;
+  });
+}
+function select(id, goSettings) {
+  selId = id && byId(id) ? id : null;
+  if (goSettings && selId) tab = 'settings';
+  if (!selId && tab === 'settings') tab = 'widgets';
+  renderStage(); renderSheet();
+}
+function setEditing(on) {
+  editing = on; screen.classList.toggle('editing', on);
+  if (!on) { selId = null; tab = 'widgets'; closePicker(); hideToast(); }
+  renderStage(); renderSheet();
+}
+
+// ---------- add, delete, undo ----------
+const picker = $('#picker'), toastEl = $('#toast');
+let undoFn = null, toastTimer = 0;
+function hideToast() { clearTimeout(toastTimer); toastEl.classList.remove('show'); undoFn = null; }
+function showToast(msg, fn) {
+  undoFn = fn; $('span', toastEl).textContent = msg; toastEl.classList.add('show');
+  $('button', toastEl).style.display = fn ? '' : 'none';
+  clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, 5000);
+}
+function previewEl(type) {
+  const T = TYPES[type], [w, h] = T.size, k = Math.min(168 / w, 88 / h);
+  const wrap = document.createElement('div'); wrap.className = 'pvin';
+  wrap.style.width = w * k + 'px'; wrap.style.height = h * k + 'px';
+  const el = document.createElement('div'); el.className = 'w'; el.innerHTML = '<div class="in"></div>';
+  el.style.width = w + 'px'; el.style.height = h + 'px'; el.style.transform = `scale(${k})`;
+  paintInto(el, type, { ...T.s }); wrap.appendChild(el);
+  return wrap;
+}
+function openPicker() {
+  const g = $('.pg', picker); g.innerHTML = '';
+  for (const [k, T] of Object.entries(TYPES)) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'card'; b.dataset.type = k;
+    b.innerHTML = '<div class="pv"></div><b></b><small></small>';
+    $('b', b).textContent = T.label; $('small', b).textContent = T.blurb;
+    $('.pv', b).appendChild(previewEl(k)); g.appendChild(b);
+  }
+  g.scrollTop = 0; picker.classList.add('open');
+}
+function closePicker() { picker.classList.remove('open'); }
+const NO_ROOM = 'No room for it. Shrink or remove a widget first.';
+function addWidget(type) {
+  const T = TYPES[type];
+  const it = make({ type, w: T.size[0], h: T.size[1], x: 0, y: 0 });
+  layout.push(it);
+  closePicker();
+  if (!placeWidget(it, null)) { layout.pop(); showToast(NO_ROOM, null); return; }
+  save(); select(it.id, true);
+}
+function removeWidget(id) {
+  const idx = layout.findIndex(i => i.id === id); if (idx < 0) return;
+  const [item] = layout.splice(idx, 1); save();
+  if (selId === id) selId = null;
+  if (tab === 'settings' && !selId) tab = 'widgets';
+  renderStage(); renderSheet();
+  showToast(`${nameOf(item)} deleted`, () => {
+    // back to its old place and order; anything that has moved into that space gets pushed down
+    layout.splice(Math.min(idx, layout.length), 0, item);
+    if (!placeWidget(item, { x: item.x, y: item.y })) { layout.splice(layout.indexOf(item), 1); showToast(NO_ROOM, null); return; }
+    save(); select(item.id, true);
+  });
+}
+function setSetting(k, v) {
+  const it = byId(selId); if (!it) return;
+  it.s[k] = v; save(); repaint(it.id);
+  if (STRIP_DEPS.includes(k)) refreshStrips();
+}
+
+sheet.addEventListener('click', e => {
+  const t = e.target.closest('[data-tab],[data-act]'); if (!t) return;
+  const row = t.closest('[data-id]'), id = row && row.dataset.id;
+  if (t.dataset.tab) { tab = t.dataset.tab; renderSheet(); return; }
+  switch (t.dataset.act) {
+    case 'collapse': sheetOpen = !sheetOpen; renderSheet(); break;
+    case 'pick': select(id, true); break;
+    case 'del': removeWidget(id); break;
+    case 'delete': removeWidget(selId); break;
+    case 'hide': { const it = byId(selId); if (it) { it.visible = false; save(); tab = 'widgets'; select(null); } break; }
+    case 'openpicker': openPicker(); break;
+    case 'swatch': { setSetting(t.dataset.k, t.dataset.v); renderSheet(); break; }
+    case 'tile': if (!stripMoved) setSetting(t.dataset.k, t.dataset.v); break;
+  }
+});
+
+// Strips scroll by swipe on the phone; on a computer, drag them with the mouse or use the wheel.
+let stripDrag = null, stripMoved = false;
+sheet.addEventListener('wheel', e => {
+  const st = e.target.closest('.strip');
+  if (st && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { st.scrollLeft += e.deltaY; e.preventDefault(); }
+}, { passive: false });
+sheet.addEventListener('pointerdown', e => {
+  const st = e.target.closest('.strip');
+  if (st && e.pointerType === 'mouse' && e.button === 0) stripDrag = { st, x: e.clientX, left: st.scrollLeft, id: e.pointerId, moved: false };
+});
+sheet.addEventListener('pointermove', e => {
+  if (!stripDrag) return;
+  const dx = (e.clientX - stripDrag.x) / scale;
+  if (!stripDrag.moved && Math.abs(dx) < 5) return;
+  if (!stripDrag.moved) {
+    stripDrag.moved = true; stripDrag.st.classList.add('drag');
+    try { stripDrag.st.setPointerCapture(stripDrag.id); } catch (err) { /* nothing to capture */ }
+  }
+  stripDrag.st.scrollLeft = stripDrag.left - dx;
+});
+const endStripDrag = () => {
+  if (!stripDrag) return;
+  const { st, moved } = stripDrag; stripDrag = null; st.classList.remove('drag');
+  if (moved) { stripMoved = true; setTimeout(() => { stripMoved = false; }, 0); }
+};
+sheet.addEventListener('pointerup', endStripDrag);
+sheet.addEventListener('pointercancel', endStripDrag);
+sheet.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.act === 'vis') {
+    const it = byId(t.closest('[data-id]').dataset.id); it.visible = t.checked;
+    if (it.visible && !placeWidget(it, { x: it.x, y: it.y })) { it.visible = false; showToast(NO_ROOM, null); }
+    save();
+    if (!it.visible && selId === it.id) selId = null;
+    renderStage(); renderSheet(); return;
+  }
+  const k = t.dataset.k; if (!k) return;
+  if (t.type === 'checkbox') setSetting(k, t.checked);
+  else if (t.tagName === 'SELECT') { setSetting(k, t.value); renderSheet(); }
+});
+sheet.addEventListener('input', e => {
+  const t = e.target, k = t.dataset.k; if (!k) return;
+  if (t.type === 'range') {
+    const f = TYPES[byId(selId).type].fields.find(x => x.k === k), n = Number(t.value);
+    setSetting(k, n); t.nextElementSibling.textContent = f.fmt(n);
+  } else if (t.type === 'color') setSetting(k, t.value);
+});
+
+picker.addEventListener('click', e => {
+  if (e.target.closest('#pickClose')) { closePicker(); return; }
+  const card = e.target.closest('.card'); if (card) addWidget(card.dataset.type);
+});
+addEventListener('keydown', e => { if (e.key === 'Escape') closePicker(); });
+$('button', toastEl).addEventListener('click', () => { const f = undoFn; hideToast(); if (f) f(); });
+
+$('#editBtn').addEventListener('click', () => setEditing(true));
+$('#doneBtn').addEventListener('click', () => setEditing(false));
+$('#addBtn').addEventListener('click', openPicker);
+$('#resetBtn').addEventListener('click', e => {
+  const b = e.currentTarget;
+  if (!resetArmed) {
+    b.textContent = 'Tap again to reset'; b.classList.add('warn');
+    resetArmed = setTimeout(() => { resetArmed = 0; b.textContent = 'Reset'; b.classList.remove('warn'); }, 3000);
+    return;
+  }
+  clearTimeout(resetArmed); resetArmed = 0; b.textContent = 'Reset'; b.classList.remove('warn');
+  hideToast(); seq = 0; layout = defaults(); selId = null; tab = 'widgets'; save(); renderStage(); renderSheet();
+});
+
+// ---------- drag, resize, long-press ----------
+let drag = null, press = null;
+screen.addEventListener('pointerdown', e => {
+  if (e.target.closest('button,select,input,#sheet,#topbar,#picker,#toast')) return;
+  if (!editing) {
+    press = { x: e.clientX, y: e.clientY, t: setTimeout(() => { press = null; setEditing(true); }, 650) };
+    return;
+  }
+  const wEl = e.target.closest('.w');
+  if (!wEl) { select(null); return; }
+  if (e.target.closest('.del')) { removeWidget(wEl.dataset.id); e.preventDefault(); return; }
+  const it = byId(wEl.dataset.id);
+  const resize = !!e.target.closest('.handle');
+  if (selId !== it.id) { selId = it.id; tab = 'settings'; renderSheet(); }
+  document.querySelectorAll('.w.sel').forEach(n => { if (n !== wEl) n.classList.remove('sel'); });
+  document.querySelectorAll('.handle,.del').forEach(n => { if (!wEl.contains(n)) n.remove(); });
+  wEl.classList.add('sel');
+  if (!wEl.querySelector('.handle')) wEl.insertAdjacentHTML('beforeend', CHROME);
+  // `base` is where everything sat when you took hold; every move is worked out from it, so pushes undo themselves
+  drag = { id: it.id, resize, sx: e.clientX, sy: e.clientY, x: it.x, y: it.y, w: it.w, h: it.h, base: visibleRects(null), last: rectOf(it) };
+  try { screen.setPointerCapture(e.pointerId); } catch (err) { /* no active pointer to capture */ }
+  screen.classList.add('dragging');
+  e.preventDefault();
+});
+screen.addEventListener('pointermove', e => {
+  if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) { clearTimeout(press.t); press = null; }
+  if (!drag) return;
+  const dx = (e.clientX - drag.sx) / scale, dy = (e.clientY - drag.sy) / scale;
+  const want = drag.resize
+    ? { x: drag.x, y: drag.y, w: clamp(snap(drag.w + dx), MIN, W - drag.x), h: clamp(snap(drag.h + dy), MIN, H - drag.y) }
+    : { x: clamp(snap(drag.x + dx), 0, W - drag.w), y: clamp(snap(drag.y + dy), 0, H - drag.h), w: drag.w, h: drag.h };
+  const tryRect = r => resolve({ id: drag.id, ...r }, drag.base);
+  let rect = want, res = tryRect(want);
+  if (!res) {
+    // pushing would run off the screen: stop at the wall, i.e. the furthest point between the last good spot and here that still fits
+    let lo = 0, hi = 1, good = drag.last;
+    for (let i = 0; i < 6; i++) {
+      const t = (lo + hi) / 2;
+      const r = { x: snap(drag.last.x + (want.x - drag.last.x) * t), y: snap(drag.last.y + (want.y - drag.last.y) * t),
+                  w: snap(drag.last.w + (want.w - drag.last.w) * t), h: snap(drag.last.h + (want.h - drag.last.h) * t) };
+      if (tryRect(r)) { lo = t; good = r; } else hi = t;
+    }
+    rect = good; res = tryRect(good);
+  }
+  if (!res) return;
+  drag.last = { id: drag.id, ...rect };
+  applyRects(res);
+  for (const it of layout) { const el = it.visible && elOf(it.id); if (el) place(el, it); }
+});
+const endDrag = () => {
+  if (press) { clearTimeout(press.t); press = null; }
+  if (!drag) return;
+  drag = null; screen.classList.remove('dragging'); save();
+};
+screen.addEventListener('pointerup', endDrag);
+screen.addEventListener('pointercancel', endDrag);
+
+// ---------- fit to the window, tick ----------
+function fit() {
+  const pad = innerWidth < 500 ? 4 : 16;
+  scale = Math.min((innerWidth - pad * 2) / W, (innerHeight - pad * 2) / H, 1.5);
+  frame.style.width = W * scale + 'px'; frame.style.height = H * scale + 'px';
+  frame.style.borderRadius = 22 * scale + 'px';
+  screen.style.transform = `scale(${scale})`;
+}
+addEventListener('resize', fit);
+setInterval(() => {
+  for (const it of layout) if (it.visible && (it.type === 'clock' || it.type === 'date')) repaint(it.id);
+}, 1000);
+
+fit(); renderStage(); renderSheet();
+// The bundled fonts load after the first paint; draw again once they are ready so the sizes are measured on the real fonts.
+if (document.fonts && document.fonts.load) {
+  Promise.all(['Outfit', 'Orbitron', 'Michroma', 'Audiowide', 'Righteous', 'Bebas Neue', 'Cinzel', 'Share Tech Mono', 'Dancing Script', 'Monoton', 'Bungee']
+    .map(n => document.fonts.load(`100px "${n}"`))).then(() => renderStage()).catch(() => {});
+}
+window.__desk = { get layout() { return layout; }, PHONE, TYPES, hits, resolve, rectOf };
+})();
+</script>
+</body>
+</html>
