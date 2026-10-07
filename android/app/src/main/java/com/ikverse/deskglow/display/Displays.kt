@@ -3,6 +3,7 @@ package com.ikverse.deskglow.display
 import android.os.Bundle
 import android.service.dreams.DreamService
 import android.view.View
+import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -66,6 +67,18 @@ private fun LiveDisplay() {
     }
 }
 
+/**
+ * Hides the status and navigation bars, and with them Samsung's gesture hint: a white bar that would
+ * sit in one place for hours on a screen that stays lit, which is how an AMOLED panel gets marked.
+ */
+private fun hideSystemBars(window: Window) {
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    WindowInsetsControllerCompat(window, window.decorView).apply {
+        hide(WindowInsetsCompat.Type.systemBars())
+        systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+}
+
 /** The window brightness a [Brightness] setting asks for, or null to leave it to the system. */
 internal fun windowBrightness(brightness: Brightness): Float? = when (brightness.mode) {
     BrightnessMode.System -> null
@@ -96,10 +109,12 @@ class DeskglowDream : DreamService() {
             owner.attach(view)
             view.setContent { DeskglowTheme { LiveDisplay() } }
         })
+        window?.let(::hideSystemBars)
     }
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
+        window?.let(::hideSystemBars) // again now the window is on screen: some phones only honour it then
         owner.resume()
     }
 
@@ -125,11 +140,7 @@ class DisplayActivity : ComponentActivity() {
         windowBrightness(graph.prefs.brightness.value)?.let { level ->
             window.attributes = window.attributes.apply { screenBrightness = level }
         }
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        hideSystemBars(window)
         setContent {
             DeskglowTheme {
                 var taps by remember { mutableIntStateOf(0) }
