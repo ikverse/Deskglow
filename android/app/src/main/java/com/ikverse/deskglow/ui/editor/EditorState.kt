@@ -85,6 +85,17 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         dragId = null
     }
 
+    /**
+     * A whole move or resize in one step, for anyone who cannot drag (a screen reader's actions):
+     * [dx], [dy] canvas units. It goes through the same drag as a finger would, so widgets are still
+     * pushed, never overlap, and stop at the canvas edge.
+     */
+    fun nudge(id: String, dx: Int, dy: Int, resize: Boolean) {
+        beginDrag(id, resize)
+        dragTo(dx.toFloat(), dy.toFloat())
+        endDrag()
+    }
+
     // ---- adding, deleting, hiding ----
 
     fun add(type: WidgetType): Boolean {
@@ -155,5 +166,8 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
 
     companion object {
         const val NO_ROOM = "No room for it. Shrink or remove a widget first."
+
+        /** How far one accessibility action moves or resizes a widget: four grid steps, the spacing of the dots. */
+        const val STEP = 16
     }
 }

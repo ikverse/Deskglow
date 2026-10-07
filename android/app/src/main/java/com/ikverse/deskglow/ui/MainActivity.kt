@@ -1,7 +1,9 @@
 package com.ikverse.deskglow.ui
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -40,7 +42,12 @@ private val EaseOut = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The app is dark whatever the phone is set to, so the bars are always the dark kind (light icons,
+        // no light scrim). Plain enableEdgeToEdge() follows the phone: dark icons on a near-black page in light mode.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         setContent { DeskglowTheme { App() } }
     }
 }
