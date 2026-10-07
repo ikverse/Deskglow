@@ -1,0 +1,14 @@
+# Build output and per-machine files
+.gradle/
+build/
+*.iml
+.idea/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing keys never go in the repository
+*.keystore
+*.jks
+*.apk
