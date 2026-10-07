@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Weather (Open-Meteo) and the font library (Google Fonts). Nothing else goes online. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Optional, for the Next event widget. Asked for only from the Permissions screen. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
+    <application
+        android:name=".DeskglowApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="Deskglow"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Deskglow">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".display.DisplayActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Deskglow.Display" />
+
+        <!-- The screen saver. Android starts it while charging once the owner chooses it in the screen saver settings. -->
+        <service
+            android:name=".display.DeskglowDream"
+            android:exported="true"
+            android:label="Deskglow"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.dream"
+                android:resource="@xml/dream_info" />
+        </service>
+
+        <!-- Notification access, for notification icons and Now playing. Disconnects itself whenever the screen is not showing. -->
+        <service
+            android:name=".data.NotificationWatcher"
+            android:exported="true"
+            android:label="Deskglow"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
