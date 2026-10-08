@@ -9,6 +9,9 @@ import kotlin.math.roundToInt
 /** A widget's id and where it sits. */
 data class Placed(val id: String, val box: Box)
 
+/** Which edge, or centre line, a group of widgets is lined up on. */
+enum class Align { Left, CentreX, Right, Top, CentreY, Bottom }
+
 /**
  * Keeps widgets from ever overlapping: anything in the way of a widget being moved, resized, added
  * or brought back is pushed straight down, just far enough to clear it, and whatever that lands on is
@@ -27,11 +30,20 @@ object Packer {
      * widget pushed down comes back up when the pusher moves away. Top to bottom, each drops below
      * whatever it would touch. Returns every widget's box, or null if one would run off the bottom.
      */
-    fun resolve(fixed: Placed, others: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box>? {
-        val placed = ArrayList<Box>(others.size + 1).apply { add(fixed.box) }
+    fun resolve(fixed: Placed, others: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box>? =
+        resolveGroup(listOf(fixed), others, orientation)
+
+    /**
+     * [resolve] with several widgets held where they are (a group moving together). Null as well if
+     * two of the held widgets overlap each other, since nothing could be pushed to fix that.
+     */
+    fun resolveGroup(fixed: List<Placed>, others: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box>? {
+        for (i in fixed.indices) for (j in i + 1 until fixed.size) if (fixed[i].box.overlaps(fixed[j].box)) return null
+        val fixedIds = fixed.mapTo(HashSet()) { it.id }
+        val placed = ArrayList<Box>(others.size + fixed.size).apply { fixed.forEach { add(it.box) } }
         val out = LinkedHashMap<String, Box>()
-        out[fixed.id] = fixed.box
-        for (other in others.filter { it.id != fixed.id }.sortedWith(compareBy({ it.box.y }, { it.box.x }))) {
+        fixed.forEach { out[it.id] = it.box }
+        for (other in others.filter { it.id !in fixedIds }.sortedWith(compareBy({ it.box.y }, { it.box.x }))) {
             var box = other.box
             while (true) {
                 val hit = placed.firstOrNull { it.overlaps(box) } ?: break
@@ -77,6 +89,28 @@ object Packer {
         return best?.first
     }
 
+    /** [items] lined up against the box that surrounds them all; each keeps its size and moves only along one axis. */
+    fun align(items: List<Placed>, mode: Align): List<Placed> {
+        if (items.isEmpty()) return items
+        val left = items.minOf { it.box.x }
+        val top = items.minOf { it.box.y }
+        val right = items.maxOf { it.box.right }
+        val bottom = items.maxOf { it.box.bottom }
+        return items.map { (id, b) ->
+            Placed(
+                id,
+                when (mode) {
+                    Align.Left -> b.copy(x = left)
+                    Align.Right -> b.copy(x = right - b.w)
+                    Align.CentreX -> b.copy(x = left + (right - left - b.w) / 2)
+                    Align.Top -> b.copy(y = top)
+                    Align.Bottom -> b.copy(y = bottom - b.h)
+                    Align.CentreY -> b.copy(y = top + (bottom - top - b.h) / 2)
+                },
+            )
+        }
+    }
+
     /** A layout saved before overlaps were prevented, tidied once: top to bottom, each drops below what it touches. */
     fun tidy(items: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box> {
         val placed = ArrayList<Box>(items.size)
@@ -107,8 +141,18 @@ class DragSession(
     private val start: Box,
     private val base: List<Placed>,
     private val orientation: Orientation = Orientation.Portrait,
+    /** Widgets that move with this one, by the same distance, as a rigid group. Not used when resizing. */
+    companions: Set<String> = emptySet(),
 ) {
     private var last: Box = start
+    private val together: List<Placed> = if (resize) emptyList() else base.filter { it.id in companions && it.id != id }
+
+    /** The box around the dragged widget and its companions as they began. */
+    private val groupStart: Box = together.fold(start) { acc, p ->
+        val x = minOf(acc.x, p.box.x)
+        val y = minOf(acc.y, p.box.y)
+        Box(x, y, maxOf(acc.right, p.box.right) - x, maxOf(acc.bottom, p.box.bottom) - y)
+    }
 
     /** Where the moved widget's centre stands against the canvas centre lines, as of the last [update]. */
     var centring: Centring = Centring.None
@@ -137,12 +181,13 @@ class DragSession(
         val want = if (resize) {
             resized(start.right + dx, start.bottom + dy)
         } else {
-            var x = Packer.snap(start.x + dx).coerceIn(0, orientation.width - start.w)
-            var y = Packer.snap(start.y + dy).coerceIn(0, orientation.height - start.h)
-            // Close to the middle of the canvas a widget locks onto it.
-            if (abs(x * 2 + start.w - orientation.width) <= Stage.CENTRE_PULL * 2) x = (orientation.width - start.w) / 2
-            if (abs(y * 2 + start.h - orientation.height) <= Stage.CENTRE_PULL * 2) y = (orientation.height - start.h) / 2
-            Box(x, y, start.w, start.h)
+            // The whole group stays on the canvas; for a lone widget the group is the widget.
+            var gx = (Packer.snap(start.x + dx) - start.x).coerceIn(-groupStart.x, orientation.width - groupStart.right)
+            var gy = (Packer.snap(start.y + dy) - start.y).coerceIn(-groupStart.y, orientation.height - groupStart.bottom)
+            // Close to the middle of the canvas the group locks onto it.
+            if (abs((groupStart.x + gx) * 2 + groupStart.w - orientation.width) <= Stage.CENTRE_PULL * 2) gx = (orientation.width - groupStart.w) / 2 - groupStart.x
+            if (abs((groupStart.y + gy) * 2 + groupStart.h - orientation.height) <= Stage.CENTRE_PULL * 2) gy = (orientation.height - groupStart.h) / 2 - groupStart.y
+            Box(start.x + gx, start.y + gy, start.w, start.h)
         }
         var box = want
         var result = resolve(want)
@@ -167,12 +212,20 @@ class DragSession(
         }
         if (result != null) {
             last = box
-            if (!resize) centring = Centring.of(box, orientation)
+            if (!resize) centring = Centring.of(groupAt(box), orientation)
         }
         return result
     }
 
-    private fun resolve(box: Box) = Packer.resolve(Placed(id, box), base, orientation)
+    private fun resolve(box: Box): Map<String, Box>? {
+        val dx = box.x - start.x
+        val dy = box.y - start.y
+        val held = listOf(Placed(id, box)) + together.map { Placed(it.id, it.box.copy(x = it.box.x + dx, y = it.box.y + dy)) }
+        return Packer.resolveGroup(held, base, orientation)
+    }
+
+    /** The box around the whole group when the dragged widget is at [box]. */
+    private fun groupAt(box: Box) = groupStart.copy(x = groupStart.x + box.x - start.x, y = groupStart.y + box.y - start.y)
 }
 
 /**

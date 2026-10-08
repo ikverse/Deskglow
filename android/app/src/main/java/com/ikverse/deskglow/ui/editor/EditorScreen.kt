@@ -16,6 +16,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -89,6 +91,7 @@ import androidx.compose.ui.unit.sp
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.display.WidgetBody
 import com.ikverse.deskglow.display.WidgetTextStyle
+import com.ikverse.deskglow.layout.Align
 import androidx.compose.material3.LocalTextStyle
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
@@ -126,6 +129,7 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
         when {
             state.moreFonts != null -> state.moreFonts = null
             state.pickerOpen -> state.pickerOpen = false
+            state.selecting -> state.selectMode(false)
             state.selectedId != null -> state.select(null)
             else -> onDone()
         }
@@ -271,7 +275,8 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
     val chrome = with(density) { CHROME.roundToPx() }
     val selected = state.selectedId == item.id
     val dragging = state.dragId != null
-    val actions = remember(item.id) { widgetActions(state, item.id) }
+    val inGroup = item.id in state.groupIds
+    val actions = remember(item.id, state.selecting, inGroup) { widgetActions(state, item.id, inGroup) }
     val target = IntOffset((item.box.x * unit).roundToInt() - chrome, (item.box.y * unit).roundToInt() - chrome)
     // Widgets pushed out of the way glide; the one being dragged follows the finger exactly.
     val offset by animateIntOffsetAsState(target, if (dragging && state.dragId != item.id) tween(150) else snap(), label = "widget")
@@ -295,13 +300,13 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
                     customActions = actions
                 }
                 .drawBehind {
-                    if (selected) {
+                    if (selected || inGroup) {
                         drawRect(Palette.Select, style = Stroke(1.5.dp.toPx()))
                     } else {
                         drawRect(dashColour, style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))))
                     }
                 }
-                .pointerInput(item.id) { detectTapGestures { state.select(item.id) } }
+                .pointerInput(item.id) { detectTapGestures { if (state.selecting) state.toggleInGroup(item.id) else state.select(item.id) } }
                 .pointerInput(item.id, unit) {
                     var total = Offset.Zero
                     detectDragGestures(
@@ -360,11 +365,14 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
 }
 
 /** Moving and resizing as actions a screen reader can offer, each one step of [EditorState.STEP] units. */
-private fun widgetActions(state: EditorState, id: String): List<CustomAccessibilityAction> {
+private fun widgetActions(state: EditorState, id: String, inGroup: Boolean): List<CustomAccessibilityAction> {
     fun action(label: String, dx: Int, dy: Int, resize: Boolean) =
         CustomAccessibilityAction(label) { state.nudge(id, dx, dy, resize); true }
     val step = EditorState.STEP
-    return listOf(
+    val grouping = if (state.selecting) {
+        listOf(CustomAccessibilityAction(if (inGroup) "Remove from group" else "Add to group") { state.toggleInGroup(id); true })
+    } else emptyList()
+    return grouping + listOf(
         action("Move up", 0, -step, resize = false),
         action("Move down", 0, step, resize = false),
         action("Move left", -step, 0, resize = false),
@@ -407,8 +415,45 @@ private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
             }
         }
         Rule()
+        SelectBar(state)
     }
 }
+
+/**
+ * Select mode: gather widgets by tapping them, then drag any of them to move the lot, or line them up.
+ * Alignment is against the box around everything gathered.
+ */
+@Composable
+private fun SelectBar(state: EditorState) {
+    val count = state.groupIds.size
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = { state.selectMode(!state.selecting) }, modifier = Modifier.testTag("select")) {
+            Text(if (state.selecting) "Cancel" else "Select", color = Palette.Select, fontSize = 15.sp)
+        }
+        if (state.selecting) {
+            Text(
+                if (count == 0) "Tap widgets" else "$count selected", color = Palette.Muted, fontSize = 13.sp,
+                modifier = Modifier.padding(end = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                for ((mode, label) in ALIGN_LABELS) {
+                    TextButton(onClick = { state.align(mode) }, enabled = count >= 2) {
+                        Text(label, color = if (count >= 2) Palette.Select else Palette.Muted, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+    }
+    if (state.selecting) Rule()
+}
+
+private val ALIGN_LABELS = listOf(
+    Align.Left to "Left", Align.CentreX to "Centre", Align.Right to "Right",
+    Align.Top to "Top", Align.CentreY to "Middle", Align.Bottom to "Bottom",
+)
 
 @Composable
 private fun ToastBar(state: EditorState, toast: Toast, modifier: Modifier) {
