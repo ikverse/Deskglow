@@ -31,7 +31,6 @@ import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.display.DisplayContent
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
-import com.ikverse.deskglow.store.LayoutRepository
 import com.ikverse.deskglow.store.Snapshot
 import com.ikverse.deskglow.store.SnapshotCodec
 import com.ikverse.deskglow.store.SnapshotRepository
@@ -74,7 +73,7 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
         OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = {
-                val saved = graph.snapshots.save(name, graph.layouts.layout.value, graph.landscapeLayouts.layout.value)
+                val saved = graph.snapshots.save(name, graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape))
                 message = "Saved “${saved.name}”."
                 name = SnapshotRepository.proposeName(System.currentTimeMillis())
             }) { Text("Save current layouts", color = Palette.Select) }
@@ -86,11 +85,15 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
         for (snapshot in snapshots) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Thumb(snapshot.portrait, Orientation.Portrait, Modifier.width(30.dp))
-                    Thumb(snapshot.landscape, Orientation.Landscape, Modifier.width(60.dp))
+                    Thumb(snapshot.portrait.first(), Orientation.Portrait, Modifier.width(30.dp))
+                    Thumb(snapshot.landscape.first(), Orientation.Landscape, Modifier.width(60.dp))
                     Column(Modifier.weight(1f)) {
                         Text(snapshot.name, fontSize = 16.sp)
-                        Text(SnapshotRepository.dateLabel(snapshot.created), fontSize = 13.sp, color = Palette.Muted)
+                        val date = SnapshotRepository.dateLabel(snapshot.created)
+                        val screens = if (snapshot.portrait.size > 1 || snapshot.landscape.size > 1) {
+                            " · ${snapshot.portrait.size} portrait, ${snapshot.landscape.size} landscape"
+                        } else ""
+                        Text(date + screens, fontSize = 13.sp, color = Palette.Muted)
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -116,9 +119,8 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
                 TextButton(onClick = {
                     restoring = null
                     val stamp = SnapshotRepository.proposeName(System.currentTimeMillis()).removePrefix("Layout – ")
-                    graph.snapshots.save("Before restore – $stamp", graph.layouts.layout.value, graph.landscapeLayouts.layout.value)
-                    graph.layouts.update(LayoutRepository.tidied(snapshot.portrait, Orientation.Portrait))
-                    graph.landscapeLayouts.update(LayoutRepository.tidied(snapshot.landscape, Orientation.Landscape))
+                    graph.snapshots.save("Before restore – $stamp", graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape))
+                    graph.restorePages(snapshot.portrait, snapshot.landscape)
                     message = "Restored “${snapshot.name}”."
                 }) { Text("Restore", color = Palette.Select) }
             },

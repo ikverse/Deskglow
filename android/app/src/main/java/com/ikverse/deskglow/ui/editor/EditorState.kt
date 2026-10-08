@@ -41,6 +41,7 @@ class EditorState(
     val orientation: Orientation = Orientation.Portrait,
     /** Where "copy to the other orientation" writes; null when there is nowhere to copy to. */
     private val copyTarget: LayoutRepository? = null,
+    private val beforeCopy: () -> Unit = {},
     private val save: (Layout) -> Unit,
 ) {
     var layout by mutableStateOf(initial)
@@ -336,6 +337,7 @@ class EditorState(
     fun copyToOther() {
         copyConfirm = false
         val target = copyTarget ?: return
+        beforeCopy()
         val before = target.layout.value
         val converted = Retarget.convert(layout, orientation, orientation.other)
         target.update(converted.layout)

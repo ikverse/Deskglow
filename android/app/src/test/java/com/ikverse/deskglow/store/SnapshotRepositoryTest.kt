@@ -1,7 +1,9 @@
 package com.ikverse.deskglow.store
 
+import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.widgets.DefaultLayout
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -12,13 +14,33 @@ import kotlin.test.assertFailsWith
 class SnapshotRepositoryTest {
     @get:Rule val temp = TemporaryFolder()
 
-    private val portrait = DefaultLayout.create(Orientation.Portrait)
-    private val landscape = DefaultLayout.create(Orientation.Landscape)
+    private val portrait = listOf(DefaultLayout.create(Orientation.Portrait))
+    private val landscape = listOf(DefaultLayout.create(Orientation.Landscape))
 
     @Test
     fun `a snapshot survives encoding and keeps both layouts`() {
         val snapshot = Snapshot("a", "Night", 5L, portrait, landscape)
         assertEquals(snapshot, SnapshotCodec.decode(SnapshotCodec.encode(snapshot)))
+    }
+
+    @Test
+    fun `a snapshot keeps every screen in order`() {
+        val extra = Layout(emptyList())
+        val snapshot = Snapshot("a", "Night", 5L, portrait + extra, landscape + extra + extra)
+        val decoded = SnapshotCodec.decode(SnapshotCodec.encode(snapshot))
+        assertEquals(snapshot, decoded)
+        assertEquals(3, decoded.landscape.size)
+    }
+
+    @Test
+    fun `a version 1 backup with one layout per orientation reads as one screen each`() {
+        val v1 = JSONObject()
+            .put("kind", "deskglow-backup").put("version", 1).put("id", "x").put("name", "Old").put("created", 1L)
+            .put("portrait", JSONObject(LayoutCodec.encode(portrait.single())))
+            .put("landscape", JSONObject(LayoutCodec.encode(landscape.single())))
+        val decoded = SnapshotCodec.decode(v1.toString())
+        assertEquals(portrait, decoded.portrait)
+        assertEquals(landscape, decoded.landscape)
     }
 
     @Test

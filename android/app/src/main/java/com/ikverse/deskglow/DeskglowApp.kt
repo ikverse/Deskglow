@@ -20,8 +20,10 @@ import com.ikverse.deskglow.data.notificationUpdates
 import com.ikverse.deskglow.data.secondTicks
 import com.ikverse.deskglow.fonts.FontLibrary
 import com.ikverse.deskglow.fonts.FontResolver
+import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.store.AppPrefs
+import com.ikverse.deskglow.store.MAX_PAGES
 import com.ikverse.deskglow.store.LayoutRepository
 import com.ikverse.deskglow.store.SnapshotRepository
 import kotlinx.coroutines.CoroutineScope
@@ -54,8 +56,64 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     val landscapeLayouts by lazy {
         LayoutRepository(File(app.filesDir, "layout-landscape.json"), scope, Dispatchers.IO, Orientation.Landscape)
     }
-    fun layoutsFor(orientation: Orientation): LayoutRepository =
-        if (orientation == Orientation.Landscape) landscapeLayouts else layouts
+    /** Screens after the first, made on first use. The first screen keeps the files every earlier version wrote. */
+    private val extraLayouts = HashMap<Pair<Orientation, Int>, LayoutRepository>()
+
+    /** The layout of one screen (0 is the first) for an [orientation]. */
+    fun layoutsFor(orientation: Orientation, page: Int = 0): LayoutRepository {
+        if (page == 0) return if (orientation == Orientation.Landscape) landscapeLayouts else layouts
+        return extraLayouts.getOrPut(orientation to page) {
+            val name = (if (orientation == Orientation.Landscape) "layout-landscape-p" else "layout-p") + (page + 1) + ".json"
+            LayoutRepository(File(app.filesDir, name), scope, Dispatchers.IO, orientation) { Layout(emptyList()) }
+        }
+    }
+
+    /** Every screen of one orientation, in order. */
+    fun pagesOf(orientation: Orientation): List<Layout> =
+        (0 until prefs.pageCount(orientation).value).map { layoutsFor(orientation, it).layout.value }
+
+    /** Replaces every screen of each orientation with the given ones; each orientation keeps the number it was given. */
+    fun restorePages(portrait: List<Layout>, landscape: List<Layout>) {
+        for ((orientation, given) in listOf(Orientation.Portrait to portrait, Orientation.Landscape to landscape)) {
+            val pages = given.take(MAX_PAGES).ifEmpty { listOf(Layout(emptyList())) }
+            val oldCount = prefs.pageCount(orientation).value
+            pages.forEachIndexed { i, layout -> layoutsFor(orientation, i).update(LayoutRepository.tidied(layout, orientation)) }
+            for (i in pages.size until oldCount) {
+                layoutsFor(orientation, i).discard()
+                extraLayouts.remove(orientation to i)
+            }
+            prefs.setPageCount(orientation, pages.size)
+            prefs.setLastPage(orientation, prefs.lastPage(orientation).coerceAtMost(pages.size - 1))
+        }
+    }
+
+    /** Adds a screen to one orientation, empty or a copy of its screen [copyOf]. Returns its number, or null at the limit. */
+    fun addPage(orientation: Orientation, copyOf: Int? = null): Int? {
+        val count = prefs.pageCount(orientation).value
+        if (count >= MAX_PAGES) return null
+        if (copyOf != null) layoutsFor(orientation, count).update(layoutsFor(orientation, copyOf).layout.value)
+        prefs.setPageCount(orientation, count + 1)
+        return count
+    }
+
+    /** Makes sure an orientation has at least [count] screens, adding empty ones. */
+    fun ensurePages(orientation: Orientation, count: Int) {
+        while (prefs.pageCount(orientation).value < count && addPage(orientation) != null) Unit
+    }
+
+    /** Removes screen [page] of one orientation; the ones after it each move up one. The last screen cannot be removed. */
+    fun deletePage(orientation: Orientation, page: Int) {
+        val count = prefs.pageCount(orientation).value
+        if (count <= 1 || page !in 0 until count) return
+        val last = prefs.lastPage(orientation)
+        for (i in page until count - 1) layoutsFor(orientation, i).update(layoutsFor(orientation, i + 1).layout.value)
+        layoutsFor(orientation, count - 1).discard()
+        extraLayouts.remove(orientation to count - 1)
+        prefs.setPageCount(orientation, count - 1)
+        // The remembered screen follows its content up, and stays on a screen that exists.
+        prefs.setLastPage(orientation, (if (last > page) last - 1 else last).coerceAtMost(count - 2))
+    }
+
     /** Named pairs of layouts the user saved, one file each. */
     val snapshots by lazy { SnapshotRepository(File(app.filesDir, "snapshots")) }
     val weather = WeatherRepository(prefs, http, locate = LocationFinder(app)::locate)

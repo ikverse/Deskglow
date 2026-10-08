@@ -5,6 +5,7 @@ import com.ikverse.deskglow.model.Layout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.time.Instant
@@ -14,15 +15,16 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 
-/** Both layouts as they were at one moment, under a name. */
-data class Snapshot(val id: String, val name: String, val created: Long, val portrait: Layout, val landscape: Layout)
+/** Every screen of both layouts as they were at one moment, under a name. Each list is in screen order and never empty. */
+data class Snapshot(val id: String, val name: String, val created: Long, val portrait: List<Layout>, val landscape: List<Layout>)
 
 /**
  * A snapshot as JSON: the same text is kept in the app and written to an exported backup file. The
  * layouts inside use [LayoutCodec], so they are upgraded by the same migration steps.
  */
 object SnapshotCodec {
-    const val VERSION = 1
+    /** Version 2 keeps a list of screens per orientation; version 1 held a single layout, which reads as one screen. */
+    const val VERSION = 2
     private const val KIND = "deskglow-backup"
 
     fun encode(snapshot: Snapshot): String = JSONObject()
@@ -31,9 +33,20 @@ object SnapshotCodec {
         .put("id", snapshot.id)
         .put("name", snapshot.name)
         .put("created", snapshot.created)
-        .put("portrait", JSONObject(LayoutCodec.encode(snapshot.portrait)))
-        .put("landscape", JSONObject(LayoutCodec.encode(snapshot.landscape)))
+        .put("portrait", pages(snapshot.portrait))
+        .put("landscape", pages(snapshot.landscape))
         .toString(2)
+
+    private fun pages(layouts: List<Layout>) = JSONArray().also { array -> layouts.forEach { array.put(JSONObject(LayoutCodec.encode(it))) } }
+
+    private fun readPages(json: JSONObject, key: String): List<Layout> {
+        val layouts = when (val value = json.get(key)) {
+            is JSONArray -> (0 until value.length()).map { LayoutCodec.decode(value.getJSONObject(it).toString()) }
+            else -> listOf(LayoutCodec.decode(json.getJSONObject(key).toString()))
+        }
+        require(layouts.isNotEmpty()) { "A backup needs at least one screen" }
+        return layouts.take(MAX_PAGES)
+    }
 
     /** Throws on text that is not a Deskglow backup. */
     fun decode(text: String): Snapshot {
@@ -43,8 +56,8 @@ object SnapshotCodec {
             id = json.getString("id"),
             name = json.getString("name"),
             created = json.getLong("created"),
-            portrait = LayoutCodec.decode(json.getJSONObject("portrait").toString()),
-            landscape = LayoutCodec.decode(json.getJSONObject("landscape").toString()),
+            portrait = readPages(json, "portrait"),
+            landscape = readPages(json, "landscape"),
         )
     }
 }
@@ -54,7 +67,7 @@ class SnapshotRepository(private val dir: File, private val now: () -> Long = Sy
     private val state = MutableStateFlow(load())
     val snapshots: StateFlow<List<Snapshot>> = state.asStateFlow()
 
-    fun save(name: String, portrait: Layout, landscape: Layout): Snapshot {
+    fun save(name: String, portrait: List<Layout>, landscape: List<Layout>): Snapshot {
         val created = now()
         val snapshot = Snapshot(UUID.randomUUID().toString(), name.trim().ifBlank { proposeName(created) }, created, portrait, landscape)
         add(snapshot)
