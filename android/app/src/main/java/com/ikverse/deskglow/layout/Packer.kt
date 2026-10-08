@@ -110,20 +110,39 @@ class DragSession(
 ) {
     private var last: Box = start
 
+    /** Where the moved widget's centre stands against the canvas centre lines, as of the last [update]. */
+    var centring: Centring = Centring.None
+        private set
+
+    /**
+     * One side of a resized widget: it grows or shrinks by whole grid squares from its starting
+     * size, so letting go where the drag began puts it back exactly. The canvas edge counts as a
+     * stop too, so a widget can still be made exactly as wide as the screen.
+     */
+    private fun side(size: Int, grow: Float, from: Int, canvas: Int): Int {
+        val fewest = -Math.floorDiv(size - Stage.MIN_SIZE, Stage.STEP)
+        val squares = (grow / Stage.STEP).roundToInt().coerceAtLeast(fewest)
+        return (size + squares * Stage.STEP).coerceAtMost(canvas - from)
+    }
+
+    /** [right], [bottom]: where the edges would be with no snapping. */
+    private fun resized(right: Float, bottom: Float) = Box(
+        start.x, start.y,
+        side(start.w, right - start.right, start.x, orientation.width),
+        side(start.h, bottom - start.bottom, start.y, orientation.height),
+    )
+
     /** Moves (or resizes) by [dx], [dy] canvas units from where the drag started. Null if nothing fits at all. */
     fun update(dx: Float, dy: Float): Map<String, Box>? {
         val want = if (resize) {
-            Box(
-                start.x, start.y,
-                Packer.snap(start.w + dx).coerceIn(Stage.MIN_SIZE, orientation.width - start.x),
-                Packer.snap(start.h + dy).coerceIn(Stage.MIN_SIZE, orientation.height - start.y),
-            )
+            resized(start.right + dx, start.bottom + dy)
         } else {
-            Box(
-                Packer.snap(start.x + dx).coerceIn(0, orientation.width - start.w),
-                Packer.snap(start.y + dy).coerceIn(0, orientation.height - start.h),
-                start.w, start.h,
-            )
+            var x = Packer.snap(start.x + dx).coerceIn(0, orientation.width - start.w)
+            var y = Packer.snap(start.y + dy).coerceIn(0, orientation.height - start.h)
+            // Close to the middle of the canvas a widget locks onto it.
+            if (abs(x * 2 + start.w - orientation.width) <= Stage.CENTRE_PULL * 2) x = (orientation.width - start.w) / 2
+            if (abs(y * 2 + start.h - orientation.height) <= Stage.CENTRE_PULL * 2) y = (orientation.height - start.h) / 2
+            Box(x, y, start.w, start.h)
         }
         var box = want
         var result = resolve(want)
@@ -133,18 +152,45 @@ class DragSession(
             var good = last
             repeat(6) {
                 val t = (lo + hi) / 2
-                val step = Box(
-                    Packer.snap(last.x + (want.x - last.x) * t), Packer.snap(last.y + (want.y - last.y) * t),
-                    Packer.snap(last.w + (want.w - last.w) * t), Packer.snap(last.h + (want.h - last.h) * t),
-                )
+                val step = if (resize) {
+                    resized(last.right + (want.right - last.right) * t, last.bottom + (want.bottom - last.bottom) * t)
+                } else {
+                    Box(
+                        Packer.snap(last.x + (want.x - last.x) * t), Packer.snap(last.y + (want.y - last.y) * t),
+                        want.w, want.h,
+                    )
+                }
                 if (resolve(step) != null) { lo = t; good = step } else hi = t
             }
             box = good
             result = resolve(good)
         }
-        if (result != null) last = box
+        if (result != null) {
+            last = box
+            if (!resize) centring = Centring.of(box, orientation)
+        }
         return result
     }
 
     private fun resolve(box: Box) = Packer.resolve(Placed(id, box), base, orientation)
+}
+
+/**
+ * How a moved widget stands against the canvas centre lines: [nearX] / [nearY] once its centre is
+ * within reach of the vertical / horizontal line (the guide shows), [lockX] / [lockY] once it sits on it.
+ */
+data class Centring(val nearX: Boolean, val lockX: Boolean, val nearY: Boolean, val lockY: Boolean) {
+    companion object {
+        val None = Centring(false, false, false, false)
+
+        fun of(box: Box, orientation: Orientation): Centring {
+            // Twice the distance from the widget's centre to the canvas centre, so odd sizes stay whole numbers.
+            val offX = abs(box.x * 2 + box.w - orientation.width)
+            val offY = abs(box.y * 2 + box.h - orientation.height)
+            return Centring(
+                nearX = offX <= Stage.CENTRE_REACH * 2, lockX = offX <= 1,
+                nearY = offY <= Stage.CENTRE_REACH * 2, lockY = offY <= 1,
+            )
+        }
+    }
 }

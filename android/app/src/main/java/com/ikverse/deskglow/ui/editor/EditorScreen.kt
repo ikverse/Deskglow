@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.os.Build
+import android.view.HapticFeedbackConstants
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.snap
@@ -72,6 +74,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -102,14 +105,23 @@ import kotlin.math.roundToInt
  * (drag its corner handle) and removable (its red ×). Widgets never overlap: whatever is in the way
  * is pushed down and slides back while the drag is still held.
  *
- * It edits the layout of one [orientation] and holds the screen that way while it is open: upright,
- * the settings sheet lies along the bottom; on its side, the settings are a panel beside the canvas.
+ * It edits the layout of one [orientation]. The portrait layout holds the screen upright while it is
+ * open; the landscape layout can be edited with the phone either way. Held upright, the settings sheet
+ * lies along the bottom; on its side, the settings are a panel beside the canvas.
  */
 @Composable
 fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrait, onDone: () -> Unit) {
     val repository = graph.layoutsFor(orientation)
     val state = remember(orientation) { EditorState(repository.layout.value, orientation, repository::update) }
     HoldOrientation(orientation)
+    val view = LocalView.current
+    state.haptic = { kind ->
+        val constant = when (kind) {
+            Haptic.Step -> HapticFeedbackConstants.CLOCK_TICK
+            Haptic.Centre -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.LONG_PRESS
+        }
+        view.performHapticFeedback(constant)
+    }
     BackHandler {
         when {
             state.moreFonts != null -> state.moreFonts = null
@@ -119,8 +131,9 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
         }
     }
     CompositionLocalProvider(LocalEditing provides true) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            if (orientation == Orientation.Landscape) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+            // The arrangement follows how the phone is actually held, not which layout is being edited.
+            if (maxWidth > maxHeight) {
                 LandscapeEditor(state, graph, onDone)
             } else {
                 // The canvas sits below the top bar, not under it; only the settings sheet lies over it, at the bottom.
@@ -159,18 +172,16 @@ private fun LandscapeEditor(state: EditorState, graph: AppGraph, onDone: () -> U
 }
 
 /**
- * Keeps the screen the way the layout being edited is drawn, however the phone is held, and lets it
- * turn freely again on leaving.
+ * Keeps the screen upright while the portrait layout is edited, and lets it turn freely again on
+ * leaving. The landscape layout is never held: it can be edited with the phone either way.
  */
 @Composable
 private fun HoldOrientation(orientation: Orientation) {
     val context = LocalContext.current
     DisposableEffect(orientation) {
+        if (orientation == Orientation.Landscape) return@DisposableEffect onDispose { }
         val activity = context.findActivity()
-        activity?.requestedOrientation = when (orientation) {
-            Orientation.Portrait -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            Orientation.Landscape -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         onDispose {
             // Turning the phone recreates the activity, and the new one holds the screen again: only let go for real.
             if (activity?.isChangingConfigurations != true) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -203,6 +214,7 @@ private fun Stage(state: EditorState, modifier: Modifier) {
                     if (!item.visible || Widgets.find(item.type) == null) continue
                     key(item.id) { EditableWidget(state, item, unit) }
                 }
+                CentreGuides(state, unit)
             }
         }
     }
@@ -225,7 +237,30 @@ private fun GridDots(unit: Float) {
     Box(Modifier.fillMaxSize().drawBehind { drawRect(brush) })
 }
 
-private val dashColour = Color.White.copy(alpha = 0.3f)
+/**
+ * The canvas centre lines, shown while a moved widget's centre is within reach of them: faint on
+ * the way, bright once the widget sits on one. Drawn only, so a touch goes straight through.
+ */
+@Composable
+private fun CentreGuides(state: EditorState, unit: Float) {
+    val orientation = state.orientation
+    Box(
+        Modifier.fillMaxSize().drawBehind {
+            val c = state.centring
+            val width = 1.dp.toPx()
+            if (c.nearX) {
+                val colour = if (c.lockX) Palette.Select else Palette.Select.copy(alpha = 0.4f)
+                drawLine(colour, Offset(orientation.width * unit / 2f, 0f), Offset(orientation.width * unit / 2f, size.height), width)
+            }
+            if (c.nearY) {
+                val colour = if (c.lockY) Palette.Select else Palette.Select.copy(alpha = 0.4f)
+                drawLine(colour, Offset(0f, orientation.height * unit / 2f), Offset(size.width, orientation.height * unit / 2f), width)
+            }
+        },
+    )
+}
+
+private val dashColour =Color.White.copy(alpha = 0.3f)
 
 /** Room around each widget for its × and handle, which sit half outside its edges. */
 private val CHROME = 16.dp

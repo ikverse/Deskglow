@@ -27,8 +27,14 @@ enum class Orientation(val width: Int, val height: Int, val visibleY: IntRange) 
 object Stage {
     /** Widgets snap to this many units when moved or resized. */
     const val GRID = 4
+    /** Resizing moves a widget's right and bottom edges one background-grid square at a time: the spacing of the dots. */
+    const val STEP = 16
     /** No widget is made smaller than this on either side. */
-    const val MIN_SIZE = 24
+    const val MIN_SIZE = 32
+    /** A moved widget whose centre comes this close to the canvas centre locks onto it. */
+    const val CENTRE_PULL = 6
+    /** The centre guide shows once a moved widget's centre is this close to the canvas centre. */
+    const val CENTRE_REACH = 24
 }
 
 /** A rectangle on the canvas, in canvas units. */
