@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.ikverse.deskglow.layout.Centring
 import com.ikverse.deskglow.layout.DragSession
 import com.ikverse.deskglow.layout.Packer
 import com.ikverse.deskglow.layout.Placed
@@ -18,6 +19,9 @@ import com.ikverse.deskglow.widgets.WidgetType
 import com.ikverse.deskglow.widgets.Widgets
 
 enum class SheetTab { Widgets, Settings }
+
+/** A light tick for each grid square a resize crosses, a harder one on reaching the centre. */
+enum class Haptic { Step, Centre }
 
 /** A message across the top for five seconds, with Undo when there is something to undo. */
 data class Toast(val message: String, val undo: (() -> Unit)? = null, val id: Long = System.nanoTime())
@@ -38,6 +42,11 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
     /** The widget being dragged or resized, if any. The sheet tucks away and pushed widgets glide while this is set. */
     var dragId by mutableStateOf<String?>(null)
         private set
+    /** Where the moved widget stands against the canvas centre lines; the stage draws the guides from it. */
+    var centring by mutableStateOf(Centring.None)
+        private set
+    /** Told when the screen should buzz; set by the screen, which has a view to buzz through. */
+    var haptic: (Haptic) -> Unit = {}
     var pickerOpen by mutableStateOf(false)
     var moreFonts by mutableStateOf<StyleKind?>(null)
     var toast by mutableStateOf<Toast?>(null)
@@ -76,13 +85,26 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
 
     /** [dx], [dy]: canvas units from where the drag began. */
     fun dragTo(dx: Float, dy: Float) {
-        val boxes = session?.update(dx, dy) ?: return
+        val current = session ?: return
+        val before = layout.find(current.id)?.box
+        val boxes = current.update(dx, dy) ?: return
+        val after = boxes[current.id]
+        if (current.resize) {
+            // One tick for every grid square the edge crosses.
+            if (before != null && after != null && (after.w != before.w || after.h != before.h)) haptic(Haptic.Step)
+        } else {
+            val now = current.centring
+            // A harder one the moment the widget settles on a centre line, not again while it stays there.
+            if ((now.lockX && !centring.lockX) || (now.lockY && !centring.lockY)) haptic(Haptic.Centre)
+            centring = now
+        }
         commit(layout.withBoxes(boxes))
     }
 
     fun endDrag() {
         session = null
         dragId = null
+        centring = Centring.None
     }
 
     /**

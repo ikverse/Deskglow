@@ -86,13 +86,13 @@ class EditorStateTest {
         assertEquals(ring.id, state.dragId)
         state.dragTo(0f, 100f)
         noOverlaps(state.layout)
-        assertEquals(364, state.layout.find(ring.id)!!.box.h)
+        assertEquals(360, state.layout.find(ring.id)!!.box.h)
         state.dragTo(0f, 0f)
         assertEquals(before, state.layout)
         state.dragTo(0f, 40f)
         state.endDrag()
         assertNull(state.dragId)
-        assertEquals(304, state.layout.find(ring.id)!!.box.h)
+        assertEquals(312, state.layout.find(ring.id)!!.box.h)
     }
 
     @Test
@@ -148,6 +148,45 @@ class EditorStateTest {
         repeat(6) { state.nudge(date.id, 0, -EditorState.STEP, resize = false) } // up, into the clock
         assertTrue(state.layout.find(date.id)!!.box.y < date.box.y)
         noOverlaps(state.layout)
+    }
+
+    @Test
+    fun `a resize ticks once per grid square, and not at all between squares`() {
+        val buzzes = mutableListOf<Haptic>()
+        state.haptic = { buzzes += it }
+        val clock = state.layout.items.first { it.type == "clock" }
+        state.beginDrag(clock.id, resize = true)
+        state.dragTo(0f, 0f)
+        val start = buzzes.size
+        state.dragTo(2f, 0f) // not yet halfway to the next square
+        assertEquals(start, buzzes.size)
+        state.dragTo(20f, 0f)
+        assertEquals(listOf(Haptic.Step), buzzes.drop(start).distinct())
+        val after = buzzes.size
+        state.dragTo(21f, 0f) // same square
+        assertEquals(after, buzzes.size)
+        state.endDrag()
+    }
+
+    @Test
+    fun `reaching a centre line buzzes harder, once, and again only after leaving it`() {
+        val buzzes = mutableListOf<Haptic>()
+        state.haptic = { buzzes += it }
+        val stat = state.layout.items.first { it.type == "stat" }
+        val toCentre = ((Orientation.Portrait.width - stat.box.w) / 2 - stat.box.x).toFloat()
+        state.beginDrag(stat.id, resize = false)
+        state.dragTo(toCentre + 40f, 0f)
+        assertEquals(emptyList<Haptic>(), buzzes.filter { it == Haptic.Centre })
+        state.dragTo(toCentre + 3f, 0f)
+        assertEquals(1, buzzes.count { it == Haptic.Centre })
+        assertTrue(state.centring.lockX)
+        state.dragTo(toCentre + 4f, 0f)
+        assertEquals(1, buzzes.count { it == Haptic.Centre })
+        state.dragTo(toCentre + 40f, 0f)
+        state.dragTo(toCentre, 0f)
+        assertEquals(2, buzzes.count { it == Haptic.Centre })
+        state.endDrag()
+        assertEquals(false, state.centring.nearX)
     }
 
     // ---- landscape: the same editor on the 848 x 412 canvas ----

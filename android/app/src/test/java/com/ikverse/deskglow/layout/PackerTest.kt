@@ -35,21 +35,21 @@ class PackerTest {
         val ring = layout.find(id("ring"))!!
         val drag = DragSession(ring.id, resize = true, start = ring.box, base = placed)
 
+        // The ring grows a grid square (16 units) at a time: 40 units of drag is three squares (2.5 rounds up).
         val plus40 = drag.update(0f, 40f)!!
-        assertEquals(304, plus40.getValue(ring.id).h)
-        assertEquals(556, plus40.getValue(id("stat", "temp")).y)
+        assertEquals(312, plus40.getValue(ring.id).h)
+        assertEquals(564, plus40.getValue(id("stat", "temp")).y)
         assertTidy(plus40.values)
 
         val plus100 = drag.update(0f, 100f)!!
-        assertEquals(364, plus100.getValue(ring.id).h)
-        assertEquals(616, plus100.getValue(id("stat", "temp")).y)
-        assertEquals(736, plus100.getValue(id("media")).y)
+        assertEquals(360, plus100.getValue(ring.id).h)
+        assertEquals(612, plus100.getValue(id("stat", "temp")).y)
+        assertEquals(732, plus100.getValue(id("media")).y)
         assertTidy(plus100.values)
 
-        // The same figures the mockup gave: the screen is full when the ring is 368 tall.
+        // The next square would run the stack off the screen, so the ring stops at the last one that fits.
         val wall = drag.update(0f, 300f)!!
-        assertEquals(368, wall.getValue(ring.id).h)
-        assertEquals(Orientation.Portrait.height, wall.values.maxOf { it.bottom })
+        assertEquals(360, wall.getValue(ring.id).h)
         assertTidy(wall.values)
 
         val home = drag.update(0f, 0f)!!
@@ -75,8 +75,36 @@ class PackerTest {
         assertEquals(44, moved.y)
         val resize = DragSession(clock.id, resize = true, start = clock.box, base = placed)
         val tiny = resize.update(-1000f, -1000f)!!.getValue(clock.id)
-        assertEquals(Stage.MIN_SIZE, tiny.w)
-        assertEquals(Stage.MIN_SIZE, tiny.h)
+        assertTrue(tiny.w >= Stage.MIN_SIZE && tiny.h >= Stage.MIN_SIZE)
+        assertTrue(tiny.w < Stage.MIN_SIZE + Stage.STEP && tiny.h < Stage.MIN_SIZE + Stage.STEP)
+    }
+
+    @Test
+    fun `a resize moves the edges in whole grid squares, and the screen edge is a stop too`() {
+        val clock = layout.find(id("clock"))!!
+        val drag = DragSession(clock.id, resize = true, start = clock.box, base = placed)
+        for (dx in -40..40 step 3) {
+            val box = drag.update(dx.toFloat(), 0f)!!.getValue(clock.id)
+            assertEquals(0, (box.w - clock.box.w) % Stage.STEP)
+        }
+        assertEquals(clock.box, drag.update(0f, 0f)!!.getValue(clock.id))
+        val wide = drag.update(1000f, 0f)!!.getValue(clock.id)
+        assertEquals(Orientation.Portrait.width, wide.right)
+    }
+
+    @Test
+    fun `a moved widget locks onto the centre lines and says so`() {
+        val stat = layout.find(id("stat", "temp"))!!
+        val centreX = (Orientation.Portrait.width - stat.box.w) / 2
+        val drag = DragSession(stat.id, resize = false, start = stat.box, base = placed)
+        drag.update((centreX - stat.box.x + 5).toFloat(), 0f)
+        assertTrue(drag.centring.lockX)
+        assertEquals(centreX, drag.update((centreX - stat.box.x + 5).toFloat(), 0f)!!.getValue(stat.id).x)
+        drag.update((centreX - stat.box.x + 20).toFloat(), 0f)
+        assertTrue(drag.centring.nearX)
+        assertFalse(drag.centring.lockX)
+        drag.update((centreX - stat.box.x + 100).toFloat(), 0f)
+        assertFalse(drag.centring.nearX)
     }
 
     @Test

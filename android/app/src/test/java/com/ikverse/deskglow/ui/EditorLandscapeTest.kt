@@ -114,10 +114,24 @@ class EditorLandscapeTest {
     }
 
     @Test
-    fun `the screen is held on its side while the editor is open, and released when it goes`() {
-        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, compose.activity.requestedOrientation)
+    fun `the screen is not held while the landscape editor is open`() {
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, compose.activity.requestedOrientation)
         compose.runOnUiThread { open = false }
         compose.waitForIdle()
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, compose.activity.requestedOrientation)
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h848dp-port-xxhdpi")
+    fun `the landscape layout can be edited with the phone upright`() {
+        compose.onNodeWithTag("sheet").assertIsDisplayed()
+        val clock = idOf("clock")
+        val before = layout.find(clock)!!.box
+        compose.onNodeWithTag("widget $clock").performTouchInput { swipe(center, center + Offset(0f, 60f), 400) }
+        compose.waitForIdle()
+        assertNotEquals(before, layout.find(clock)!!.box)
+        assertInsideAndNoOverlaps()
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.onNodeWithText("Format").assertIsDisplayed()
     }
 }
