@@ -25,6 +25,8 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.boundsInWindow
+import kotlin.math.roundToInt
 import androidx.test.core.app.ApplicationProvider
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.FakeFeeds
@@ -185,8 +187,9 @@ class EditorScreenTest {
         val view = compose.activity.window.decorView
         val screen = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(android.graphics.Canvas(screen))
-        val x = with(compose.density) { 392.dp.roundToPx() }
-        val y = with(compose.density) { 76.dp.roundToPx() }
+        val bounds = compose.onNodeWithText(message).fetchSemanticsNode().boundsInWindow
+        val x = view.width - with(compose.density) { 16.dp.roundToPx() }
+        val y = bounds.center.y.roundToInt()
         val drawn = screen.getPixel(x, y)
         val bar = Palette.ToastFill.toArgb()
         assertTrue(

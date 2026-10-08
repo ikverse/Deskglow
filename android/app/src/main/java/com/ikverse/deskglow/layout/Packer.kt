@@ -164,10 +164,14 @@ class DragSession(
      * stop too, so a widget can still be made exactly as wide as the screen.
      */
     private fun side(size: Int, grow: Float, from: Int, canvas: Int): Int {
-        val fewest = -Math.floorDiv(size - Stage.MIN_SIZE, Stage.STEP)
-        val squares = (grow / Stage.STEP).roundToInt().coerceAtLeast(fewest)
-        return (size + squares * Stage.STEP).coerceAtMost(canvas - from)
+        val squares = (grow / Stage.STEP).roundToInt()
+        val next = size + squares * Stage.STEP
+        // A widget that began off the grid still reaches the smallest size, 2 squares, exactly.
+        return (if (next < Stage.MIN_SIZE && squares < 0) Stage.MIN_SIZE else next).coerceAtMost(canvas - from)
     }
+
+    /** A distance moved, in whole grid squares. */
+    private fun stepped(distance: Float): Int = (distance / Stage.STEP).roundToInt() * Stage.STEP
 
     /** [right], [bottom]: where the edges would be with no snapping. */
     private fun resized(right: Float, bottom: Float) = Box(
@@ -182,8 +186,9 @@ class DragSession(
             resized(start.right + dx, start.bottom + dy)
         } else {
             // The whole group stays on the canvas; for a lone widget the group is the widget.
-            var gx = (Packer.snap(start.x + dx) - start.x).coerceIn(-groupStart.x, orientation.width - groupStart.right)
-            var gy = (Packer.snap(start.y + dy) - start.y).coerceIn(-groupStart.y, orientation.height - groupStart.bottom)
+            // It moves a grid square at a time from where it began, so letting go where the drag began puts it back exactly.
+            var gx = stepped(dx).coerceIn(-groupStart.x, orientation.width - groupStart.right)
+            var gy = stepped(dy).coerceIn(-groupStart.y, orientation.height - groupStart.bottom)
             // Close to the middle of the canvas the group locks onto it.
             if (abs((groupStart.x + gx) * 2 + groupStart.w - orientation.width) <= Stage.CENTRE_PULL * 2) gx = (orientation.width - groupStart.w) / 2 - groupStart.x
             if (abs((groupStart.y + gy) * 2 + groupStart.h - orientation.height) <= Stage.CENTRE_PULL * 2) gy = (orientation.height - groupStart.h) / 2 - groupStart.y
@@ -201,7 +206,8 @@ class DragSession(
                     resized(last.right + (want.right - last.right) * t, last.bottom + (want.bottom - last.bottom) * t)
                 } else {
                     Box(
-                        Packer.snap(last.x + (want.x - last.x) * t), Packer.snap(last.y + (want.y - last.y) * t),
+                        start.x + stepped(last.x - start.x + (want.x - last.x) * t).coerceIn(minOf(last.x, want.x) - start.x, maxOf(last.x, want.x) - start.x),
+                        start.y + stepped(last.y - start.y + (want.y - last.y) * t).coerceIn(minOf(last.y, want.y) - start.y, maxOf(last.y, want.y) - start.y),
                         want.w, want.h,
                     )
                 }

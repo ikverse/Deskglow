@@ -90,6 +90,12 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         if (on) select(null)
     }
 
+    /** Touch and hold: starts select mode with this widget gathered, or toggles it when already selecting. */
+    fun holdWidget(id: String) {
+        if (!selecting) selectMode(true)
+        toggleInGroup(id)
+    }
+
     fun toggleInGroup(id: String) {
         val item = layout.find(id) ?: return
         if (!selecting || !item.visible) return
@@ -137,6 +143,8 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
             // One tick for every grid square the edge crosses.
             if (before != null && after != null && (after.w != before.w || after.h != before.h)) haptic(Haptic.Step)
         } else {
+            // One tick for every grid square it moves.
+            if (before != null && after != null && (after.x != before.x || after.y != before.y)) haptic(Haptic.Step)
             val now = current.centring
             // A harder one the moment the widget settles on a centre line, not again while it stays there.
             if ((now.lockX && !centring.lockX) || (now.lockY && !centring.lockY)) haptic(Haptic.Centre)
