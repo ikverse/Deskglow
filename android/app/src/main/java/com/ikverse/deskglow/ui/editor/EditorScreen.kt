@@ -66,11 +66,13 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
@@ -252,7 +254,14 @@ private fun GridDots(unit: Float) {
         androidx.compose.ui.graphics.Canvas(bitmap).drawCircle(Offset(tile / 2f, tile / 2f), tile / 16f, paint)
         ShaderBrush(ImageShader(bitmap, TileMode.Repeated, TileMode.Repeated))
     }
-    Box(Modifier.fillMaxSize().drawBehind { drawRect(brush) })
+    // The dot sits in the middle of its tile, so the pattern is shifted back half a tile to put the dots
+    // on the lines widgets snap to (0, 16, 32 ...), and drawn a tile larger to cover the edges it uncovers.
+    val half = (16f * unit).roundToInt().coerceAtLeast(4) / 2f
+    Box(
+        Modifier.fillMaxSize().drawBehind {
+            translate(-half, -half) { drawRect(brush, size = Size(size.width + half * 2, size.height + half * 2)) }
+        },
+    )
 }
 
 /**
@@ -437,7 +446,7 @@ private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
             Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.weight(1.3f), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.weight(1.0f), contentAlignment = Alignment.CenterStart) {
                 TextButton(onClick = {
                     if (armed) {
                         armed = false
@@ -447,10 +456,10 @@ private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
             }
             HistoryButton("↶", "Undo", state.canUndo, Modifier.testTag("undo")) { state.undo() }
             HistoryButton("↷", "Redo", state.canRedo, Modifier.testTag("redo")) { state.redo() }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                TextButton(onClick = { state.pickerOpen = true }) { Text("+ Add widget", color = Palette.Select, fontSize = 15.sp) }
+            Box(Modifier.weight(1.4f), contentAlignment = Alignment.Center) {
+                TextButton(onClick = { state.pickerOpen = true }) { Text("+ Add widget", color = Palette.Select, fontSize = 15.sp, maxLines = 1, softWrap = false) }
             }
-            Box(Modifier.weight(0.7f), contentAlignment = Alignment.CenterEnd) {
+            Box(Modifier.weight(0.6f), contentAlignment = Alignment.CenterEnd) {
                 TextButton(onClick = onDone) { Text("Done", color = Palette.Select, fontSize = 15.sp) }
             }
         }
@@ -484,6 +493,9 @@ private fun SelectBar(state: EditorState) {
     ) {
         TextButton(onClick = { state.selectMode(!state.selecting) }, modifier = Modifier.testTag("select")) {
             Text(if (state.selecting) "Cancel" else "Select", color = Palette.Select, fontSize = 15.sp)
+        }
+        TextButton(onClick = state::snapAllToGrid, modifier = Modifier.testTag("snap all")) {
+            Text("Snap all", color = Palette.Select, fontSize = 15.sp, maxLines = 1)
         }
         if (state.selecting) {
             Text(

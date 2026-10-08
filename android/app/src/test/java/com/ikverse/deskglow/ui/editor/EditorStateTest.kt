@@ -350,6 +350,25 @@ class EditorStateTest {
     }
 
     @Test
+    fun `snap all puts every corner on a dot without overlap, once, and undo puts it back`() {
+        val start = state.layout
+        state.snapAllToGrid()
+        noOverlaps(state.layout)
+        state.layout.items.forEach {
+            assertEquals(0, it.box.x % 16)
+            assertEquals(0, it.box.y % 16)
+            assertTrue(it.box.right % 16 == 0 || it.box.right == Orientation.Portrait.width)
+            assertTrue(it.box.w >= 32 && it.box.h >= 32)
+        }
+        val snapped = state.layout
+        state.snapAllToGrid()
+        assertEquals(snapped, state.layout)
+        assertEquals("Already on the grid", state.toast?.message)
+        state.undo()
+        assertEquals(start, state.layout)
+    }
+
+    @Test
     fun `a new change clears redo`() {
         state.add(StatWidget)
         state.undo()
