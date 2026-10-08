@@ -221,10 +221,13 @@ class EditorScreenTest {
         )
         compose.runOnUiThread { actions.first { it.label == "Move right" }.action() }
         compose.waitForIdle()
-        assertEquals(before.copy(x = before.x + EditorState.STEP), layout.find(clock)!!.box)
+        // The clock began off the dots (y = 56), so it lands on them: 64.
+        assertEquals(before.copy(x = before.x + EditorState.STEP, y = 64), layout.find(clock)!!.box)
+        val moved = layout.find(clock)!!.box
         compose.runOnUiThread { actions.first { it.label == "Wider" }.action() }
         compose.waitForIdle()
-        assertEquals(before.w + EditorState.STEP, layout.find(clock)!!.box.w)
+        assertEquals(0, layout.find(clock)!!.box.right % EditorState.STEP)
+        assertTrue(layout.find(clock)!!.box.w > moved.w)
         assertNoOverlaps()
     }
 

@@ -35,25 +35,28 @@ class PackerTest {
         val ring = layout.find(id("ring"))!!
         val drag = DragSession(ring.id, resize = true, start = ring.box, base = placed)
 
-        // The ring grows a grid square (16 units) at a time: 40 units of drag is three squares (2.5 rounds up).
+        // The ring's bottom edge lands on a dot (every 16 units): 516 + 40 = 556 is nearest 560.
         val plus40 = drag.update(0f, 40f)!!
-        assertEquals(312, plus40.getValue(ring.id).h)
-        assertEquals(564, plus40.getValue(id("stat", "temp")).y)
+        assertEquals(560, plus40.getValue(ring.id).bottom)
+        assertEquals(560, plus40.getValue(id("stat", "temp")).y)
         assertTidy(plus40.values)
 
         val plus100 = drag.update(0f, 100f)!!
-        assertEquals(360, plus100.getValue(ring.id).h)
-        assertEquals(612, plus100.getValue(id("stat", "temp")).y)
-        assertEquals(732, plus100.getValue(id("media")).y)
+        // 616 would be nearest 624, which runs the stack off the screen, so it stops at the dot before.
+        assertEquals(608, plus100.getValue(ring.id).bottom)
+        assertEquals(608, plus100.getValue(id("stat", "temp")).y)
         assertTidy(plus100.values)
 
         // The next square would run the stack off the screen, so the ring stops at the last one that fits.
         val wall = drag.update(0f, 300f)!!
-        assertEquals(360, wall.getValue(ring.id).h)
+        assertEquals(0, wall.getValue(ring.id).bottom % Stage.STEP)
+        assertTrue(wall.getValue(ring.id).bottom >= plus100.getValue(ring.id).bottom)
         assertTidy(wall.values)
 
+        // Back at the start the ring's edge sits on the nearest dot, and what it pushed is home.
         val home = drag.update(0f, 0f)!!
-        assertEquals(placed.associate { it.id to it.box }, home)
+        assertEquals(512, home.getValue(ring.id).bottom)
+        placed.filter { it.id != ring.id }.forEach { assertEquals(it.box, home.getValue(it.id)) }
     }
 
     @Test
@@ -61,9 +64,11 @@ class PackerTest {
         val media = layout.find(id("media"))!!
         val drag = DragSession(media.id, resize = false, start = media.box, base = placed)
         val up = drag.update(0f, -70f)!!
-        assertEquals(632, up.getValue(media.id).y)
+        assertEquals(624, up.getValue(media.id).y)
         assertTidy(up.values)
-        assertEquals(placed.associate { it.id to it.box }, drag.update(0f, 0f))
+        val home = drag.update(0f, 0f)!!
+        assertEquals(0, home.getValue(media.id).y % Stage.STEP)
+        placed.filter { it.id != media.id }.forEach { assertEquals(it.box, home.getValue(it.id)) }
     }
 
     @Test
@@ -72,7 +77,7 @@ class PackerTest {
         val drag = DragSession(clock.id, resize = false, start = clock.box, base = placed)
         val moved = drag.update(-500f, -13f)!!.getValue(clock.id)
         assertEquals(0, moved.x)
-        assertEquals(40, moved.y)
+        assertEquals(48, moved.y)
         val resize = DragSession(clock.id, resize = true, start = clock.box, base = placed)
         val tiny = resize.update(-1000f, -1000f)!!.getValue(clock.id)
         // Even from a size that is off the grid, the smallest is exactly 2 squares by 2.
@@ -81,12 +86,17 @@ class PackerTest {
     }
 
     @Test
-    fun `a move goes a grid square at a time and returns exactly to where it began`() {
+    fun `a move always lands on a dot of the background grid, even from a widget that began off it`() {
         val stat = layout.find(id("stat", "temp"))!!
+        assertEquals(20, stat.box.x) // off the 16-unit grid
         val drag = DragSession(stat.id, resize = false, start = stat.box, base = placed)
-        assertEquals(stat.box.x + 16, drag.update(9f, 0f)!!.getValue(stat.id).x)
-        assertEquals(stat.box.x, drag.update(5f, 0f)!!.getValue(stat.id).x)
-        assertEquals(stat.box, drag.update(0f, 0f)!!.getValue(stat.id))
+        assertEquals(32, drag.update(9f, 0f)!!.getValue(stat.id).x)
+        assertEquals(16, drag.update(-5f, 0f)!!.getValue(stat.id).x)
+        for (dx in -12..40 step 3) {
+            val box = drag.update(dx.toFloat(), dx.toFloat())!!.getValue(stat.id)
+            assertEquals(0, box.x % Stage.STEP)
+            assertEquals(0, box.y % Stage.STEP)
+        }
     }
 
     @Test
@@ -95,9 +105,9 @@ class PackerTest {
         val drag = DragSession(clock.id, resize = true, start = clock.box, base = placed)
         for (dx in -40..40 step 3) {
             val box = drag.update(dx.toFloat(), 0f)!!.getValue(clock.id)
-            assertEquals(0, (box.w - clock.box.w) % Stage.STEP)
+            assertEquals(0, box.right % Stage.STEP)
         }
-        assertEquals(clock.box, drag.update(0f, 0f)!!.getValue(clock.id))
+        assertEquals(320, drag.update(0f, 0f)!!.getValue(clock.id).right)
         val wide = drag.update(1000f, 0f)!!.getValue(clock.id)
         assertEquals(Orientation.Portrait.width, wide.right)
     }
@@ -110,7 +120,7 @@ class PackerTest {
         drag.update((centreX - stat.box.x + 5).toFloat(), 0f)
         assertTrue(drag.centring.lockX)
         assertEquals(centreX, drag.update((centreX - stat.box.x + 5).toFloat(), 0f)!!.getValue(stat.id).x)
-        drag.update((centreX - stat.box.x + 20).toFloat(), 0f)
+        drag.update((centreX - stat.box.x + 16).toFloat(), 0f)
         assertTrue(drag.centring.nearX)
         assertFalse(drag.centring.lockX)
         drag.update((centreX - stat.box.x + 100).toFloat(), 0f)

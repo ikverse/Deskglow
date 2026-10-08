@@ -86,13 +86,16 @@ class EditorStateTest {
         assertEquals(ring.id, state.dragId)
         state.dragTo(0f, 100f)
         noOverlaps(state.layout)
-        assertEquals(360, state.layout.find(ring.id)!!.box.h)
+        // 616 would be nearest 624, which runs the stack off the screen, so it stops at the dot before.
+        assertEquals(608, state.layout.find(ring.id)!!.box.bottom)
         state.dragTo(0f, 0f)
-        assertEquals(before, state.layout)
+        // The ring's edge is on its nearest dot; everything it pushed is home.
+        assertEquals(512, state.layout.find(ring.id)!!.box.bottom)
+        before.items.filter { it.id != ring.id }.forEach { assertEquals(it, state.layout.find(it.id)) }
         state.dragTo(0f, 40f)
         state.endDrag()
         assertNull(state.dragId)
-        assertEquals(312, state.layout.find(ring.id)!!.box.h)
+        assertEquals(560, state.layout.find(ring.id)!!.box.bottom)
     }
 
     @Test
@@ -130,9 +133,12 @@ class EditorStateTest {
     fun `a nudge from a screen reader moves or resizes by one step, saves, and stays on the canvas`() {
         val clock = state.layout.items.first { it.type == "clock" }
         state.nudge(clock.id, EditorState.STEP, 0, resize = false)
-        assertEquals(clock.box.copy(x = clock.box.x + EditorState.STEP), state.layout.find(clock.id)!!.box)
+        // The clock began off the dots (y = 56), so it lands on them: 64.
+        assertEquals(clock.box.copy(x = clock.box.x + EditorState.STEP, y = 64), state.layout.find(clock.id)!!.box)
+        val moved = state.layout.find(clock.id)!!.box
         state.nudge(clock.id, EditorState.STEP, 0, resize = true)
-        assertEquals(clock.box.w + EditorState.STEP, state.layout.find(clock.id)!!.box.w)
+        assertEquals(0, state.layout.find(clock.id)!!.box.right % EditorState.STEP)
+        assertTrue(state.layout.find(clock.id)!!.box.w > moved.w)
         assertEquals(state.layout, saved.last())
         assertNull(state.dragId)
         assertEquals(clock.id, state.selectedId)
@@ -325,21 +331,22 @@ class EditorStateTest {
 
     @Test
     fun `a whole drag is one undo step, and a drag that moves nothing is none`() {
-        val clock = state.layout.items.first { it.type == "clock" }
-        val start = state.layout
-        state.beginDrag(clock.id, resize = false)
-        state.dragTo(0f, 0f)
-        state.endDrag()
-        assertFalse(state.canUndo)
-        state.beginDrag(clock.id, resize = false)
-        state.dragTo(16f, 0f)
-        state.dragTo(32f, 0f)
-        state.dragTo(48f, 16f)
-        state.endDrag()
-        assertTrue(state.layout != start)
-        state.undo()
-        assertEquals(start, state.layout)
-        assertFalse(state.canUndo)
+        // A widget already on the dots, so a drag that goes nowhere really changes nothing.
+        val s = EditorState(Layout(listOf(WidgetItem("w1", "clock", Box(48, 48, 224, 64)))), Orientation.Portrait) {}
+        val start = s.layout
+        s.beginDrag("w1", resize = false)
+        s.dragTo(0f, 0f)
+        s.endDrag()
+        assertFalse(s.canUndo)
+        s.beginDrag("w1", resize = false)
+        s.dragTo(16f, 0f)
+        s.dragTo(32f, 0f)
+        s.dragTo(48f, 16f)
+        s.endDrag()
+        assertTrue(s.layout != start)
+        s.undo()
+        assertEquals(start, s.layout)
+        assertFalse(s.canUndo)
     }
 
     @Test
