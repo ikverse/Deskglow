@@ -164,14 +164,16 @@ class DragSession(
      * stop too, so a widget can still be made exactly as wide as the screen.
      */
     private fun side(size: Int, grow: Float, from: Int, canvas: Int): Int {
-        val squares = (grow / Stage.STEP).roundToInt()
-        val next = size + squares * Stage.STEP
-        // A widget that began off the grid still reaches the smallest size, 2 squares, exactly.
-        return (if (next < Stage.MIN_SIZE && squares < 0) Stage.MIN_SIZE else next).coerceAtMost(canvas - from)
+        // The edge lands on a dot of the background grid, wherever the widget began.
+        val next = onGrid(from + size + grow) - from
+        return (if (next < Stage.MIN_SIZE) Stage.MIN_SIZE else next).coerceAtMost(canvas - from)
     }
 
-    /** A distance moved, in whole grid squares. */
-    private fun stepped(distance: Float): Int = (distance / Stage.STEP).roundToInt() * Stage.STEP
+    /** The nearest dot of the background grid to [position]. */
+    private fun onGrid(position: Float): Int = (position / Stage.STEP).roundToInt() * Stage.STEP
+
+    /** How far the group at [origin] moves to land its edge on a dot after travelling [distance]. */
+    private fun stepped(origin: Int, distance: Float): Int = onGrid(origin + distance) - origin
 
     /** [right], [bottom]: where the edges would be with no snapping. */
     private fun resized(right: Float, bottom: Float) = Box(
@@ -186,12 +188,13 @@ class DragSession(
             resized(start.right + dx, start.bottom + dy)
         } else {
             // The whole group stays on the canvas; for a lone widget the group is the widget.
-            // It moves a grid square at a time from where it began, so letting go where the drag began puts it back exactly.
-            var gx = stepped(dx).coerceIn(-groupStart.x, orientation.width - groupStart.right)
-            var gy = stepped(dy).coerceIn(-groupStart.y, orientation.height - groupStart.bottom)
-            // Close to the middle of the canvas the group locks onto it.
-            if (abs((groupStart.x + gx) * 2 + groupStart.w - orientation.width) <= Stage.CENTRE_PULL * 2) gx = (orientation.width - groupStart.w) / 2 - groupStart.x
-            if (abs((groupStart.y + gy) * 2 + groupStart.h - orientation.height) <= Stage.CENTRE_PULL * 2) gy = (orientation.height - groupStart.h) / 2 - groupStart.y
+            // Its top-left corner always sits on a dot of the background grid.
+            var gx = stepped(groupStart.x, dx).coerceIn(-groupStart.x, orientation.width - groupStart.right)
+            var gy = stepped(groupStart.y, dy).coerceIn(-groupStart.y, orientation.height - groupStart.bottom)
+            // Close to the middle of the canvas the group locks onto it. Judged before snapping to a dot,
+            // or the dots either side of the middle would always be too far away to lock from.
+            if (abs((groupStart.x + dx) * 2 + groupStart.w - orientation.width) <= Stage.CENTRE_PULL * 2) gx = (orientation.width - groupStart.w) / 2 - groupStart.x
+            if (abs((groupStart.y + dy) * 2 + groupStart.h - orientation.height) <= Stage.CENTRE_PULL * 2) gy = (orientation.height - groupStart.h) / 2 - groupStart.y
             Box(start.x + gx, start.y + gy, start.w, start.h)
         }
         var box = want
@@ -206,8 +209,8 @@ class DragSession(
                     resized(last.right + (want.right - last.right) * t, last.bottom + (want.bottom - last.bottom) * t)
                 } else {
                     Box(
-                        start.x + stepped(last.x - start.x + (want.x - last.x) * t).coerceIn(minOf(last.x, want.x) - start.x, maxOf(last.x, want.x) - start.x),
-                        start.y + stepped(last.y - start.y + (want.y - last.y) * t).coerceIn(minOf(last.y, want.y) - start.y, maxOf(last.y, want.y) - start.y),
+                        start.x + stepped(groupStart.x, last.x - start.x + (want.x - last.x) * t).coerceIn(minOf(last.x, want.x) - start.x, maxOf(last.x, want.x) - start.x),
+                        start.y + stepped(groupStart.y, last.y - start.y + (want.y - last.y) * t).coerceIn(minOf(last.y, want.y) - start.y, maxOf(last.y, want.y) - start.y),
                         want.w, want.h,
                     )
                 }
