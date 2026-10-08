@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.BuildConfig
 import com.ikverse.deskglow.data.hasCalendarAccess
+import com.ikverse.deskglow.data.hasLocationAccess
 import com.ikverse.deskglow.data.hasNotificationAccess
 import com.ikverse.deskglow.fonts.BundledFonts
 import com.ikverse.deskglow.store.Brightness
@@ -144,8 +145,44 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
             }.onFailure { message = "The search could not reach Open-Meteo. Check the connection and try again." }
         }
     }
+    val context = LocalContext.current
+    val auto by graph.prefs.autoLocation.collectAsStateWithLifecycle()
+    val detected by graph.prefs.detectedCity.collectAsStateWithLifecycle()
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        resumes++
+        onPauseOrDispose { }
+    }
+    var allowed by remember(resumes) { mutableStateOf(hasLocationAccess(context)) }
+    var asked by remember { mutableStateOf(false) }
+    val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        allowed = granted
+        asked = true
+    }
+    val shown = if (auto && allowed) detected ?: current else current
     ScreenFrame("Weather city", onBack) {
-        Small(current?.let { "Showing the weather for ${it.label}." } ?: "No city set yet. The weather widget stays empty until one is.")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Body("Use my location")
+                Small("Finds your city by itself and keeps it up to date. Only its rough position is used.")
+            }
+            Switch(checked = auto, onCheckedChange = { on ->
+                graph.prefs.setAutoLocation(on)
+                if (on && !allowed && !asked) request.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+            })
+        }
+        if (auto && !allowed) {
+            Small("Location is not allowed, so the city chosen below is used.")
+            OutlinedButton(onClick = {
+                if (asked) {
+                    // Asked once and refused: Android will not ask again, so the app's own settings page is the way.
+                    context.open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+                } else {
+                    request.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                }
+            }) { Text(if (asked) "Allow in settings" else "Allow location") }
+        }
+        Small(shown?.let { "Showing the weather for ${it.label}." } ?: "No city set yet. The weather widget stays empty until one is.")
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = query,
@@ -169,7 +206,7 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
             }
         }
         if (current != null) TextButton(onClick = { graph.prefs.setCity(null) }) { Text("Remove city", color = Palette.Danger) }
-        Small("Weather data by Open-Meteo.com. Only the city's position is sent, never yours.")
+        Small("Weather data by Open-Meteo.com. Only a position rounded to about a kilometre is sent, never your name or anything else.")
     }
 }
 

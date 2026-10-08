@@ -12,7 +12,7 @@ enum class BrightnessMode { System, Dim, Custom }
 
 data class Brightness(val mode: BrightnessMode = BrightnessMode.Dim, val level: Int = 30)
 
-/** The place the weather is shown for. Chosen once by name, so no location permission is needed. */
+/** The place the weather is shown for: found from the phone's position, or chosen by name. */
 data class City(val name: String, val region: String, val latitude: Double, val longitude: Double) {
     val label: String get() = if (region.isBlank()) name else "$name, $region"
 
@@ -47,6 +47,23 @@ class AppPrefs(context: Context) {
     private val cityState = MutableStateFlow(prefs.getString(KEY_CITY, null)?.let(City::fromJson))
     val city: StateFlow<City?> = cityState.asStateFlow()
 
+    private val autoLocationState = MutableStateFlow(prefs.getBoolean(KEY_AUTO_LOCATION, true))
+    val autoLocation: StateFlow<Boolean> = autoLocationState.asStateFlow()
+
+    /** The place last found from the phone's position, kept so the weather shows at once on the next start. */
+    private val detectedCityState = MutableStateFlow(prefs.getString(KEY_DETECTED_CITY, null)?.let(City::fromJson))
+    val detectedCity: StateFlow<City?> = detectedCityState.asStateFlow()
+
+    fun setAutoLocation(on: Boolean) {
+        prefs.edit { putBoolean(KEY_AUTO_LOCATION, on) }
+        autoLocationState.value = on
+    }
+
+    fun setDetectedCity(city: City?) {
+        prefs.edit { if (city == null) remove(KEY_DETECTED_CITY) else putString(KEY_DETECTED_CITY, city.toJson()) }
+        detectedCityState.value = city
+    }
+
     fun setBrightness(value: Brightness) {
         prefs.edit { putString(KEY_BRIGHTNESS_MODE, value.mode.name).putInt(KEY_BRIGHTNESS_LEVEL, value.level) }
         brightnessState.value = value
@@ -78,6 +95,8 @@ class AppPrefs(context: Context) {
         const val KEY_BRIGHTNESS_LEVEL = "brightness_level"
         const val KEY_BURN_IN = "burn_in"
         const val KEY_CITY = "city"
+        const val KEY_AUTO_LOCATION = "auto_location"
+        const val KEY_DETECTED_CITY = "detected_city"
         const val KEY_WEATHER_CACHE = "weather_cache"
         const val KEY_PICKED_FONTS = "picked_fonts"
     }

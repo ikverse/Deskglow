@@ -5,6 +5,7 @@ import android.content.Context
 import com.ikverse.deskglow.data.EventState
 import com.ikverse.deskglow.data.Feeds
 import com.ikverse.deskglow.data.Http
+import com.ikverse.deskglow.data.LocationFinder
 import com.ikverse.deskglow.data.MediaState
 import com.ikverse.deskglow.data.NotificationState
 import com.ikverse.deskglow.data.UrlConnectionHttp
@@ -54,7 +55,7 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     }
     fun layoutsFor(orientation: Orientation): LayoutRepository =
         if (orientation == Orientation.Landscape) landscapeLayouts else layouts
-    val weather = WeatherRepository(prefs, http)
+    val weather = WeatherRepository(prefs, http, locate = LocationFinder(app)::locate)
     val fontLibrary = FontLibrary(app, prefs, http)
     val fonts = FontResolver(app, fontLibrary)
     val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather)
