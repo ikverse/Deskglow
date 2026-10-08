@@ -56,6 +56,7 @@ fun HomeScreen(graph: AppGraph, go: (Screen) -> Unit) {
     val detected by graph.prefs.detectedCity.collectAsStateWithLifecycle()
     val brightness by graph.prefs.brightness.collectAsStateWithLifecycle()
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
+    val saved by graph.snapshots.snapshots.collectAsStateWithLifecycle()
     // Permissions and the screen saver are changed in Android's settings, so look again on every return.
     var resumes by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(Unit) {
@@ -84,6 +85,7 @@ fun HomeScreen(graph: AppGraph, go: (Screen) -> Unit) {
         Box(Modifier.padding(top = 16.dp)) { Rule() }
         HomeRow("Edit portrait layout", "Phone upright: move, resize and style your widgets") { go(Screen.Editor) }
         HomeRow("Edit landscape layout", "Phone on its side, for a dock") { go(Screen.EditorLandscape) }
+        HomeRow("Saved layouts", if (saved.isEmpty()) "Back up both layouts and restore them later" else "${saved.size} saved · back up to a file") { go(Screen.Snapshots) }
         HomeRow("Start now", "Show it full screen without waiting for the charger") {
             context.startActivity(Intent(context, DisplayActivity::class.java))
         }
