@@ -13,8 +13,8 @@ Nothing runs while it is not showing: no background service, no permanent notifi
 - **Editor:** drag to move, drag the corner to resize, red × to delete (with Undo). Widgets never
   overlap: anything in the way is pushed down, and slides back while you are still holding.
 - **Portrait and landscape:** each has its own layout. Upright is the default; for a phone docked on
-  its side there is a landscape layout, edited with the phone on its side (the editor turns the
-  screen for you). The display picks the right one from the way the phone is held, and the home
+  its side there is a landscape layout, which you can edit with the phone either way up (the canvas
+  is smaller when the phone is upright). The display picks the right one from the way the phone is held, and the home
   screen shows both.
 - **Clock styles:** squared, seven-segment, dot matrix, outline, rounded and stacked, drawn by the
   app, plus any font.

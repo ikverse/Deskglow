@@ -61,22 +61,32 @@ class PackerTest {
         val media = layout.find(id("media"))!!
         val drag = DragSession(media.id, resize = false, start = media.box, base = placed)
         val up = drag.update(0f, -70f)!!
-        assertEquals(628, up.getValue(media.id).y)
+        assertEquals(632, up.getValue(media.id).y)
         assertTidy(up.values)
         assertEquals(placed.associate { it.id to it.box }, drag.update(0f, 0f))
     }
 
     @Test
-    fun `positions and sizes snap to the 4-unit grid and stay on the screen`() {
+    fun `positions and sizes snap to whole grid squares and stay on the screen`() {
         val clock = layout.find(id("clock"))!!
         val drag = DragSession(clock.id, resize = false, start = clock.box, base = placed)
         val moved = drag.update(-500f, -13f)!!.getValue(clock.id)
         assertEquals(0, moved.x)
-        assertEquals(44, moved.y)
+        assertEquals(40, moved.y)
         val resize = DragSession(clock.id, resize = true, start = clock.box, base = placed)
         val tiny = resize.update(-1000f, -1000f)!!.getValue(clock.id)
-        assertTrue(tiny.w >= Stage.MIN_SIZE && tiny.h >= Stage.MIN_SIZE)
-        assertTrue(tiny.w < Stage.MIN_SIZE + Stage.STEP && tiny.h < Stage.MIN_SIZE + Stage.STEP)
+        // Even from a size that is off the grid, the smallest is exactly 2 squares by 2.
+        assertEquals(Stage.MIN_SIZE, tiny.w)
+        assertEquals(Stage.MIN_SIZE, tiny.h)
+    }
+
+    @Test
+    fun `a move goes a grid square at a time and returns exactly to where it began`() {
+        val stat = layout.find(id("stat", "temp"))!!
+        val drag = DragSession(stat.id, resize = false, start = stat.box, base = placed)
+        assertEquals(stat.box.x + 16, drag.update(9f, 0f)!!.getValue(stat.id).x)
+        assertEquals(stat.box.x, drag.update(5f, 0f)!!.getValue(stat.id).x)
+        assertEquals(stat.box, drag.update(0f, 0f)!!.getValue(stat.id))
     }
 
     @Test
@@ -230,9 +240,9 @@ class PackerTest {
         val c = Placed("c", Box(0, 100, 100, 40))
         val drag = DragSession("a", resize = false, start = a.box, base = listOf(a, b, c), companions = setOf("b"))
         val moved = drag.update(0f, 100f)!!
-        assertEquals(Box(0, 100, 100, 40), moved.getValue("a"))
-        assertEquals(Box(200, 120, 100, 40), moved.getValue("b"))
-        assertEquals(140, moved.getValue("c").y)
+        assertEquals(Box(0, 96, 100, 40), moved.getValue("a"))
+        assertEquals(Box(200, 116, 100, 40), moved.getValue("b"))
+        assertEquals(136, moved.getValue("c").y)
         assertTidy(moved.values)
     }
 

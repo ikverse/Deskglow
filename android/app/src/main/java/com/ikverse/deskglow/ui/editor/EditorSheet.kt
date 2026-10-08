@@ -1,9 +1,5 @@
 package com.ikverse.deskglow.ui.editor
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +53,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ikverse.deskglow.AppGraph
@@ -73,27 +70,15 @@ import kotlin.math.roundToInt
 
 /**
  * The sheet along the bottom: the widget list (show, hide, delete, add) and the selected widget's
- * settings. It tucks away while a widget is being dragged, so nothing near the bottom is ever hidden
- * under it, and folds down to its tabs with the chevron.
+ * settings. It sits below the canvas, never over it, and folds down to its tabs with the chevron.
  */
 @Composable
-fun EditorSheet(state: EditorState, graph: AppGraph, modifier: Modifier) {
-    AnimatedVisibility(
-        visible = state.dragId == null,
-        modifier = modifier,
-        enter = slideInVertically { it / 3 } + fadeIn(),
-        // Gone at once when a drag begins: the stage needs every frame, and the sheet is the heaviest thing on screen.
-        exit = ExitTransition.None,
+fun EditorSheet(state: EditorState, graph: AppGraph, openHeight: Dp, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxWidth().testTag("sheet").background(Palette.Sheet).navigationBarsPadding()
+            .then(if (state.sheetOpen) Modifier.height(openHeight) else Modifier),
     ) {
-        BoxWithConstraints {
-            val openHeight = maxHeight * 0.44f
-            Column(
-                Modifier.fillMaxWidth().testTag("sheet").background(Palette.Sheet).navigationBarsPadding()
-                    .then(if (state.sheetOpen) Modifier.height(openHeight) else Modifier),
-            ) {
-                SheetContent(state, graph, foldable = true)
-            }
-        }
+        SheetContent(state, graph, foldable = true)
     }
 }
 

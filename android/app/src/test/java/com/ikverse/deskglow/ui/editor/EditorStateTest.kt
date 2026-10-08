@@ -265,12 +265,25 @@ class EditorStateTest {
     }
 
     @Test
+    fun `holding a widget starts select mode with it gathered, then toggles`() {
+        val items = listOf(WidgetItem("w1", "stat", Box(0, 0, 100, 40)), WidgetItem("w2", "stat", Box(200, 0, 100, 40)))
+        val s = EditorState(Layout(items)) {}
+        s.holdWidget("w1")
+        assertTrue(s.selecting)
+        assertEquals(setOf("w1"), s.groupIds)
+        s.holdWidget("w2")
+        assertEquals(setOf("w1", "w2"), s.groupIds)
+        s.holdWidget("w1")
+        assertEquals(setOf("w2"), s.groupIds)
+    }
+
+    @Test
     fun `dragging one gathered widget moves them all`() {
         val s = grouped(Box(0, 0, 100, 40), Box(200, 20, 100, 40))
         s.toggleInGroup("w1"); s.toggleInGroup("w2")
-        s.nudge("w1", 0, 100, resize = false)
-        assertEquals(Box(0, 100, 100, 40), s.layout.find("w1")!!.box)
-        assertEquals(Box(200, 120, 100, 40), s.layout.find("w2")!!.box)
+        s.nudge("w1", 0, 96, resize = false)
+        assertEquals(Box(0, 96, 100, 40), s.layout.find("w1")!!.box)
+        assertEquals(Box(200, 116, 100, 40), s.layout.find("w2")!!.box)
     }
 
     @Test

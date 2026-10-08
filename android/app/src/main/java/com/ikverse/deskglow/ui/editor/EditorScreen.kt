@@ -140,17 +140,22 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
             if (maxWidth > maxHeight) {
                 LandscapeEditor(state, graph, onDone)
             } else {
-                // The canvas sits below the top bar, not under it; only the settings sheet lies over it, at the bottom.
+                // The canvas sits between the top bar and the settings sheet; nothing lies over it.
+                val sheetHeight = maxHeight * 0.44f
                 Column(Modifier.fillMaxSize()) {
                     TopBar(state, onDone, Modifier)
-                    Stage(state, Modifier.weight(1f).fillMaxWidth())
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        Stage(state, Modifier.fillMaxSize())
+                        if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
+                    }
+                    EditorSheet(state, graph, openHeight = sheetHeight)
                 }
-                EditorSheet(state, graph, Modifier.align(Alignment.BottomCenter))
             }
             if (state.pickerOpen) AddPicker(state, Modifier.fillMaxSize())
             state.moreFonts?.let { MoreFontsSheet(it, state, graph, Modifier.fillMaxSize()) }
-            // Drawn last, so a message (a font that could not be downloaded) is never hidden under the sheet that caused it.
-            state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.TopCenter)) }
+            // The font list covers the canvas area, so a message from it (a font that could not be downloaded)
+            // is drawn over the whole screen, last, rather than under it. That list has no toolbar to hide.
+            if (state.moreFonts != null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
         }
     }
 }
@@ -167,7 +172,10 @@ private fun LandscapeEditor(state: EditorState, graph: AppGraph, onDone: () -> U
         Column(Modifier.fillMaxSize()) {
             TopBar(state, onDone, Modifier)
             Row(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))) {
-                Stage(state, Modifier.weight(1f).fillMaxHeight())
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    Stage(state, Modifier.fillMaxSize())
+                    if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
+                }
                 Box(Modifier.fillMaxHeight().width(1.dp).background(Palette.Rule))
                 EditorSidePanel(state, graph, Modifier.fillMaxHeight().width(panel))
             }
@@ -306,7 +314,15 @@ private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
                         drawRect(dashColour, style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))))
                     }
                 }
-                .pointerInput(item.id) { detectTapGestures { if (state.selecting) state.toggleInGroup(item.id) else state.select(item.id) } }
+                .pointerInput(item.id) {
+                    detectTapGestures(
+                        onLongPress = {
+                            state.holdWidget(item.id)
+                            state.haptic(Haptic.Centre)
+                        },
+                        onTap = { if (state.selecting) state.toggleInGroup(item.id) else state.select(item.id) },
+                    )
+                }
                 .pointerInput(item.id, unit) {
                     var total = Offset.Zero
                     detectDragGestures(
@@ -462,8 +478,9 @@ private fun ToastBar(state: EditorState, toast: Toast, modifier: Modifier) {
         if (state.toast?.id == toast.id) state.toast = null
     }
     Row(
-        modifier.statusBarsPadding().padding(top = 56.dp, start = 12.dp, end = 12.dp).fillMaxWidth()
+        modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp).fillMaxWidth()
             .clip(RoundedCornerShape(6.dp)).background(Palette.ToastFill).border(1.dp, Palette.ToastEdge, RoundedCornerShape(6.dp))
+            .clickable { state.toast = null }
             .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -478,6 +495,7 @@ private fun ToastBar(state: EditorState, toast: Toast, modifier: Modifier) {
                 undo()
             }) { Text("Undo", color = Palette.Select, fontSize = 14.sp) }
         }
+        TextButton(onClick = { state.toast = null }) { Text("Dismiss", color = Palette.Muted, fontSize = 14.sp) }
     }
 }
 
