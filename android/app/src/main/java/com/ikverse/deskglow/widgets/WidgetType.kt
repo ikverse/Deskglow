@@ -62,7 +62,7 @@ data class ColourField(override val label: String, val key: ColourKey) : Field
 /** The sideways strip of preview tiles (clock styles, date fonts), ending in "More fonts". */
 data class StyleField(override val label: String, val key: TextKey, val kind: StyleKind) : Field
 
-enum class StyleKind { Clock, Date }
+enum class StyleKind { Clock, Date, Weather }
 
 /** Settings every widget has. */
 object Common {

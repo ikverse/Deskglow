@@ -95,7 +95,7 @@ class EditorScreenTest {
     @Test
     fun `a widget under the sheet is reached from the widget list`() {
         compose.onNodeWithText("Weather").performScrollTo().performClick()
-        compose.onNodeWithText("Show high and low").assertIsDisplayed()
+        compose.onNodeWithText("Show high and low").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Weather data by Open-Meteo.com. Set your city on the Home screen.").performScrollTo().assertIsDisplayed()
     }
 

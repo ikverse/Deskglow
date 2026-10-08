@@ -28,12 +28,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.DrawStyle
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -45,6 +50,7 @@ import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.MediaState
 import com.ikverse.deskglow.data.NotificationState
 import com.ikverse.deskglow.data.Sky
+import com.ikverse.deskglow.data.Weather
 import com.ikverse.deskglow.data.WeatherState
 import com.ikverse.deskglow.data.conditionOf
 import com.ikverse.deskglow.data.formatTemperature
@@ -128,10 +134,17 @@ object NotificationsWidget : WidgetType {
 
 object WeatherWidget : WidgetType {
     val UNITS = TextKey("units", "c")
+    val LAYOUT = TextKey("layout", "side")
+    val ICON_STYLE = TextKey("iconStyle", "filled")
+    val SIZE = IntKey("size", 100)
     val SHOW_ICON = FlagKey("showIcon", true)
     val SHOW_CONDITION = FlagKey("showCondition", true)
     val SHOW_RANGE = FlagKey("showRange", true)
     val SHOW_CITY = FlagKey("showCity", true)
+    val SHOW_FEELS = FlagKey("showFeels", false)
+    val SHOW_HUMIDITY = FlagKey("showHumidity", false)
+    val SHOW_WIND = FlagKey("showWind", false)
+    val SHOW_RAIN = FlagKey("showRain", false)
     val ACCENT = ColourKey("accent", 0xFFF5B942.toInt())
 
     override val id = "weather"
@@ -141,12 +154,26 @@ object WeatherWidget : WidgetType {
     override val height = 64
     override val defaults: Settings = Common.base()
 
+    /** The layouts on offer, as (id, name). */
+    val LAYOUTS = listOf("side" to "Side by side", "stacked" to "Stacked", "compact" to "Compact", "big" to "Big temperature")
+
+    /** What the picker's tiles show when there is no weather yet. */
+    val SAMPLE = Weather(22.0, 2, true, 26.0, 17.0, 0, feelsLikeC = 21.0, humidityPercent = 48, windKmh = 14.0, rainChancePercent = 10)
+
     override fun fields(settings: Settings) = listOf(
+        StyleField("Layout", LAYOUT, StyleKind.Weather),
         ChoiceField("Units", UNITS, listOf("c" to "°C", "f" to "°F")),
+        ChoiceField("Icon style", ICON_STYLE, listOf("filled" to "Filled", "outline" to "Outline")),
+        SliderField("Temperature size", SIZE, 60..140, "%"),
+        Common.alignField,
         ToggleField("Show icon", SHOW_ICON),
         ToggleField("Show condition", SHOW_CONDITION),
         ToggleField("Show high and low", SHOW_RANGE),
         ToggleField("Show city", SHOW_CITY),
+        ToggleField("Show feels like", SHOW_FEELS),
+        ToggleField("Show humidity", SHOW_HUMIDITY),
+        ToggleField("Show wind", SHOW_WIND),
+        ToggleField("Show chance of rain", SHOW_RAIN),
         ColourField("Icon colour", ACCENT),
         Common.colourField,
         Common.brightnessField,
@@ -159,47 +186,121 @@ object WeatherWidget : WidgetType {
         val state by LocalFeeds.current.weather.collectAsStateWithLifecycle()
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
-            val w = constraints.maxWidth.toFloat()
             val (city, weather) = when (val s = state) {
                 WeatherState.NoCity -> return@BoxWithConstraints EditorHint("Set your city on the Home screen", h * 0.2f)
                 is WeatherState.Loading -> return@BoxWithConstraints EditorHint("Loading weather…", h * 0.22f)
                 is WeatherState.Failed -> s.city to (s.last ?: return@BoxWithConstraints EditorHint("No weather yet", h * 0.22f))
                 is WeatherState.Ready -> s.city to s.weather
             }
+            WeatherBody(settings, city.name, weather)
+        }
+    }
+
+    /** The weather drawn in the layout [LAYOUT] picks, filling whatever box it is given. */
+    @Composable
+    fun WeatherBody(settings: Settings, cityName: String, weather: Weather) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val h = constraints.maxHeight.toFloat()
+            val w = constraints.maxWidth.toFloat()
             val f = settings[UNITS] == "f"
             val colour = Color(settings[Common.COLOUR])
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                if (settings[SHOW_ICON]) {
-                    WeatherIcon(skyOf(weather.code), weather.isDay, Color(settings[ACCENT]), Modifier.size(pxToDp(h * 0.74f)))
-                    Spacer(Modifier.width(pxToDp(h * 0.08f)))
+            val layout = settings[LAYOUT]
+            val align = settings[Common.ALIGN]
+            val showIcon = settings[SHOW_ICON] && layout != "big"
+
+            val line = listOfNotNull(conditionOf(weather.code).takeIf { settings[SHOW_CONDITION] }, cityName.takeIf { settings[SHOW_CITY] }).joinToString(" · ")
+            val range = "H ${formatTemperature(weather.highC, f)}  L ${formatTemperature(weather.lowC, f)}".takeIf { settings[SHOW_RANGE] }
+            val details = listOfNotNull(
+                weather.feelsLikeC?.takeIf { settings[SHOW_FEELS] }?.let { "Feels ${formatTemperature(it, f)}" },
+                weather.humidityPercent?.takeIf { settings[SHOW_HUMIDITY] }?.let { "$it% humidity" },
+                weather.windKmh?.takeIf { settings[SHOW_WIND] }?.let { formatWind(it, f) },
+                weather.rainChancePercent?.takeIf { settings[SHOW_RAIN] }?.let { "$it% rain" },
+            ).joinToString(" · ")
+            val texts = listOf(line, range.orEmpty(), details).filter { it.isNotEmpty() }
+                .let { if (layout == "compact" && it.isNotEmpty()) listOf(it.joinToString("  ·  ")) else it }
+
+            val tempBase = when (layout) {
+                "stacked" -> min(h * 0.3f, w * 0.12f)
+                "compact" -> min(h * 0.36f, w * 0.13f)
+                "big" -> min(h * 0.6f, w * 0.22f)
+                else -> min(h * 0.44f, w * 0.15f)
+            } * settings[SIZE] / 100f
+            val smallBase = min(h * 0.19f, w * 0.07f)
+            val iconBase = when (layout) { "stacked" -> h * 0.34f; "compact" -> h * 0.36f; else -> h * 0.74f }
+            val stacksIcon = layout == "stacked"
+            // Shrink everything together when the lines would not fit the height.
+            val need = tempBase * 1.12f + texts.size * smallBase * 1.15f + if (showIcon && stacksIcon) iconBase else 0f
+            val fit = min(1f, h * 0.98f / need)
+            val temp = tempBase * fit
+            val small = smallBase * fit
+            val icon = iconBase * fit
+
+            @Composable
+            fun Icon() = WeatherIcon(skyOf(weather.code), weather.isDay, Color(settings[ACCENT]), Modifier.size(pxToDp(icon)), outline = settings[ICON_STYLE] == "outline")
+
+            @Composable
+            fun Temperature() = Text(
+                formatTemperature(weather.temperatureC, f), color = colour, fontSize = pxToSp(temp),
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Light, maxLines = 1, textAlign = textAlign(align),
+            )
+
+            @Composable
+            fun Lines() = texts.forEach {
+                Text(it, color = Muted, fontSize = pxToSp(small), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align))
+            }
+
+            when (layout) {
+                "side" -> Row(
+                    Modifier.fillMaxSize(),
+                    horizontalArrangement = when (align) { "center" -> Arrangement.Center; "right" -> Arrangement.End; else -> Arrangement.Start },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (showIcon) {
+                        Icon()
+                        Spacer(Modifier.width(pxToDp(h * 0.08f)))
+                    }
+                    Column(verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) { Temperature(); Lines() }
                 }
-                Column(verticalArrangement = Arrangement.Center) {
-                    Text(formatTemperature(weather.temperatureC, f), color = colour, fontSize = pxToSp(min(h * 0.44f, w * 0.15f)), fontWeight = androidx.compose.ui.text.font.FontWeight.Light, maxLines = 1)
-                    val line = listOfNotNull(conditionOf(weather.code).takeIf { settings[SHOW_CONDITION] }, city.name.takeIf { settings[SHOW_CITY] }).joinToString(" · ")
-                    val small = pxToSp(min(h * 0.19f, w * 0.07f))
-                    if (line.isNotEmpty()) Text(line, color = Muted, fontSize = small, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (settings[SHOW_RANGE]) Text("H ${formatTemperature(weather.highC, f)}  L ${formatTemperature(weather.lowC, f)}", color = Muted, fontSize = small, maxLines = 1)
+                "compact" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (showIcon) {
+                            Icon()
+                            Spacer(Modifier.width(pxToDp(h * 0.06f)))
+                        }
+                        Temperature()
+                    }
+                    Lines()
+                }
+                else -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+                    if (showIcon && stacksIcon) Icon()
+                    Temperature()
+                    Lines()
                 }
             }
         }
     }
 }
 
-/** A plain drawn weather icon: sun or moon, cloud, rain, snow, storm or fog. */
+/** "14 km/h", or "9 mph" when the widget is in Fahrenheit. */
+fun formatWind(kmh: Double, miles: Boolean): String =
+    if (miles) String.format(Locale.US, "%d mph", Math.round(kmh * 0.621371)) else String.format(Locale.US, "%d km/h", Math.round(kmh))
+
+/** A plain drawn weather icon: sun or moon, cloud, rain, snow, storm or fog. [outline] draws lines instead of solid shapes. */
 @Composable
-fun WeatherIcon(sky: Sky, day: Boolean, color: Color, modifier: Modifier) {
+fun WeatherIcon(sky: Sky, day: Boolean, color: Color, modifier: Modifier, outline: Boolean = false) {
     Canvas(modifier) {
         val s = size.minDimension
+        val style: DrawStyle = if (outline) Stroke(s * 0.045f, cap = StrokeCap.Round, join = StrokeJoin.Round) else Fill
         when (sky) {
-            Sky.Clear -> if (day) sun(color, Offset(s / 2, s / 2), s * 0.2f) else moon(color, Offset(s / 2, s / 2), s * 0.3f)
+            Sky.Clear -> if (day) sun(color, Offset(s / 2, s / 2), s * 0.2f, style) else moon(color, Offset(s / 2, s / 2), s * 0.3f, style)
             Sky.PartlyCloudy -> {
-                if (day) sun(color, Offset(s * 0.36f, s * 0.36f), s * 0.14f) else moon(color, Offset(s * 0.36f, s * 0.34f), s * 0.2f)
-                cloud(color, s, 0.18f)
+                if (day) sun(color, Offset(s * 0.36f, s * 0.36f), s * 0.14f, style) else moon(color, Offset(s * 0.36f, s * 0.34f), s * 0.2f, style)
+                cloud(color, s, 0.18f, style, coversBehind = true)
             }
-            Sky.Cloudy -> cloud(color, s, 0.08f)
+            Sky.Cloudy -> cloud(color, s, 0.08f, style)
             Sky.Fog -> for (i in 0..2) drawLine(color, Offset(s * 0.18f, s * (0.38f + i * 0.14f)), Offset(s * 0.82f, s * (0.38f + i * 0.14f)), s * 0.06f, StrokeCap.Round)
             Sky.Drizzle, Sky.Rain -> {
-                cloud(color, s, -0.06f)
+                cloud(color, s, -0.06f, style)
                 val drops = if (sky == Sky.Rain) 3 else 2
                 for (i in 0 until drops) {
                     val x = s * (0.36f + i * 0.14f)
@@ -207,23 +308,23 @@ fun WeatherIcon(sky: Sky, day: Boolean, color: Color, modifier: Modifier) {
                 }
             }
             Sky.Snow -> {
-                cloud(color, s, -0.06f)
+                cloud(color, s, -0.06f, style)
                 for (i in 0..2) drawCircle(color, s * 0.035f, Offset(s * (0.34f + i * 0.16f), s * 0.8f))
             }
             Sky.Storm -> {
-                cloud(color, s, -0.08f)
+                cloud(color, s, -0.08f, style)
                 val bolt = Path().apply {
                     moveTo(s * 0.52f, s * 0.6f); lineTo(s * 0.4f, s * 0.78f); lineTo(s * 0.5f, s * 0.78f)
                     lineTo(s * 0.44f, s * 0.96f); lineTo(s * 0.62f, s * 0.72f); lineTo(s * 0.52f, s * 0.72f); close()
                 }
-                drawPath(bolt, color)
+                drawPath(bolt, color, style = style)
             }
         }
     }
 }
 
-private fun DrawScope.sun(color: Color, centre: Offset, r: Float) {
-    drawCircle(color, r, centre)
+private fun DrawScope.sun(color: Color, centre: Offset, r: Float, style: DrawStyle) {
+    drawCircle(color, r, centre, style = style)
     for (i in 0 until 8) {
         val a = i * PI / 4
         val c = cos(a).toFloat()
@@ -232,14 +333,38 @@ private fun DrawScope.sun(color: Color, centre: Offset, r: Float) {
     }
 }
 
-private fun DrawScope.moon(color: Color, centre: Offset, r: Float) {
-    drawCircle(color, r, centre)
-    drawCircle(Color.Black, r * 0.85f, Offset(centre.x + r * 0.45f, centre.y - r * 0.3f))
+private fun DrawScope.moon(color: Color, centre: Offset, r: Float, style: DrawStyle) {
+    if (style is Stroke) {
+        // A crescent: the disc less a smaller disc, so only its edge is drawn.
+        val disc = Path().apply { addOval(Rect(centre, r)) }
+        val bite = Path().apply { addOval(Rect(Offset(centre.x + r * 0.45f, centre.y - r * 0.3f), r * 0.85f)) }
+        drawPath(Path.combine(PathOperation.Difference, disc, bite), color, style = style)
+    } else {
+        drawCircle(color, r, centre)
+        drawCircle(Color.Black, r * 0.85f, Offset(centre.x + r * 0.45f, centre.y - r * 0.3f))
+    }
 }
 
-/** A cloud of three puffs on a flat base; [lift] moves it up (positive) or down. */
-private fun DrawScope.cloud(color: Color, s: Float, lift: Float) {
+/**
+ * A cloud of three puffs on a flat base; [lift] moves it up (positive) or down. As an outline only its
+ * edge is drawn; [coversBehind] (a cloud in front of a sun or moon) also blanks what is inside it.
+ */
+private fun DrawScope.cloud(color: Color, s: Float, lift: Float, style: DrawStyle, coversBehind: Boolean = false) {
     val y = s * (0.62f - lift)
+    if (style is Stroke) {
+        val parts = listOf(
+            Path().apply { addOval(Rect(Offset(s * 0.36f, y - s * 0.02f), s * 0.16f)) },
+            Path().apply { addOval(Rect(Offset(s * 0.56f, y - s * 0.08f), s * 0.21f)) },
+            Path().apply { addOval(Rect(Offset(s * 0.74f, y + s * 0.02f), s * 0.13f)) },
+            Path().apply { addRect(Rect(Offset(s * 0.36f, y), Size(s * 0.38f, s * 0.15f))) },
+            Path().apply { addOval(Rect(Offset(s * 0.36f, y + s * 0.075f), s * 0.075f)) },
+            Path().apply { addOval(Rect(Offset(s * 0.74f, y + s * 0.075f), s * 0.075f)) },
+        )
+        val shape = parts.reduce { a, b -> Path.combine(PathOperation.Union, a, b) }
+        if (coversBehind) drawPath(shape, Color.Black)
+        drawPath(shape, color, style = style)
+        return
+    }
     drawCircle(color, s * 0.16f, Offset(s * 0.36f, y - s * 0.02f))
     drawCircle(color, s * 0.21f, Offset(s * 0.56f, y - s * 0.08f))
     drawCircle(color, s * 0.13f, Offset(s * 0.74f, y + s * 0.02f))

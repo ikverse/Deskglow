@@ -25,10 +25,12 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,6 +51,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.data.LocalFeeds
+import com.ikverse.deskglow.data.WeatherState
+import com.ikverse.deskglow.display.WidgetTextStyle
 import com.ikverse.deskglow.fonts.BundledFonts
 import com.ikverse.deskglow.fonts.CatalogFont
 import com.ikverse.deskglow.fonts.FontCategory
@@ -70,6 +74,7 @@ import com.ikverse.deskglow.widgets.FitText
 import com.ikverse.deskglow.widgets.StyleField
 import com.ikverse.deskglow.widgets.StyleKind
 import com.ikverse.deskglow.widgets.TimeText
+import com.ikverse.deskglow.widgets.WeatherWidget
 import kotlinx.coroutines.launch
 
 /** One tile in a strip: a style or font id, its name, and whether it can be chosen right now. */
@@ -91,13 +96,18 @@ fun styleOptions(kind: StyleKind, settings: Settings, picked: List<PickedFont>):
             if (arabicDigits && !ClockStyles.supportsArabic(id)) StyleOption(id, label, enabled = false, note = "Western only") else StyleOption(id, label)
         }
         StyleKind.Date -> listOf(StyleOption(FontIds.THIN, "Thin (default)"))
+        StyleKind.Weather -> return WeatherWidget.LAYOUTS.map { (id, label) -> StyleOption(id, label) }
     }
     val bundled = BundledFonts.all.filter { !arabic || it.arabic }.map { StyleOption(it.id, it.label) }
     val library = picked.filter { if (arabic) it.arabic else it.latin }.map { StyleOption(it.id, it.family) }
     return builtIn + bundled + library
 }
 
-private fun keyOf(kind: StyleKind): TextKey = if (kind == StyleKind.Clock) ClockWidget.STYLE else DateWidget.FONT
+private fun keyOf(kind: StyleKind): TextKey = when (kind) {
+    StyleKind.Clock -> ClockWidget.STYLE
+    StyleKind.Date -> DateWidget.FONT
+    StyleKind.Weather -> WeatherWidget.LAYOUT
+}
 
 /** The sideways strip of preview tiles, ending in "More fonts". */
 @Composable
@@ -118,7 +128,7 @@ fun StyleStrip(field: StyleField, settings: Settings, state: EditorState, graph:
                     Preview(field.kind, settings, option.id)
                 }
             }
-            item(key = "more") {
+            if (field.kind != StyleKind.Weather) item(key = "more") {
                 Tile("More fonts", selected = false, enabled = true, onClick = { state.moreFonts = field.kind }) {
                     Text("Aa +", color = Palette.Select, fontSize = 22.sp)
                 }
@@ -157,6 +167,18 @@ private fun Preview(kind: StyleKind, settings: Settings, id: String) {
             ClockFace(id, TimeText.parts(now, settings[ClockWidget.H24], settings[ClockWidget.SECONDS], arabic), colour, arabic)
         }
         StyleKind.Date -> DateFace(settings, id, now.toLocalDate(), Modifier.fillMaxSize())
+        StyleKind.Weather -> {
+            // The widget's own layout with the owner's current settings, on today's weather (or a sample before there is any).
+            val state by LocalFeeds.current.weather.collectAsStateWithLifecycle()
+            val (name, weather) = when (val s = state) {
+                is WeatherState.Ready -> s.city.name to s.weather
+                is WeatherState.Failed -> s.city.name to (s.last ?: WeatherWidget.SAMPLE)
+                else -> "Cairo" to WeatherWidget.SAMPLE
+            }
+            CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle) {
+                WeatherWidget.WeatherBody(settings.with(WeatherWidget.LAYOUT, id), name, weather)
+            }
+        }
     }
 }
 
@@ -262,6 +284,7 @@ private fun FontCell(font: CatalogFont, kind: StyleKind, settings: Settings, gra
     val shownText = when (kind) {
         StyleKind.Clock -> TimeText.parts(now, settings[ClockWidget.H24], false, arabicDigits).text
         StyleKind.Date -> TimeText.date(now.toLocalDate(), settings[DateWidget.FORMAT], settings[Common.ARABIC], arabicDigits)
+        StyleKind.Weather -> ""
     }
     val needs = previewText(kind, settings, shownText)
     var typeface by remember(font.family) { mutableStateOf<Typeface?>(null) }

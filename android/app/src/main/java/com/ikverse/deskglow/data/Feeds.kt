@@ -82,6 +82,11 @@ data class Weather(
     val highC: Double,
     val lowC: Double,
     val fetchedAtMs: Long,
+    /** Null when the answer did not include them (an older cached answer, or a gap in the data). */
+    val feelsLikeC: Double? = null,
+    val humidityPercent: Int? = null,
+    val windKmh: Double? = null,
+    val rainChancePercent: Int? = null,
 )
 
 sealed interface WeatherState {

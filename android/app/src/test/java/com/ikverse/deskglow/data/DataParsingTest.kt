@@ -44,6 +44,39 @@ class DataParsingTest {
     }
 
     @Test
+    fun `the extra readings are read when present and left empty when not`() {
+        val plain = parseForecast(forecast, nowMs = 1L)
+        assertNull(plain.feelsLikeC)
+        assertNull(plain.humidityPercent)
+        assertNull(plain.windKmh)
+        assertNull(plain.rainChancePercent)
+
+        val full = parseForecast(
+            """{"current":{"temperature_2m":25.0,"weather_code":2,"is_day":1,"apparent_temperature":26.4,"relative_humidity_2m":61,"wind_speed_10m":12.5},
+            "daily":{"temperature_2m_max":[30.1],"temperature_2m_min":[18.0],"precipitation_probability_max":[35]}}""",
+            nowMs = 1L,
+        )
+        assertEquals(26.4, full.feelsLikeC!!, 0.0)
+        assertEquals(61, full.humidityPercent)
+        assertEquals(12.5, full.windKmh!!, 0.0)
+        assertEquals(35, full.rainChancePercent)
+
+        val gap = parseForecast(
+            """{"current":{"temperature_2m":25.0,"weather_code":2,"relative_humidity_2m":null},
+            "daily":{"temperature_2m_max":[30.1],"temperature_2m_min":[18.0],"precipitation_probability_max":[null]}}""",
+            nowMs = 1L,
+        )
+        assertNull(gap.humidityPercent)
+        assertNull(gap.rainChancePercent)
+    }
+
+    @Test
+    fun `wind is shown in km per hour, or miles per hour for Fahrenheit`() {
+        assertEquals("14 km/h", com.ikverse.deskglow.widgets.formatWind(14.2, miles = false))
+        assertEquals("9 mph", com.ikverse.deskglow.widgets.formatWind(14.2, miles = true))
+    }
+
+    @Test
     fun `a city search is read, with region and country to tell places apart`() {
         val cities = parseCities(places)
         assertEquals(2, cities.size)
