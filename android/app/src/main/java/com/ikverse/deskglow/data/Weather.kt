@@ -79,7 +79,8 @@ class WeatherRepository(
 
     private fun fetch(city: City): Weather {
         val url = "https://api.open-meteo.com/v1/forecast?latitude=${city.latitude}&longitude=${city.longitude}" +
-            "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min" +
+            "&current=temperature_2m,weather_code,is_day,apparent_temperature,relative_humidity_2m,wind_speed_10m" +
+            "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
             "&timezone=auto&forecast_days=1"
         return parseForecast(String(http.get(url)), clock())
     }
@@ -96,14 +97,22 @@ class WeatherRepository(
             val json = JSONObject(text)
             if (json.getString("city") != city.toJson()) return@runCatching null
             val w = json.getJSONObject("weather")
-            Weather(w.getDouble("t"), w.getInt("code"), w.getBoolean("day"), w.getDouble("hi"), w.getDouble("lo"), w.getLong("at"))
+            Weather(
+                w.getDouble("t"), w.getInt("code"), w.getBoolean("day"), w.getDouble("hi"), w.getDouble("lo"), w.getLong("at"),
+                feelsLikeC = w.numberOrNull("feels")?.toDouble(),
+                humidityPercent = w.numberOrNull("hum")?.toInt(),
+                windKmh = w.numberOrNull("wind")?.toDouble(),
+                rainChancePercent = w.numberOrNull("rain")?.toInt(),
+            )
         }.getOrNull()
     }
 
     private fun cacheJson(city: City, w: Weather): String = JSONObject()
         .put("city", city.toJson())
         .put("weather", JSONObject().put("t", w.temperatureC).put("code", w.code).put("day", w.isDay)
-            .put("hi", w.highC).put("lo", w.lowC).put("at", w.fetchedAtMs))
+            .put("hi", w.highC).put("lo", w.lowC).put("at", w.fetchedAtMs)
+            .putOpt("feels", w.feelsLikeC).putOpt("hum", w.humidityPercent)
+            .putOpt("wind", w.windKmh).putOpt("rain", w.rainChancePercent))
         .toString()
 
     companion object {
@@ -123,8 +132,14 @@ internal fun parseForecast(body: String, nowMs: Long): Weather {
         highC = daily.getJSONArray("temperature_2m_max").getDouble(0),
         lowC = daily.getJSONArray("temperature_2m_min").getDouble(0),
         fetchedAtMs = nowMs,
+        feelsLikeC = current.numberOrNull("apparent_temperature")?.toDouble(),
+        humidityPercent = current.numberOrNull("relative_humidity_2m")?.toInt(),
+        windKmh = current.numberOrNull("wind_speed_10m")?.toDouble(),
+        rainChancePercent = daily.optJSONArray("precipitation_probability_max")?.takeIf { it.length() > 0 && !it.isNull(0) }?.getInt(0),
     )
 }
+
+private fun JSONObject.numberOrNull(name: String): Number? = if (has(name) && !isNull(name)) get(name) as? Number else null
 
 internal fun parseCities(body: String): List<City> {
     val results = JSONObject(body).optJSONArray("results") ?: return emptyList()

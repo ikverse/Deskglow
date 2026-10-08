@@ -27,7 +27,10 @@ import com.ikverse.deskglow.widgets.Common
 import com.ikverse.deskglow.widgets.DateWidget
 import com.ikverse.deskglow.widgets.DefaultLayout
 import com.ikverse.deskglow.widgets.LocalEditing
+import com.ikverse.deskglow.widgets.WeatherWidget
 import com.ikverse.deskglow.widgets.Widgets
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -151,6 +154,43 @@ class DisplayRenderTest {
 
     @Test
     fun `every date font and format, in Arabic`() = dates(arabic = true)
+
+    private fun weatherLayouts(outline: Boolean) {
+        feeds.weather.value = WeatherState.Ready(cairo, WeatherWidget.SAMPLE)
+        val items = WeatherWidget.LAYOUTS.mapIndexed { i, (layout, _) ->
+            val settings = WeatherWidget.defaults.with(WeatherWidget.LAYOUT, layout)
+                .with(WeatherWidget.ICON_STYLE, if (outline) "outline" else "filled")
+                .with(WeatherWidget.SHOW_FEELS, true).with(WeatherWidget.SHOW_HUMIDITY, i % 2 == 0)
+                .with(WeatherWidget.SHOW_WIND, true).with(WeatherWidget.SHOW_RAIN, i % 2 == 1)
+                .with(Common.ALIGN, listOf("left", "center", "right", "left")[i])
+            WidgetItem("w$i", WeatherWidget.id, Box(8, i * 100 + 8, 396, 92), true, settings)
+        }
+        show(Layout(items))
+        save(if (outline) "weather-outline" else "weather-filled")
+    }
+
+    @Test
+    fun `every weather layout with filled icons`() = weatherLayouts(outline = false)
+
+    @Test
+    fun `every weather layout with outline icons`() = weatherLayouts(outline = true)
+
+    @Test
+    fun `every sky draws as a filled and as an outline icon, day and night`() {
+        compose.setContent {
+            androidx.compose.foundation.layout.Column {
+                for (outline in listOf(false, true)) for (day in listOf(true, false)) {
+                    androidx.compose.foundation.layout.Row {
+                        com.ikverse.deskglow.data.Sky.entries.forEach {
+                            com.ikverse.deskglow.widgets.WeatherIcon(it, day, androidx.compose.ui.graphics.Color.White, androidx.compose.ui.Modifier.size(40.dp), outline)
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        save("weather-icons")
+    }
 
     @Test
     fun `a widget from a newer version is skipped, not a crash`() {
