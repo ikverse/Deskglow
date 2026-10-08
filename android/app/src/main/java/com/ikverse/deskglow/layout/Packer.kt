@@ -111,6 +111,27 @@ object Packer {
         }
     }
 
+    /**
+     * Every widget's top-left corner and bottom-right corner moved to the nearest dot of the background
+     * grid, then tidied so nothing overlaps. Sizes keep the minimum and stay on the canvas.
+     */
+    fun snapToGrid(items: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box> {
+        fun dot(v: Int) = ((v.toFloat() / Stage.STEP).roundToInt()) * Stage.STEP
+        fun axis(start: Int, size: Int, canvas: Int): Pair<Int, Int> {
+            val from = dot(start).coerceIn(0, (canvas - Stage.MIN_SIZE).coerceAtLeast(0))
+            val length = (dot(start + size) - from).coerceAtLeast(Stage.MIN_SIZE).coerceAtMost(canvas - from)
+            return from to length
+        }
+        return tidy(
+            items.map { (id, b) ->
+                val (x, w) = axis(b.x, b.w, orientation.width)
+                val (y, h) = axis(b.y, b.h, orientation.height)
+                Placed(id, Box(x, y, w, h))
+            },
+            orientation,
+        )
+    }
+
     /** A layout saved before overlaps were prevented, tidied once: top to bottom, each drops below what it touches. */
     fun tidy(items: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box> {
         val placed = ArrayList<Box>(items.size)

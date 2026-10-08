@@ -198,6 +198,20 @@ class EditorState(
         toast = Toast("Aligned ${members.size} widgets", undo = { if (layout == after) undo() else commit(layout.withBoxes(previous)) })
     }
 
+    /** Moves every visible widget's corners onto the nearest dots of the background grid. Undo moves them back. */
+    fun snapAllToGrid() {
+        val boxes = Packer.snapToGrid(visiblePlaced(), orientation)
+        val moved = boxes.filter { (id, box) -> layout.find(id)?.box != box }
+        if (moved.isEmpty()) {
+            toast = Toast("Already on the grid")
+            return
+        }
+        val previous = moved.mapValues { (id, _) -> layout.find(id)!!.box }
+        commit(layout.withBoxes(boxes))
+        val after = layout
+        toast = Toast("Snapped ${moved.size} widgets to grid", undo = { if (layout == after) undo() else commit(layout.withBoxes(previous)) })
+    }
+
     // ---- dragging: every step is worked out from where everything was when the drag began ----
 
     fun beginDrag(id: String, resize: Boolean) {
