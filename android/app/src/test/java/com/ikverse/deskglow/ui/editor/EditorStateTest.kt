@@ -246,4 +246,57 @@ class EditorStateTest {
         val date = styleOptions(StyleKind.Date, com.ikverse.deskglow.widgets.DateWidget.defaults, picked)
         assertEquals("thin", date.first().id)
     }
+
+    private fun grouped(vararg boxes: Box): EditorState {
+        val items = boxes.mapIndexed { i, box -> WidgetItem("w${i + 1}", "stat", box) }
+        return EditorState(Layout(items)) {}.also { it.selectMode(true) }
+    }
+
+    @Test
+    fun `select mode gathers widgets by tapping and leaves nothing selected`() {
+        val s = grouped(Box(0, 0, 100, 40), Box(200, 0, 100, 40))
+        s.toggleInGroup("w1"); s.toggleInGroup("w2")
+        assertEquals(setOf("w1", "w2"), s.groupIds)
+        s.toggleInGroup("w1")
+        assertEquals(setOf("w2"), s.groupIds)
+        assertNull(s.selectedId)
+        s.selectMode(false)
+        assertTrue(s.groupIds.isEmpty())
+    }
+
+    @Test
+    fun `dragging one gathered widget moves them all`() {
+        val s = grouped(Box(0, 0, 100, 40), Box(200, 20, 100, 40))
+        s.toggleInGroup("w1"); s.toggleInGroup("w2")
+        s.nudge("w1", 0, 100, resize = false)
+        assertEquals(Box(0, 100, 100, 40), s.layout.find("w1")!!.box)
+        assertEquals(Box(200, 120, 100, 40), s.layout.find("w2")!!.box)
+    }
+
+    @Test
+    fun `aligning moves the group, offers undo, and undo moves it back`() {
+        val s = grouped(Box(0, 0, 100, 40), Box(60, 100, 100, 40))
+        s.toggleInGroup("w1"); s.toggleInGroup("w2")
+        s.align(com.ikverse.deskglow.layout.Align.Left)
+        assertEquals(0, s.layout.find("w2")!!.box.x)
+        s.toast!!.undo!!()
+        assertEquals(60, s.layout.find("w2")!!.box.x)
+    }
+
+    @Test
+    fun `aligning widgets that would land on each other is refused`() {
+        val s = grouped(Box(0, 0, 100, 40), Box(200, 0, 100, 40))
+        s.toggleInGroup("w1"); s.toggleInGroup("w2")
+        s.align(com.ikverse.deskglow.layout.Align.Left)
+        assertEquals(EditorState.NO_ALIGN, s.toast?.message)
+        assertEquals(200, s.layout.find("w2")!!.box.x)
+    }
+
+    @Test
+    fun `deleting a gathered widget drops it from the group`() {
+        val s = grouped(Box(0, 0, 100, 40), Box(200, 0, 100, 40))
+        s.toggleInGroup("w1"); s.toggleInGroup("w2")
+        s.delete("w1")
+        assertEquals(setOf("w2"), s.groupIds)
+    }
 }

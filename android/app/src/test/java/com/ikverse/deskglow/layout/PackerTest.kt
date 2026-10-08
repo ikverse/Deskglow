@@ -222,4 +222,46 @@ class PackerTest {
         assertEquals(Orientation.Landscape, Orientation.of(848, 412))
         assertEquals(Orientation.Portrait, Orientation.of(500, 500))
     }
+
+    @Test
+    fun `a group drag moves every member by the same distance and pushes others out of the way`() {
+        val a = Placed("a", Box(0, 0, 100, 40))
+        val b = Placed("b", Box(200, 20, 100, 40))
+        val c = Placed("c", Box(0, 100, 100, 40))
+        val drag = DragSession("a", resize = false, start = a.box, base = listOf(a, b, c), companions = setOf("b"))
+        val moved = drag.update(0f, 100f)!!
+        assertEquals(Box(0, 100, 100, 40), moved.getValue("a"))
+        assertEquals(Box(200, 120, 100, 40), moved.getValue("b"))
+        assertEquals(140, moved.getValue("c").y)
+        assertTidy(moved.values)
+    }
+
+    @Test
+    fun `a group drag stops when any member reaches the canvas edge`() {
+        val a = Placed("a", Box(0, 0, 100, 40))
+        val b = Placed("b", Box(200, 0, 100, 40))
+        val drag = DragSession("a", resize = false, start = a.box, base = listOf(a, b), companions = setOf("b"))
+        val moved = drag.update(500f, 0f)!!
+        assertEquals(Orientation.Portrait.width, moved.getValue("b").right)
+        assertEquals(moved.getValue("b").x - moved.getValue("a").x, 200)
+    }
+
+    @Test
+    fun `align lines widgets up on the box around them`() {
+        val items = listOf(Placed("a", Box(20, 0, 100, 40)), Placed("b", Box(60, 100, 200, 60)))
+        fun boxes(mode: Align) = Packer.align(items, mode).associate { it.id to it.box }
+        assertEquals(20, boxes(Align.Left).getValue("b").x)
+        assertEquals(260 - 100, boxes(Align.Right).getValue("a").x)
+        assertEquals(20 + (240 - 100) / 2, boxes(Align.CentreX).getValue("a").x)
+        assertEquals(0, boxes(Align.Top).getValue("b").y)
+        assertEquals(160 - 40, boxes(Align.Bottom).getValue("a").y)
+        assertEquals((160 - 40) / 2, boxes(Align.CentreY).getValue("a").y)
+    }
+
+    @Test
+    fun `held widgets that overlap each other cannot be resolved`() {
+        val a = Placed("a", Box(0, 0, 100, 40))
+        val b = Placed("b", Box(50, 20, 100, 40))
+        assertNull(Packer.resolveGroup(listOf(a, b), emptyList()))
+    }
 }

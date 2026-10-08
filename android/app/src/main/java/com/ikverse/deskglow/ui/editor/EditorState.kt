@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.ikverse.deskglow.layout.Align
 import com.ikverse.deskglow.layout.Centring
 import com.ikverse.deskglow.layout.DragSession
 import com.ikverse.deskglow.layout.Packer
@@ -51,6 +52,13 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
     var moreFonts by mutableStateOf<StyleKind?>(null)
     var toast by mutableStateOf<Toast?>(null)
 
+    /** Select mode: tapping widgets gathers them into [groupIds] instead of selecting one. Never saved. */
+    var selecting by mutableStateOf(false)
+        private set
+    /** The widgets gathered in select mode; dragging any one of them (once there are two) moves them all. */
+    var groupIds by mutableStateOf<Set<String>>(emptySet())
+        private set
+
     private var session: DragSession? = null
 
     val selected: WidgetItem? get() = selectedId?.let(layout::find)
@@ -74,12 +82,48 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         if (selectedId != null) tab = SheetTab.Settings else if (tab == SheetTab.Settings) tab = SheetTab.Widgets
     }
 
+    // ---- grouping: gather widgets to move or align them together ----
+
+    fun selectMode(on: Boolean) {
+        selecting = on
+        groupIds = emptySet()
+        if (on) select(null)
+    }
+
+    fun toggleInGroup(id: String) {
+        val item = layout.find(id) ?: return
+        if (!selecting || !item.visible) return
+        groupIds = if (id in groupIds) groupIds - id else groupIds + id
+    }
+
+    /** Lines the gathered widgets up on [mode]; the rest are pushed down if they are in the way. Undo moves them back. */
+    fun align(mode: Align) {
+        val members = layout.items.filter { it.visible && it.id in groupIds }
+        if (members.size < 2) return
+        val aligned = Packer.align(members.map { Placed(it.id, it.box) }, mode)
+        val boxes = Packer.resolveGroup(aligned, visiblePlaced().filter { it.id !in groupIds }, orientation)
+        if (boxes == null) {
+            toast = Toast(NO_ALIGN)
+            return
+        }
+        val moved = boxes.filter { (id, box) -> layout.find(id)?.box != box }
+        if (moved.isEmpty()) {
+            toast = Toast("Already lined up")
+            return
+        }
+        val previous = moved.mapValues { (id, _) -> layout.find(id)!!.box }
+        commit(layout.withBoxes(boxes))
+        toast = Toast("Aligned ${members.size} widgets", undo = { commit(layout.withBoxes(previous)) })
+    }
+
     // ---- dragging: every step is worked out from where everything was when the drag began ----
 
     fun beginDrag(id: String, resize: Boolean) {
         val item = layout.find(id) ?: return
-        select(id)
-        session = DragSession(id, resize, item.box, visiblePlaced(), orientation)
+        // In select mode a drag moves the gathered group, or just the one widget, and selects nothing.
+        if (!selecting) select(id)
+        val companions = if (!resize && id in groupIds && groupIds.size >= 2) groupIds else emptySet()
+        session = DragSession(id, resize, item.box, visiblePlaced(), orientation, companions)
         dragId = id
     }
 
@@ -139,6 +183,7 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         if (index < 0) return
         val item = layout.items[index]
         commit(Layout(layout.items.filterIndexed { i, _ -> i != index }))
+        groupIds -= id
         if (selectedId == id) select(null)
         toast = Toast("${titleOf(item)} deleted", undo = { restore(item, index) })
     }
@@ -159,6 +204,7 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         val item = layout.find(id) ?: return
         if (!visible) {
             commit(layout.replace(item.copy(visible = false)))
+            groupIds -= id
             if (selectedId == id) select(null)
             return
         }
@@ -182,12 +228,15 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
     fun reset() {
         commit(DefaultLayout.create(orientation))
         selectedId = null
+        selecting = false
+        groupIds = emptySet()
         tab = SheetTab.Widgets
         toast = null
     }
 
     companion object {
         const val NO_ROOM = "No room for it. Shrink or remove a widget first."
+        const val NO_ALIGN = "Those would overlap. Try another alignment."
 
         /** How far one accessibility action moves or resizes a widget: four grid steps, the spacing of the dots. */
         const val STEP = 16
