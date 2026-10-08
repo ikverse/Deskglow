@@ -23,6 +23,7 @@ import com.ikverse.deskglow.fonts.FontResolver
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.store.AppPrefs
 import com.ikverse.deskglow.store.LayoutRepository
+import com.ikverse.deskglow.store.SnapshotRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -55,6 +56,8 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     }
     fun layoutsFor(orientation: Orientation): LayoutRepository =
         if (orientation == Orientation.Landscape) landscapeLayouts else layouts
+    /** Named pairs of layouts the user saved, one file each. */
+    val snapshots by lazy { SnapshotRepository(File(app.filesDir, "snapshots")) }
     val weather = WeatherRepository(prefs, http, locate = LocationFinder(app)::locate)
     val fontLibrary = FontLibrary(app, prefs, http)
     val fonts = FontResolver(app, fontLibrary)
