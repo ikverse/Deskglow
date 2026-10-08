@@ -95,6 +95,7 @@ import com.ikverse.deskglow.display.WidgetBody
 import com.ikverse.deskglow.display.WidgetTextStyle
 import com.ikverse.deskglow.layout.Align
 import androidx.compose.material3.LocalTextStyle
+import com.ikverse.deskglow.layout.other
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
 import com.ikverse.deskglow.ui.Palette
@@ -117,7 +118,9 @@ import kotlin.math.roundToInt
 @Composable
 fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrait, onDone: () -> Unit) {
     val repository = graph.layoutsFor(orientation)
-    val state = remember(orientation) { EditorState(repository.layout.value, orientation, repository::update) }
+    val state = remember(orientation) {
+        EditorState(repository.layout.value, orientation, copyTarget = graph.layoutsFor(orientation.other), save = repository::update)
+    }
     HoldOrientation(orientation)
     val view = LocalView.current
     state.haptic = { kind ->
@@ -154,6 +157,7 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
                 }
             }
             if (state.pickerOpen) AddPicker(state, Modifier.fillMaxSize())
+            if (state.copyConfirm) CopyDialog(state)
             state.moreFonts?.let { MoreFontsSheet(it, state, graph, Modifier.fillMaxSize()) }
             // The font list covers the canvas area, so a message from it (a font that could not be downloaded)
             // is drawn over the whole screen, last, rather than under it. That list has no toolbar to hide.
@@ -279,15 +283,11 @@ private val dashColour =Color.White.copy(alpha = 0.3f)
 /** Room around each widget for its × and handle, which sit half outside its edges. */
 private val CHROME = 16.dp
 
-@Composable
-private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
-    val density = LocalDensity.current
-    val chrome = with(density) { CHROME.roundToPx() }
 /** Touch and hold to start selecting. Longer than the default so a slow start to a drag does not trigger it. */
 private const val HOLD_TO_SELECT_MS = 800L
 
-    val selected = state.selectedId == item.id
-    val dragging = state.dragId != null
+@Composable
+private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
     val base = LocalViewConfiguration.current
     val config = remember(base) {
         object : ViewConfiguration by base {
@@ -301,6 +301,10 @@ private const val HOLD_TO_SELECT_MS = 800L
 
 @Composable
 private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float) {
+    val density = LocalDensity.current
+    val chrome = with(density) { CHROME.roundToPx() }
+    val selected = state.selectedId == item.id
+    val dragging = state.dragId != null
     val inGroup = item.id in state.groupIds
     val actions = remember(item.id, state.selecting, inGroup) { widgetActions(state, item.id, inGroup) }
     val target = IntOffset((item.box.x * unit).roundToInt() - chrome, (item.box.y * unit).roundToInt() - chrome)
@@ -441,6 +445,8 @@ private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
                     } else armed = true
                 }) { Text(if (armed) "Tap again to reset" else "Reset", color = if (armed) Palette.Danger else Palette.Select, fontSize = 15.sp) }
             }
+            HistoryButton("↶", "Undo", state.canUndo, Modifier.testTag("undo")) { state.undo() }
+            HistoryButton("↷", "Redo", state.canRedo, Modifier.testTag("redo")) { state.redo() }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 TextButton(onClick = { state.pickerOpen = true }) { Text("+ Add widget", color = Palette.Select, fontSize = 15.sp) }
             }
@@ -450,6 +456,18 @@ private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
         }
         Rule()
         SelectBar(state)
+    }
+}
+
+/** An undo or redo arrow: a 44 dp touch target, dimmed (and inert) when there is nothing to step to. */
+@Composable
+private fun HistoryButton(arrow: String, name: String, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.size(44.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = name },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(arrow, fontSize = 22.sp, color = if (enabled) Palette.Select else Palette.Muted.copy(alpha = 0.35f))
     }
 }
 
