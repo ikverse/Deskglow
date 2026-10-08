@@ -77,6 +77,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -281,8 +283,24 @@ private val CHROME = 16.dp
 private fun EditableWidget(state: EditorState, item: WidgetItem, unit: Float) {
     val density = LocalDensity.current
     val chrome = with(density) { CHROME.roundToPx() }
+/** Touch and hold to start selecting. Longer than the default so a slow start to a drag does not trigger it. */
+private const val HOLD_TO_SELECT_MS = 800L
+
     val selected = state.selectedId == item.id
     val dragging = state.dragId != null
+    val base = LocalViewConfiguration.current
+    val config = remember(base) {
+        object : ViewConfiguration by base {
+            override val longPressTimeoutMillis get() = HOLD_TO_SELECT_MS
+        }
+    }
+    CompositionLocalProvider(LocalViewConfiguration provides config) {
+        EditableWidgetBody(state, item, unit)
+    }
+}
+
+@Composable
+private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float) {
     val inGroup = item.id in state.groupIds
     val actions = remember(item.id, state.selecting, inGroup) { widgetActions(state, item.id, inGroup) }
     val target = IntOffset((item.box.x * unit).roundToInt() - chrome, (item.box.y * unit).roundToInt() - chrome)
