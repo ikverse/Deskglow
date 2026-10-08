@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -19,29 +20,58 @@ import java.util.Locale
  * on screen, and then at most every [REFRESH_MS]; the last answer is kept so the widget shows
  * something at once and survives a dropped connection.
  */
-class WeatherRepository(private val prefs: AppPrefs, private val http: Http, private val clock: () -> Long = System::currentTimeMillis) {
+class WeatherRepository(
+    private val prefs: AppPrefs,
+    private val http: Http,
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** Where the phone is, or null when that is unknown or not allowed. Blocks; called off the main thread. */
+    private val locate: () -> City? = { null },
+) {
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun updates(): Flow<WeatherState> = prefs.city.flatMapLatest { city ->
-        if (city == null) flowOf(WeatherState.NoCity) else forCity(city)
-    }
+    fun updates(): Flow<WeatherState> = combine(prefs.city, prefs.autoLocation) { manual, auto -> manual to auto }
+        .flatMapLatest { (manual, auto) ->
+            if (!auto && manual == null) flowOf(WeatherState.NoCity) else forCity(manual, auto)
+        }
 
-    private fun forCity(city: City): Flow<WeatherState> = flow {
-        var last = cached(city)
-        emit(if (last != null) WeatherState.Ready(city, last) else WeatherState.Loading(city))
+    /**
+     * With [auto] on, the phone's position is read again before each refresh and wins over the city
+     * picked by name, which is the fallback while there is no position.
+     */
+    private fun forCity(manual: City?, auto: Boolean): Flow<WeatherState> = flow {
+        var city = (if (auto) prefs.detectedCity.value else null) ?: manual
+        var last = city?.let(::cached)
+        city?.let { emit(if (last != null) WeatherState.Ready(it, last) else WeatherState.Loading(it)) }
         while (true) {
+            if (auto) {
+                val found = runCatching(locate).getOrNull()
+                if (found != null) {
+                    prefs.setDetectedCity(found)
+                    if (found != city) {
+                        city = found
+                        last = cached(found)
+                    }
+                }
+            }
+            val here = city
+            if (here == null) {
+                emit(WeatherState.NoCity)
+                delay(RETRY_MS)
+                continue
+            }
             val age = last?.let { clock() - it.fetchedAtMs } ?: Long.MAX_VALUE
             if (age < REFRESH_MS) {
+                emit(WeatherState.Ready(here, last!!))
                 delay(REFRESH_MS - age)
                 continue
             }
-            val fresh = runCatching { fetch(city) }.getOrNull()
+            val fresh = runCatching { fetch(here) }.getOrNull()
             if (fresh != null) {
                 last = fresh
-                prefs.weatherCache = cacheJson(city, fresh)
-                emit(WeatherState.Ready(city, fresh))
+                prefs.weatherCache = cacheJson(here, fresh)
+                emit(WeatherState.Ready(here, fresh))
             } else {
-                emit(if (last != null) WeatherState.Ready(city, last) else WeatherState.Failed(city, null))
+                emit(if (last != null) WeatherState.Ready(here, last) else WeatherState.Failed(here, null))
                 delay(RETRY_MS)
             }
         }

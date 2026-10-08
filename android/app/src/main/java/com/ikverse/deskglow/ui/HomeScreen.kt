@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.BuildConfig
 import com.ikverse.deskglow.data.hasCalendarAccess
+import com.ikverse.deskglow.data.hasLocationAccess
 import com.ikverse.deskglow.data.hasNotificationAccess
 import com.ikverse.deskglow.display.DeskglowDream
 import com.ikverse.deskglow.display.DisplayActivity
@@ -51,6 +52,8 @@ fun HomeScreen(graph: AppGraph, go: (Screen) -> Unit) {
     val portrait by graph.layouts.layout.collectAsStateWithLifecycle()
     val landscape by graph.landscapeLayouts.layout.collectAsStateWithLifecycle()
     val city by graph.prefs.city.collectAsStateWithLifecycle()
+    val auto by graph.prefs.autoLocation.collectAsStateWithLifecycle()
+    val detected by graph.prefs.detectedCity.collectAsStateWithLifecycle()
     val brightness by graph.prefs.brightness.collectAsStateWithLifecycle()
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
     // Permissions and the screen saver are changed in Android's settings, so look again on every return.
@@ -86,7 +89,9 @@ fun HomeScreen(graph: AppGraph, go: (Screen) -> Unit) {
         }
         HomeRow("Start automatically when charging", autoStart) { go(Screen.AutoStart) }
         HomeRow("Permissions", permissions) { go(Screen.Permissions) }
-        HomeRow("Weather city", city?.label ?: "Not set") { go(Screen.City) }
+        val located = remember(resumes) { hasLocationAccess(context) }
+        val autoLocation = auto && located
+        HomeRow("Weather city", if (autoLocation) "Auto: " + (detected ?: city)?.label.orEmpty().ifBlank { "finding…" } else city?.label ?: "Not set") { go(Screen.City) }
         HomeRow(
             "Brightness and burn-in",
             when (brightness.mode) {

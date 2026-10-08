@@ -54,6 +54,15 @@ class DataParsingTest {
     }
 
     @Test
+    fun `a found position is rounded and named, or called the current location`() {
+        val named = cityAt(30.06263, 31.24967, "Cairo" to "Egypt")
+        assertEquals("Cairo, Egypt", named.label)
+        assertEquals(30.06, named.latitude, 0.0)
+        assertEquals(31.25, named.longitude, 0.0)
+        assertEquals("Current location", cityAt(-33.8688, 151.2093, null).label)
+    }
+
+    @Test
     fun `temperatures round and convert`() {
         assertEquals("25°", formatTemperature(25.0, fahrenheit = false))
         assertEquals("30°", formatTemperature(30.1, fahrenheit = false))
