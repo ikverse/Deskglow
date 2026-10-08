@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ikverse.deskglow.AppGraph
+import com.ikverse.deskglow.layout.other
 import com.ikverse.deskglow.model.Settings
 import com.ikverse.deskglow.ui.Palette
 import com.ikverse.deskglow.ui.Rule
@@ -171,6 +172,23 @@ private fun WidgetsTab(state: EditorState) {
         Rule()
     }
     TextButton(onClick = { state.pickerOpen = true }) { Text("+ Add widget", color = Palette.Select, fontSize = 15.sp) }
+    TextButton(onClick = { state.copyConfirm = true }, modifier = Modifier.testTag("copy")) {
+        Text("Copy to ${state.orientation.other.name.lowercase()} layout", color = Palette.Select, fontSize = 15.sp)
+    }
+}
+
+/** Asks before the other orientation's layout is replaced. */
+@Composable
+fun CopyDialog(state: EditorState) {
+    val target = state.orientation.other.name.lowercase()
+    AlertDialog(
+        onDismissRequest = { state.copyConfirm = false },
+        confirmButton = { TextButton(onClick = { state.copyToOther() }) { Text("Replace") } },
+        dismissButton = { TextButton(onClick = { state.copyConfirm = false }) { Text("Cancel") } },
+        title = { Text("Copy to $target?") },
+        text = { Text("Your $target layout is replaced by this one, rearranged to fit. You can undo it right after.") },
+        containerColor = Palette.Sheet,
+    )
 }
 
 @Composable

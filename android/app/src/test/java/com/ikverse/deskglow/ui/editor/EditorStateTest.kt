@@ -305,6 +305,113 @@ class EditorStateTest {
         assertEquals(200, s.layout.find("w2")!!.box.x)
     }
 
+    // ---- history ----
+
+    @Test
+    fun `undo and redo step back and forward through changes`() {
+        val start = state.layout
+        assertFalse(state.canUndo)
+        state.add(StatWidget)
+        val added = state.layout
+        assertTrue(state.canUndo)
+        state.undo()
+        assertEquals(start, state.layout)
+        assertEquals(start, saved.last())
+        assertTrue(state.canRedo)
+        state.redo()
+        assertEquals(added, state.layout)
+        assertFalse(state.canRedo)
+    }
+
+    @Test
+    fun `a whole drag is one undo step, and a drag that moves nothing is none`() {
+        val clock = state.layout.items.first { it.type == "clock" }
+        val start = state.layout
+        state.beginDrag(clock.id, resize = false)
+        state.dragTo(0f, 0f)
+        state.endDrag()
+        assertFalse(state.canUndo)
+        state.beginDrag(clock.id, resize = false)
+        state.dragTo(16f, 0f)
+        state.dragTo(32f, 0f)
+        state.dragTo(48f, 16f)
+        state.endDrag()
+        assertTrue(state.layout != start)
+        state.undo()
+        assertEquals(start, state.layout)
+        assertFalse(state.canUndo)
+    }
+
+    @Test
+    fun `a new change clears redo`() {
+        state.add(StatWidget)
+        state.undo()
+        assertTrue(state.canRedo)
+        state.add(StatWidget)
+        assertFalse(state.canRedo)
+    }
+
+    @Test
+    fun `history keeps only the last fifty steps`() {
+        val clock = state.layout.items.first { it.type == "clock" }
+        repeat(EditorState.HISTORY_LIMIT + 10) { i -> state.nudge(clock.id, if (i % 2 == 0) 16 else -16, 0, resize = false) }
+        var steps = 0
+        while (state.canUndo) { state.undo(); steps++ }
+        assertEquals(EditorState.HISTORY_LIMIT, steps)
+    }
+
+    @Test
+    fun `quick changes to one setting are a single undo step`() {
+        val clock = state.layout.items.first { it.type == "clock" }
+        state.select(clock.id)
+        val before = state.layout
+        state.set(Common.OPACITY, 80)
+        state.set(Common.OPACITY, 70)
+        state.set(Common.OPACITY, 60)
+        state.undo()
+        assertEquals(before, state.layout)
+    }
+
+    @Test
+    fun `undoing the creation of the selected widget clears the selection`() {
+        state.add(StatWidget)
+        val id = state.selectedId!!
+        state.undo()
+        assertNull(state.layout.find(id))
+        assertNull(state.selectedId)
+    }
+
+    @Test
+    fun `undo is ignored while a drag is held`() {
+        state.add(StatWidget)
+        val clock = state.layout.items.first { it.type == "clock" }
+        state.beginDrag(clock.id, resize = false)
+        state.undo()
+        assertTrue(state.canUndo)
+        state.endDrag()
+    }
+
+    // ---- copying to the other orientation ----
+
+    @Test
+    fun `copying rearranges this layout into the other orientation's repository, and undo puts the old one back`() {
+        val written = mutableListOf<Layout>()
+        val dir = java.nio.file.Files.createTempDirectory("copy").toFile()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+        val target = com.ikverse.deskglow.store.LayoutRepository(java.io.File(dir, "l.json"), scope, kotlinx.coroutines.Dispatchers.Unconfined, Orientation.Landscape)
+        val original = target.layout.value
+        val s = EditorState(DefaultLayout.create(), Orientation.Portrait, target) { written += it }
+        s.copyConfirm = true
+        s.copyToOther()
+        assertFalse(s.copyConfirm)
+        assertEquals(com.ikverse.deskglow.layout.Retarget.convert(s.layout, Orientation.Portrait, Orientation.Landscape).layout, target.layout.value)
+        assertTrue(s.toast!!.message.startsWith("Copied to landscape"))
+        s.toast!!.undo!!()
+        assertEquals(original, target.layout.value)
+        assertTrue(written.isEmpty()) // the layout being edited is not touched
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     @Test
     fun `deleting a gathered widget drops it from the group`() {
         val s = grouped(Box(0, 0, 100, 40), Box(200, 0, 100, 40))

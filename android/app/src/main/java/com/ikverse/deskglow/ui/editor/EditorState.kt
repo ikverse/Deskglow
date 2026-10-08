@@ -9,6 +9,9 @@ import com.ikverse.deskglow.layout.Centring
 import com.ikverse.deskglow.layout.DragSession
 import com.ikverse.deskglow.layout.Packer
 import com.ikverse.deskglow.layout.Placed
+import com.ikverse.deskglow.layout.Retarget
+import com.ikverse.deskglow.layout.other
+import com.ikverse.deskglow.store.LayoutRepository
 import com.ikverse.deskglow.model.Key
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
@@ -33,7 +36,13 @@ data class Toast(val message: String, val undo: (() -> Unit)? = null, val id: Lo
  * edits the layout of one [orientation].
  */
 @Stable
-class EditorState(initial: Layout, val orientation: Orientation = Orientation.Portrait, private val save: (Layout) -> Unit) {
+class EditorState(
+    initial: Layout,
+    val orientation: Orientation = Orientation.Portrait,
+    /** Where "copy to the other orientation" writes; null when there is nowhere to copy to. */
+    private val copyTarget: LayoutRepository? = null,
+    private val save: (Layout) -> Unit,
+) {
     var layout by mutableStateOf(initial)
         private set
     var selectedId by mutableStateOf<String?>(null)
@@ -59,7 +68,58 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
     var groupIds by mutableStateOf<Set<String>>(emptySet())
         private set
 
+    /** Asking whether to replace the other orientation's layout with a rearranged copy of this one. */
+    var copyConfirm by mutableStateOf(false)
+
     private var session: DragSession? = null
+
+    // ---- history: each change is one step back; a whole drag is one step ----
+
+    private val undoStack = ArrayDeque<Layout>()
+    private val redoStack = ArrayDeque<Layout>()
+    var canUndo by mutableStateOf(false)
+        private set
+    var canRedo by mutableStateOf(false)
+        private set
+    /** The layout as a drag began; it becomes a history step on the drag's first change, so a drag that moves nothing leaves none. */
+    private var dragBase: Layout? = null
+    /** The last setting changed and when, so a slider dragged through many values is one step. */
+    private var lastMerge: Pair<String, Long>? = null
+
+    private fun record(before: Layout) {
+        undoStack.addLast(before)
+        while (undoStack.size > HISTORY_LIMIT) undoStack.removeFirst()
+        redoStack.clear()
+        syncHistory()
+    }
+
+    private fun syncHistory() {
+        canUndo = undoStack.isNotEmpty()
+        canRedo = redoStack.isNotEmpty()
+    }
+
+    fun undo() {
+        if (dragId != null) return
+        val previous = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(layout)
+        goTo(previous)
+    }
+
+    fun redo() {
+        if (dragId != null) return
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(layout)
+        goTo(next)
+    }
+
+    private fun goTo(target: Layout) {
+        layout = target
+        save(target)
+        lastMerge = null
+        groupIds = groupIds.filterTo(HashSet()) { layout.find(it)?.visible == true }
+        if (selectedId != null && layout.find(selectedId!!)?.visible != true) select(null)
+        syncHistory()
+    }
 
     val selected: WidgetItem? get() = selectedId?.let(layout::find)
 
@@ -69,7 +129,21 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
 
     fun titleOf(item: WidgetItem): String = typeOf(item)?.title(settingsOf(item)) ?: item.type
 
-    private fun commit(next: Layout) {
+    /** [mergeKey]: changes in quick succession under the same key share one history step. */
+    private fun commit(next: Layout, mergeKey: String? = null) {
+        if (next != layout) {
+            val now = System.currentTimeMillis()
+            val base = dragBase
+            when {
+                dragId != null -> if (base != null) {
+                    record(base)
+                    dragBase = null
+                }
+                mergeKey != null && lastMerge?.let { it.first == mergeKey && now - it.second < MERGE_WINDOW_MS } == true -> Unit
+                else -> record(layout)
+            }
+            lastMerge = mergeKey?.let { it to now }
+        }
         layout = next
         save(next)
     }
@@ -119,7 +193,9 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         }
         val previous = moved.mapValues { (id, _) -> layout.find(id)!!.box }
         commit(layout.withBoxes(boxes))
-        toast = Toast("Aligned ${members.size} widgets", undo = { commit(layout.withBoxes(previous)) })
+        val after = layout
+        // Straight back through the history if nothing else has changed since; otherwise move just these back.
+        toast = Toast("Aligned ${members.size} widgets", undo = { if (layout == after) undo() else commit(layout.withBoxes(previous)) })
     }
 
     // ---- dragging: every step is worked out from where everything was when the drag began ----
@@ -130,6 +206,7 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         if (!selecting) select(id)
         val companions = if (!resize && id in groupIds && groupIds.size >= 2) groupIds else emptySet()
         session = DragSession(id, resize, item.box, visiblePlaced(), orientation, companions)
+        dragBase = layout
         dragId = id
     }
 
@@ -156,6 +233,7 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
     fun endDrag() {
         session = null
         dragId = null
+        dragBase = null
         centring = Centring.None
     }
 
@@ -193,7 +271,14 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         commit(Layout(layout.items.filterIndexed { i, _ -> i != index }))
         groupIds -= id
         if (selectedId == id) select(null)
-        toast = Toast("${titleOf(item)} deleted", undo = { restore(item, index) })
+        val after = layout
+        // Straight back through the history if nothing else has changed since; otherwise put it back where it was.
+        toast = Toast("${titleOf(item)} deleted", undo = {
+            if (layout == after) {
+                undo()
+                select(item.id)
+            } else restore(item, index)
+        })
     }
 
     /** Puts a deleted widget back in its old place and order; anything that has moved into that space is pushed down. */
@@ -230,7 +315,19 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
         val item = selected ?: return
         val type = typeOf(item) ?: return
         val next = type.normalise(settingsOf(item).with(key, value))
-        commit(layout.replace(item.copy(settings = next)))
+        commit(layout.replace(item.copy(settings = next)), mergeKey = "${item.id}:${key.name}")
+    }
+
+    /** Replaces the other orientation's layout with this one rearranged to suit it. Undo puts the old one back. */
+    fun copyToOther() {
+        copyConfirm = false
+        val target = copyTarget ?: return
+        val before = target.layout.value
+        val converted = Retarget.convert(layout, orientation, orientation.other)
+        target.update(converted.layout)
+        val name = orientation.other.name.lowercase()
+        val note = if (converted.hidden > 0) " ${converted.hidden} did not fit and ${if (converted.hidden == 1) "was" else "were"} hidden." else ""
+        toast = Toast("Copied to $name.$note", undo = { target.update(before) })
     }
 
     fun reset() {
@@ -245,6 +342,10 @@ class EditorState(initial: Layout, val orientation: Orientation = Orientation.Po
     companion object {
         const val NO_ROOM = "No room for it. Shrink or remove a widget first."
         const val NO_ALIGN = "Those would overlap. Try another alignment."
+
+        /** How many steps back the history keeps. */
+        const val HISTORY_LIMIT = 50
+        private const val MERGE_WINDOW_MS = 1_000L
 
         /** How far one accessibility action moves or resizes a widget: four grid steps, the spacing of the dots. */
         const val STEP = 16
