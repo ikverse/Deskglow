@@ -87,6 +87,8 @@ class LayoutRepository(
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher,
     private val orientation: Orientation = Orientation.Portrait,
+    /** What a screen holds before anything has been saved: the stock layout for the first, nothing for an added one. */
+    private val default: () -> Layout = { DefaultLayout.create(orientation) },
 ) {
     private val state = MutableStateFlow(load())
     val layout: StateFlow<Layout> = state.asStateFlow()
@@ -102,17 +104,23 @@ class LayoutRepository(
         }
     }
 
-    fun reset() = update(DefaultLayout.create(orientation))
+    fun reset() = update(default())
+
+    /** Forgets this screen for good: a save still waiting is dropped and the file removed. */
+    fun discard() {
+        pendingSave?.cancel()
+        file.delete()
+    }
 
     private fun load(): Layout {
-        if (!file.exists()) return DefaultLayout.create(orientation)
+        if (!file.exists()) return default()
         return try {
             tidied(LayoutCodec.decode(file.readText()), orientation)
         } catch (e: Exception) {
             // Keep the unreadable file for inspection rather than overwriting it on the next save.
             Log.w(TAG, "Saved layout could not be read; starting from the default", e)
             file.renameTo(File(file.parentFile, file.name + ".unreadable"))
-            DefaultLayout.create(orientation)
+            default()
         }
     }
 

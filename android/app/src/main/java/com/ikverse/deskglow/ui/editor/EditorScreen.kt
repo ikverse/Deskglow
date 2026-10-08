@@ -43,9 +43,15 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.font.FontWeight
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ikverse.deskglow.store.MAX_PAGES
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -119,10 +125,24 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrait, onDone: () -> Unit) {
-    val repository = graph.layoutsFor(orientation)
-    val state = remember(orientation) {
-        EditorState(repository.layout.value, orientation, copyTarget = graph.layoutsFor(orientation.other), save = repository::update)
+    val pageCount by graph.prefs.pageCount(orientation).collectAsStateWithLifecycle()
+    var requestedPage by rememberSaveable { mutableIntStateOf(0) }
+    val page = requestedPage.coerceIn(0, pageCount - 1)
+    var addingPage by remember { mutableStateOf(false) }
+    var deletingPage by remember { mutableStateOf(false) }
+    val repository = graph.layoutsFor(orientation, page)
+    val state = remember(orientation, page) {
+        EditorState(repository.layout.value, orientation, copyTarget = graph.layoutsFor(orientation.other, page), save = repository::update,
+            // The other layout may have fewer screens: the copy lands on the same screen number, so it is made first.
+            beforeCopy = { graph.ensurePages(orientation.other, page + 1) })
     }
+    val pages = PageActions(
+        count = pageCount,
+        current = page,
+        onSelect = { requestedPage = it },
+        onAdd = { if (pageCount < MAX_PAGES) addingPage = true },
+        onDelete = { deletingPage = true },
+    )
     HoldOrientation(orientation)
     val view = LocalView.current
     state.haptic = { kind ->
@@ -145,12 +165,13 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             // The arrangement follows how the phone is actually held, not which layout is being edited.
             if (maxWidth > maxHeight) {
-                LandscapeEditor(state, graph, onDone)
+                LandscapeEditor(state, graph, pages, onDone)
             } else {
                 // The canvas sits between the top bar and the settings sheet; nothing lies over it.
                 val sheetHeight = maxHeight * 0.44f
                 Column(Modifier.fillMaxSize()) {
                     TopBar(state, onDone, Modifier)
+                    PageStrip(pages)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         Stage(state, Modifier.fillMaxSize())
                         if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
@@ -160,6 +181,42 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
             }
             if (state.pickerOpen) AddPicker(state, Modifier.fillMaxSize())
             if (state.copyConfirm) CopyDialog(state)
+            if (addingPage) {
+                AlertDialog(
+                    onDismissRequest = { addingPage = false },
+                    title = { Text("Add a screen") },
+                    text = { Text("Start with an empty screen, or with a copy of screen ${page + 1}.") },
+                    confirmButton = {
+                        Row {
+                            TextButton(onClick = {
+                                addingPage = false
+                                graph.addPage(orientation)?.let { requestedPage = it }
+                            }, modifier = Modifier.testTag("add blank screen")) { Text("Empty") }
+                            TextButton(onClick = {
+                                addingPage = false
+                                graph.addPage(orientation, copyOf = page)?.let { requestedPage = it }
+                            }, modifier = Modifier.testTag("add copied screen")) { Text("Copy") }
+                        }
+                    },
+                    dismissButton = { TextButton(onClick = { addingPage = false }) { Text("Cancel") } },
+                    containerColor = Palette.Sheet,
+                )
+            }
+            if (deletingPage) {
+                AlertDialog(
+                    onDismissRequest = { deletingPage = false },
+                    title = { Text("Delete screen ${page + 1}?") },
+                    text = { Text("Screen ${page + 1} of the ${orientation.name.lowercase()} layout is removed. The screens after it move up.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            deletingPage = false
+                            graph.deletePage(orientation, page)
+                        }, modifier = Modifier.testTag("confirm delete screen")) { Text("Delete", color = Palette.Danger) }
+                    },
+                    dismissButton = { TextButton(onClick = { deletingPage = false }) { Text("Cancel") } },
+                    containerColor = Palette.Sheet,
+                )
+            }
             state.moreFonts?.let { MoreFontsSheet(it, state, graph, Modifier.fillMaxSize()) }
             // The font list covers the canvas area, so a message from it (a font that could not be downloaded)
             // is drawn over the whole screen, last, rather than under it. That list has no toolbar to hide.
@@ -174,20 +231,61 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
  * a Note 9); nothing sits on top of it.
  */
 @Composable
-private fun LandscapeEditor(state: EditorState, graph: AppGraph, onDone: () -> Unit) {
+private fun LandscapeEditor(state: EditorState, graph: AppGraph, pages: PageActions, onDone: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
         val panel = (maxWidth * 0.36f).coerceIn(240.dp, 320.dp)
         Column(Modifier.fillMaxSize()) {
             TopBar(state, onDone, Modifier)
             Row(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))) {
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    Stage(state, Modifier.fillMaxSize())
-                    if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
+                // The screen strip sits over the canvas only, so the settings panel keeps its full height.
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    PageStrip(pages)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        Stage(state, Modifier.fillMaxSize())
+                        if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
+                    }
                 }
                 Box(Modifier.fillMaxHeight().width(1.dp).background(Palette.Rule))
                 EditorSidePanel(state, graph, Modifier.fillMaxHeight().width(panel))
             }
         }
+    }
+}
+
+/** What the page strip shows and does: which screen is open, and how to switch, add or delete one. */
+private class PageActions(
+    val count: Int,
+    val current: Int,
+    val onSelect: (Int) -> Unit,
+    val onAdd: () -> Unit,
+    val onDelete: () -> Unit,
+)
+
+/** One row under the top bar to move between the display's screens (the ones swiped between with two fingers). */
+@Composable
+private fun PageStrip(pages: PageActions) {
+    Column(Modifier.fillMaxWidth().background(Palette.Bar)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Screen", color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp, end = 4.dp))
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                for (i in 0 until pages.count) {
+                    TextButton(onClick = { pages.onSelect(i) }, modifier = Modifier.testTag("screen ${i + 1}")) {
+                        Text(
+                            "${i + 1}", fontSize = 15.sp,
+                            color = if (i == pages.current) Palette.Accent else Palette.Select,
+                            fontWeight = if (i == pages.current) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
+                if (pages.count < MAX_PAGES) {
+                    TextButton(onClick = pages.onAdd, modifier = Modifier.testTag("add screen")) { Text("+", color = Palette.Select, fontSize = 17.sp) }
+                }
+            }
+            if (pages.count > 1) {
+                TextButton(onClick = pages.onDelete, modifier = Modifier.testTag("delete screen")) { Text("Delete", color = Palette.Danger, fontSize = 15.sp) }
+            }
+        }
+        Rule()
     }
 }
 

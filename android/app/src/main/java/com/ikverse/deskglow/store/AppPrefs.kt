@@ -3,10 +3,14 @@ package com.ikverse.deskglow.store
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.ikverse.deskglow.model.Orientation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+
+/** The most screens the display can have. */
+const val MAX_PAGES = 5
 
 enum class BrightnessMode { System, Dim, Custom }
 
@@ -54,6 +58,32 @@ class AppPrefs(context: Context) {
     private val detectedCityState = MutableStateFlow(prefs.getString(KEY_DETECTED_CITY, null)?.let(City::fromJson))
     val detectedCity: StateFlow<City?> = detectedCityState.asStateFlow()
 
+    /**
+     * How many screens the display has in each orientation, from 1 to [MAX_PAGES]. A count saved by the
+     * version that shared one number between both is where each of them starts.
+     */
+    private val pageCountStates = Orientation.entries.associateWith { orientation ->
+        MutableStateFlow(prefs.getInt(countKey(orientation), prefs.getInt(KEY_PAGE_COUNT, 1)).coerceIn(1, MAX_PAGES))
+    }
+
+    fun pageCount(orientation: Orientation): StateFlow<Int> = pageCountStates.getValue(orientation).asStateFlow()
+
+    fun setPageCount(orientation: Orientation, count: Int) {
+        val clamped = count.coerceIn(1, MAX_PAGES)
+        prefs.edit { putInt(countKey(orientation), clamped) }
+        pageCountStates.getValue(orientation).value = clamped
+    }
+
+    /** The screen the display was last left on in an orientation (0 is the first), for it to open there again. */
+    fun lastPage(orientation: Orientation): Int = prefs.getInt(lastPageKey(orientation), 0).coerceIn(0, pageCountStates.getValue(orientation).value - 1)
+
+    fun setLastPage(orientation: Orientation, page: Int) {
+        prefs.edit { putInt(lastPageKey(orientation), page.coerceAtLeast(0)) }
+    }
+
+    private fun countKey(orientation: Orientation) = "${KEY_PAGE_COUNT}_${orientation.name.lowercase()}"
+    private fun lastPageKey(orientation: Orientation) = "last_page_${orientation.name.lowercase()}"
+
     fun setAutoLocation(on: Boolean) {
         prefs.edit { putBoolean(KEY_AUTO_LOCATION, on) }
         autoLocationState.value = on
@@ -99,5 +129,6 @@ class AppPrefs(context: Context) {
         const val KEY_DETECTED_CITY = "detected_city"
         const val KEY_WEATHER_CACHE = "weather_cache"
         const val KEY_PICKED_FONTS = "picked_fonts"
+        const val KEY_PAGE_COUNT = "page_count"
     }
 }
