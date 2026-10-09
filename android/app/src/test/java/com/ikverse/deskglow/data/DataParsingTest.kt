@@ -138,4 +138,158 @@ class DataParsingTest {
         assertEquals(now.toLocalDate().atStartOfDay(), next.start)
         assertEquals(EventState.None, nextEvent(emptyList(), ms(now), zone))
     }
+
+    // An Aladhan answer for Cairo, Egyptian method, trimmed.
+    private fun aladhan(fajr: String, dhuhr: String, asr: String, maghrib: String, isha: String) =
+        """{"code":200,"status":"OK","data":{"timings":{"Fajr":"$fajr","Sunrise":"05:49","Dhuhr":"$dhuhr","Asr":"$asr","Sunset":"17:31",
+        "Maghrib":"$maghrib","Isha":"$isha","Imsak":"04:17","Midnight":"23:40"},"meta":{"timezone":"Africa/Cairo","method":{"id":5}}}}"""
+
+    private val today = java.time.LocalDate.of(2026, 10, 9)
+    private val prayerDays = listOf(
+        parsePrayerDay(aladhan("04:27", "11:40", "15:00", "17:31", "18:48"), today),
+        // A time zone after the time, as Aladhan writes it when asked for one, is ignored.
+        parsePrayerDay(aladhan("04:28 (EET)", "11:40 (EET)", "14:59 (EET)", "17:30 (EET)", "18:47 (EET)"), today.plusDays(1)),
+    )
+
+    @Test
+    fun `an Aladhan answer is read into the five prayers`() {
+        val day = prayerDays[0]
+        assertEquals(java.time.LocalTime.of(4, 27), day.times[Prayer.Fajr])
+        assertEquals(java.time.LocalTime.of(15, 0), day.times[Prayer.Asr])
+        assertEquals(java.time.LocalTime.of(18, 48), day.times[Prayer.Isha])
+        assertEquals(java.time.LocalTime.of(17, 30), prayerDays[1].times[Prayer.Maghrib])
+    }
+
+    @Test
+    fun `the next prayer is the first still to come, and after Isha it is tomorrow's Fajr`() {
+        val afternoon = today.atTime(13, 40)
+        assertEquals(Prayer.Asr to today.atTime(15, 0), nextPrayer(prayerDays, afternoon))
+        assertEquals("1 h 20 m", untilText(afternoon, today.atTime(15, 0)))
+        val night = today.atTime(21, 0)
+        assertEquals(Prayer.Fajr to today.plusDays(1).atTime(4, 28), nextPrayer(prayerDays, night))
+        assertEquals("1 m", untilText(today.atTime(14, 59, 30), today.atTime(15, 0)))
+        assertNull(nextPrayer(prayerDays, today.plusDays(2).atStartOfDay()))
+    }
+
+    @Test
+    fun `moving across town is not moving, but going to Alexandria is`() {
+        val cairo = com.ikverse.deskglow.store.City("Cairo", "", 30.0444, 31.2357)
+        val giza = com.ikverse.deskglow.store.City("Giza", "", 30.0131, 31.2089)
+        val alexandria = com.ikverse.deskglow.store.City("Alexandria", "", 31.2001, 29.9187)
+        assertEquals(0.0, distanceKm(cairo, cairo), 0.001)
+        assert(distanceKm(cairo, giza) < 5.0)
+        assertEquals(180.0, distanceKm(cairo, alexandria), 10.0)
+    }
+
+    private val f1 = com.ikverse.deskglow.F1Samples.data
+    private fun utc(y: Int, m: Int, d: Int, h: Int, min: Int = 0) = java.time.LocalDateTime.of(y, m, d, h, min).toInstant(ZoneOffset.UTC)
+
+    @Test
+    fun `the F1 calendar is read with every session in order, sprint weekends included`() {
+        assertEquals(listOf(17, 18, 19), f1.races.map { it.round })
+        val japan = f1.races[1]
+        assertEquals("Japanese GP", japan.name)
+        assertEquals("Suzuka, Japan", japan.place)
+        assertEquals(listOf("FP1", "FP2", "FP3", "Qualifying", "Race"), japan.sessions.map { it.kind })
+        assertEquals(utc(2026, 10, 11, 5), japan.race.start)
+        assertEquals(listOf("FP1", "Sprint Quali", "Sprint", "Qualifying", "Race"), f1.races[2].sessions.map { it.kind })
+    }
+
+    @Test
+    fun `F1 results and standings are read`() {
+        val result = f1.lastResult!!
+        assertEquals(17, result.round)
+        assertEquals(listOf("NOR", "VER", "LEC"), result.podium.map { it.id })
+        assertEquals("red_bull", result.podium[1].teamId)
+        assertEquals(17, f1.round)
+        assertEquals("NOR", f1.drivers[0].id)
+        assertEquals(200.5, f1.drivers[4].points, 0.0)
+        assertEquals("mclaren", f1.drivers[1].teamId)
+        assertEquals("McLaren", f1.constructors[0].name)
+        assertEquals(2, f1.previousDrivers["NOR"])
+        assertEquals(emptyMap<String, Int>(), f1.previousConstructors)
+        assertEquals(emptyList<F1Entry>(), parseStandings("""{"MRData":{"StandingsTable":{"season":"2027","StandingsLists":[]}}}""", false))
+    }
+
+    @Test
+    fun `the race weekend shows the podium until the next weekend starts, then counts down, then goes live`() {
+        val afterSingapore = weekendView(f1, utc(2026, 10, 6, 12)) as WeekendView.AfterRace
+        assertEquals(listOf("NOR", "VER", "LEC"), afterSingapore.result.podium.map { it.id })
+        assertEquals("Japanese GP", afterSingapore.next!!.name)
+
+        val friday = weekendView(f1, utc(2026, 10, 9, 4)) as WeekendView.Upcoming
+        assertEquals("Japanese GP", friday.race.name)
+        assertNull(friday.live)
+        assertEquals("FP2", friday.next!!.kind)
+
+        val duringQuali = weekendView(f1, utc(2026, 10, 10, 6, 30)) as WeekendView.Upcoming
+        assertEquals("Qualifying", duringQuali.live!!.kind)
+        assertEquals("Race", duringQuali.next!!.kind)
+
+        // The result in hand is still Singapore's, so after Japan it counts down to Austin.
+        val afterJapan = weekendView(f1, utc(2026, 10, 12, 12)) as WeekendView.Upcoming
+        assertEquals("United States GP", afterJapan.race.name)
+        assertEquals(WeekendView.Empty, weekendView(f1.copy(lastResult = null), utc(2026, 11, 1, 0)))
+    }
+
+    @Test
+    fun `countdowns read in days, hours, or minutes and seconds`() {
+        val now = utc(2026, 10, 9, 0)
+        assertEquals("2 d 5 h", countdownText(now, utc(2026, 10, 11, 5)))
+        assertEquals("4 h 30 m", countdownText(now, utc(2026, 10, 9, 4, 30)))
+        assertEquals("12:05", countdownText(now, now.plusSeconds(12 * 60 + 5)))
+        assertEquals("0:00", countdownText(now, now.minusSeconds(5)))
+    }
+
+    @Test
+    fun `the standings show the top rows, moves since last round, and a favourite further down`() {
+        val (top, extra) = standingRows(f1.drivers, f1.previousDrivers, 3, "HAM")
+        assertEquals(listOf("NOR", "PIA", "VER"), top.map { it.entry.id })
+        assertEquals(listOf(1, -1, 0), top.map { it.move })
+        assertEquals("HAM", extra!!.entry.id)
+        assertEquals(6, extra.entry.position)
+        // A favourite already in the top rows is not shown twice.
+        assertNull(standingRows(f1.drivers, f1.previousDrivers, 3, "PIA").second)
+        assertNull(standingRows(f1.drivers, emptyMap(), 3, "").first[0].move)
+        assertEquals(0xFF8C8C8C, teamColour("someone_new"))
+    }
+
+    @Test
+    fun `standings values are points or the gap to the leader`() {
+        val w = com.ikverse.deskglow.widgets.F1StandingsWidget
+        assertEquals("331", w.valueText(331.0, 331.0, gap = false))
+        assertEquals("200.5", w.valueText(200.5, 331.0, gap = false))
+        assertEquals("—", w.valueText(331.0, 331.0, gap = true))
+        assertEquals("−130.5", w.valueText(200.5, 331.0, gap = true))
+    }
+
+    @Test
+    fun `cached F1 answers survive a round trip`() {
+        val raw = com.ikverse.deskglow.F1Samples.raw
+        assertEquals(raw, F1Raw.fromJson(raw.toJson()))
+    }
+
+    @Test
+    fun `the alarm says when, and the bar empties over the last twelve hours`() {
+        val w = com.ikverse.deskglow.widgets.AlarmWidget
+        val now = LocalDateTime.of(2026, 10, 8, 23, 5)
+        assertEquals("in 7 h 25 m · Tomorrow", w.whenText(now, LocalDateTime.of(2026, 10, 9, 6, 30)))
+        assertEquals("in 25 m · Today", w.whenText(now.withHour(6), LocalDateTime.of(2026, 10, 8, 6, 30)))
+        assert(w.whenText(now, LocalDateTime.of(2026, 10, 12, 8, 0)).endsWith(" · Mon 12 Oct"))
+        assertEquals(1f, w.timeLeft(now, now.plusHours(20)), 0f)
+        assertEquals(0.5f, w.timeLeft(now, now.plusHours(6)), 0.001f)
+        assertEquals(0f, w.timeLeft(now, now.minusMinutes(1)), 0f)
+    }
+
+    @Test
+    fun `prayer times read in English or Arabic`() {
+        val w = com.ikverse.deskglow.widgets.PrayerWidget
+        assertEquals("3:00 PM", w.clockText(java.time.LocalTime.of(15, 0), h24 = false, arabic = false, arabicDigits = false))
+        assertEquals("15:00", w.clockText(java.time.LocalTime.of(15, 0), h24 = true, arabic = false, arabicDigits = false))
+        assertEquals("٤:٢٧ ص", w.clockText(java.time.LocalTime.of(4, 27), h24 = false, arabic = true, arabicDigits = true))
+        assertEquals("4:27", w.clockText(java.time.LocalTime.of(4, 27), h24 = false, arabic = false, arabicDigits = false, suffix = false))
+        val now = today.atTime(13, 40)
+        assertEquals("in 1 h 20 m", w.countdownText(now, today.atTime(15, 0), arabic = false, arabicDigits = false))
+        assertEquals("بعد ١ س ٢٠ د", w.countdownText(now, today.atTime(15, 0), arabic = true, arabicDigits = true))
+    }
 }

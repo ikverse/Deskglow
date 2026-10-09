@@ -3,11 +3,17 @@ package com.ikverse.deskglow
 import android.app.Application
 import android.content.Context
 import com.ikverse.deskglow.data.EventState
+import com.ikverse.deskglow.data.F1Repository
+import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.Feeds
 import com.ikverse.deskglow.data.Http
 import com.ikverse.deskglow.data.LocationFinder
 import com.ikverse.deskglow.data.MediaState
 import com.ikverse.deskglow.data.NotificationState
+import com.ikverse.deskglow.data.PrayerRepository
+import com.ikverse.deskglow.data.PrayerState
+import com.ikverse.deskglow.data.alarmUpdates
+import com.ikverse.deskglow.data.currentAlarm
 import com.ikverse.deskglow.data.UrlConnectionHttp
 import com.ikverse.deskglow.data.WeatherRepository
 import com.ikverse.deskglow.data.WeatherState
@@ -116,10 +122,13 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
 
     /** Named pairs of layouts the user saved, one file each. */
     val snapshots by lazy { SnapshotRepository(File(app.filesDir, "snapshots")) }
-    val weather = WeatherRepository(prefs, http, locate = LocationFinder(app)::locate)
+    private val locationFinder = LocationFinder(app)
+    val weather = WeatherRepository(prefs, http, locate = locationFinder::locate)
+    val prayer = PrayerRepository(prefs, http, locate = locationFinder::locate)
+    val f1 = F1Repository(prefs, http)
     val fontLibrary = FontLibrary(app, prefs, http)
     val fonts = FontResolver(app, fontLibrary)
-    val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather)
+    val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather, prayer, f1)
 }
 
 /**
@@ -127,7 +136,13 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
  * after the last one goes, so switching between the editor and the home screen does not restart
  * everything, and a screen saver that has ended leaves nothing running.
  */
-private class LiveFeeds(context: Context, private val scope: CoroutineScope, weatherRepository: WeatherRepository) : Feeds {
+private class LiveFeeds(
+    context: Context,
+    private val scope: CoroutineScope,
+    weatherRepository: WeatherRepository,
+    private val prayerRepository: PrayerRepository,
+    f1Repository: F1Repository,
+) : Feeds {
     // The last value is kept after a feed stops, so a screen that comes back shows it at once rather
     // than an empty placeholder while the feed starts up again.
     private fun <T> Flow<T>.shared(initial: T): StateFlow<T> =
@@ -140,6 +155,14 @@ private class LiveFeeds(context: Context, private val scope: CoroutineScope, wea
     override val media = mediaUpdates(context).shared<MediaState>(MediaState.Idle)
     override val nextEvent = nextEventUpdates(context).shared<EventState>(EventState.None)
     override val weather = weatherRepository.updates().shared<WeatherState>(WeatherState.NoCity)
+    override val alarm = alarmUpdates(context).shared(currentAlarm(context))
+    override val f1 = f1Repository.updates().shared<F1State>(F1State.Loading)
+
+    private val prayers = HashMap<Pair<Int, Int>, StateFlow<PrayerState>>()
+
+    override fun prayer(method: Int, school: Int): StateFlow<PrayerState> = synchronized(prayers) {
+        prayers.getOrPut(method to school) { prayerRepository.updates(method, school).shared<PrayerState>(PrayerState.NoLocation) }
+    }
 
     private companion object {
         const val STOP_AFTER_MS = 3_000L
