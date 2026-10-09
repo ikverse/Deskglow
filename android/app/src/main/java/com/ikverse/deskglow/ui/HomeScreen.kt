@@ -118,6 +118,7 @@ fun HomeScreen(
                     BrightnessMode.System -> "follows phone"
                     BrightnessMode.Dim -> "dim"
                     BrightnessMode.Custom -> "${brightness.level}%"
+                    BrightnessMode.Auto -> "auto"
                 } + if (burnIn) "" else " · burn-in off",
                 { go(Screen.Brightness) },
             )

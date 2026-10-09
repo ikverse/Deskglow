@@ -238,6 +238,7 @@ fun BrightnessScreen(graph: AppGraph, onBack: () -> Unit) {
                 BrightnessMode.Dim to "Dim (the screen saver's own low brightness)",
                 BrightnessMode.System to "Follow the phone's brightness",
                 BrightnessMode.Custom to "Choose a level",
+                BrightnessMode.Auto to "Match the room's light",
             )
             modes.forEachIndexed { i, (mode, label) ->
                 Row(
