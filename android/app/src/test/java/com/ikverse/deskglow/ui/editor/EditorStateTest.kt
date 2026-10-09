@@ -369,6 +369,36 @@ class EditorStateTest {
     }
 
     @Test
+    fun `auto-arrange rearranges without overlap, undo puts it back, and pressing again gives another`() {
+        val start = state.layout
+        state.smartArrange()
+        val first = state.layout
+        assertTrue(first != start)
+        noOverlaps(first)
+        assertTrue(state.toast!!.message.startsWith("Arranged: "))
+        assertEquals(first, saved.last())
+        state.toast!!.undo!!.invoke()
+        assertEquals(start, state.layout)
+        state.smartArrange()
+        val second = state.layout
+        state.smartArrange()
+        assertTrue(second != state.layout)
+        noOverlaps(state.layout)
+    }
+
+    @Test
+    fun `auto-arrange leaves hidden widgets alone and says so when nothing is visible`() {
+        val hidden = state.layout.items.first().id
+        state.setVisible(hidden, false)
+        val before = state.layout.find(hidden)
+        state.smartArrange()
+        assertEquals(before, state.layout.find(hidden))
+        val empty = EditorState(Layout(state.layout.items.map { it.copy(visible = false) })) {}
+        empty.smartArrange()
+        assertEquals("Add some widgets first", empty.toast?.message)
+    }
+
+    @Test
     fun `a new change clears redo`() {
         state.add(StatWidget)
         state.undo()
