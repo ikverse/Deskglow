@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
@@ -38,6 +39,7 @@ class ScreensTest {
 
     private lateinit var graph: AppGraph
     private var exited = false
+    private var openedApp = false
 
     @Before
     fun setUp() {
@@ -46,7 +48,7 @@ class ScreensTest {
         graph = AppGraph(context, FakeFontsHttp(), FakeFeeds())
     }
 
-    private fun show() = compose.setContent { DeskglowTheme { com.ikverse.deskglow.display.WidgetHost(graph) { LiveDisplay { exited = true } } } }
+    private fun show() = compose.setContent { DeskglowTheme { com.ikverse.deskglow.display.WidgetHost(graph) { LiveDisplay(onExit = { exited = true }, onOpenApp = { openedApp = true }) } } }
 
     private val portrait = Orientation.Portrait
     private val landscape = Orientation.Landscape
@@ -152,10 +154,27 @@ class ScreensTest {
     fun `a double tap closes the display, and a single tap does not`() {
         show()
         compose.onRoot().performClick()
+        compose.mainClock.advanceTimeBy(500)
         compose.waitForIdle()
         assertEquals(false, exited)
         compose.onRoot().performTouchInput { doubleClick() }
+        compose.mainClock.advanceTimeBy(500) // past the wait for a third tap
         compose.waitForIdle()
         assertEquals(true, exited)
+        assertEquals(false, openedApp)
+    }
+
+    @Test
+    fun `a triple tap opens the app instead of just closing`() {
+        show()
+        compose.onRoot().performTouchInput {
+            repeat(3) {
+                click()
+                advanceEventTime(100)
+            }
+        }
+        compose.waitForIdle()
+        assertEquals(true, openedApp)
+        assertEquals(false, exited)
     }
 }
