@@ -72,6 +72,35 @@ class PackerTest {
     }
 
     @Test
+    fun `a widget met from the side is pushed sideways, and goes home when the drag moves off it`() {
+        val a = Placed("a", Box(0, 0, 100, 40))
+        val b = Placed("b", Box(116, 0, 100, 40))
+        val drag = DragSession("a", resize = false, start = a.box, base = listOf(a, b))
+        val pushed = drag.update(48f, 0f)!!
+        assertEquals(Box(48, 0, 100, 40), pushed.getValue("a"))
+        assertEquals(Box(148, 0, 100, 40), pushed.getValue("b"))
+        assertTidy(pushed.values)
+        assertEquals(b.box, drag.update(0f, 0f)!!.getValue("b"))
+    }
+
+    @Test
+    fun `a widget met from above is still pushed down`() {
+        val a = Placed("a", Box(0, 0, 100, 40))
+        val b = Placed("b", Box(0, 100, 100, 40))
+        val pushed = DragSession("a", resize = false, start = a.box, base = listOf(a, b)).update(0f, 80f)!!
+        assertEquals(Box(0, 120, 100, 40), pushed.getValue("b"))
+    }
+
+    @Test
+    fun `a widget against the canvas edge is pushed to the other side when it cannot go further`() {
+        val a = Placed("a", Box(200, 0, 100, 40))
+        val b = Placed("b", Box(312, 0, 100, 40))
+        val pushed = DragSession("a", resize = false, start = a.box, base = listOf(a, b)).update(40f, 0f)!!
+        assertEquals(Box(140, 0, 100, 40), pushed.getValue("b"))
+        assertTidy(pushed.values)
+    }
+
+    @Test
     fun `positions and sizes snap to whole grid squares and stay on the screen`() {
         val clock = layout.find(id("clock"))!!
         val drag = DragSession(clock.id, resize = false, start = clock.box, base = placed)
@@ -110,6 +139,37 @@ class PackerTest {
         assertEquals(320, drag.update(0f, 0f)!!.getValue(clock.id).right)
         val wide = drag.update(1000f, 0f)!!.getValue(clock.id)
         assertEquals(Orientation.Portrait.width, wide.right)
+    }
+
+    @Test
+    fun `dragging the top-left corner grows the widget up and left, and its bottom-right stays put`() {
+        val a = Placed("a", Box(64, 64, 96, 96))
+        val drag = DragSession("a", resize = true, start = a.box, base = listOf(a), corner = Corner.TopStart)
+        // 34 is nearest the dot at 32, 44 the one at 48.
+        assertEquals(Box(32, 48, 128, 112), drag.update(-30f, -20f)!!.getValue("a"))
+        // The canvas edge stops it, and it never shrinks below the smallest size.
+        assertEquals(Box(0, 0, 160, 160), drag.update(-1000f, -1000f)!!.getValue("a"))
+        assertEquals(Box(160 - Stage.MIN_SIZE, 160 - Stage.MIN_SIZE, Stage.MIN_SIZE, Stage.MIN_SIZE), drag.update(1000f, 1000f)!!.getValue("a"))
+        assertEquals(a.box, drag.update(0f, 0f)!!.getValue("a"))
+    }
+
+    @Test
+    fun `the other corners move only their own edges`() {
+        val a = Placed("a", Box(64, 64, 96, 96))
+        val topEnd = DragSession("a", resize = true, start = a.box, base = listOf(a), corner = Corner.TopEnd)
+        assertEquals(Box(64, 48, 128, 112), topEnd.update(30f, -20f)!!.getValue("a"))
+        val bottomStart = DragSession("a", resize = true, start = a.box, base = listOf(a), corner = Corner.BottomStart)
+        assertEquals(Box(32, 64, 128, 112), bottomStart.update(-30f, 20f)!!.getValue("a"))
+    }
+
+    @Test
+    fun `growing a widget upward pushes the one above out of the way`() {
+        val a = Placed("a", Box(0, 0, 96, 48))
+        val b = Placed("b", Box(0, 112, 96, 48))
+        val pushed = DragSession("b", resize = true, start = b.box, base = listOf(a, b), corner = Corner.TopEnd).update(0f, -80f)!!
+        assertEquals(Box(0, 32, 96, 128), pushed.getValue("b"))
+        assertEquals(160, pushed.getValue("a").y)
+        assertTidy(pushed.values)
     }
 
     @Test
