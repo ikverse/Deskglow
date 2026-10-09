@@ -21,6 +21,8 @@ Nothing runs while it is not showing: no background service, no permanent notifi
 - **Fonts:** 15 bundled, including 4 Arabic, and the whole Google Fonts library through
   **More fonts**: most popular first, with live previews. A picked font is downloaded once and kept.
 - **Arabic:** the clock and date can show Arabic, in Arabic numerals (٠١٢٣) or Western ones.
+- **Brightness:** dim, follow the phone, a level of your choosing, or **auto**, which matches the room's
+  light sensor (listened to only while the display shows).
 - **Burn-in protection:** the layout drifts a few pixels each minute.
 
 ## Setting it up on the phone

@@ -12,7 +12,7 @@ import org.json.JSONObject
 /** The most screens the display can have. */
 const val MAX_PAGES = 5
 
-enum class BrightnessMode { System, Dim, Custom }
+enum class BrightnessMode { System, Dim, Custom, Auto }
 
 data class Brightness(val mode: BrightnessMode = BrightnessMode.Dim, val level: Int = 30)
 

@@ -1,5 +1,6 @@
 package com.ikverse.deskglow.display
 
+import android.content.Context
 import android.os.Bundle
 import android.service.dreams.DreamService
 import android.view.View
@@ -51,18 +52,28 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.ikverse.deskglow.data.hasLightSensor
+import com.ikverse.deskglow.data.lightLevels
 import com.ikverse.deskglow.graph
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.store.Brightness
 import com.ikverse.deskglow.store.BrightnessMode
 import com.ikverse.deskglow.ui.DeskglowTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -171,9 +182,22 @@ private fun hideSystemBars(window: Window) {
 
 /** The window brightness a [Brightness] setting asks for, or null to leave it to the system. */
 internal fun windowBrightness(brightness: Brightness): Float? = when (brightness.mode) {
-    BrightnessMode.System -> null
+    BrightnessMode.System, BrightnessMode.Auto -> null // Auto is set as the room's light is read
     BrightnessMode.Dim -> 0.02f
     BrightnessMode.Custom -> (brightness.level / 100f).coerceIn(0.01f, 1f)
+}
+
+/** The brightness setting, except that Auto on a phone with no light sensor is Dim. */
+private fun Context.chosenBrightness(): Brightness {
+    val brightness = graph.prefs.brightness.value
+    return if (brightness.mode == BrightnessMode.Auto && !hasLightSensor(this)) brightness.copy(mode = BrightnessMode.Dim) else brightness
+}
+
+/** Keeps [window]'s brightness matched to the room's light for as long as this is running. */
+private suspend fun followRoomLight(context: Context, window: Window) {
+    lightLevels(context).collect { level ->
+        window.attributes = window.attributes.apply { screenBrightness = level }
+    }
 }
 
 /**
@@ -183,6 +207,8 @@ internal fun windowBrightness(brightness: Brightness): Float? = when (brightness
  */
 class DeskglowDream : DreamService() {
     private val owner = ViewOwner()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var lightJob: Job? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -190,7 +216,7 @@ class DeskglowDream : DreamService() {
         // the charger coming out, or the power button.
         isInteractive = true
         isFullscreen = true
-        val brightness = graph.prefs.brightness.value
+        val brightness = chosenBrightness()
         // Android's own dim mode for screen savers, or a level of the owner's choosing.
         isScreenBright = brightness.mode != BrightnessMode.Dim
         if (brightness.mode == BrightnessMode.Custom) {
@@ -208,14 +234,20 @@ class DeskglowDream : DreamService() {
         super.onDreamingStarted()
         window?.let(::hideSystemBars) // again now the window is on screen: some phones only honour it then
         owner.resume()
+        val window = window
+        if (window != null && chosenBrightness().mode == BrightnessMode.Auto) {
+            lightJob = scope.launch { followRoomLight(this@DeskglowDream, window) }
+        }
     }
 
     override fun onDreamingStopped() {
+        lightJob?.cancel()
         owner.pause()
         super.onDreamingStopped()
     }
 
     override fun onDetachedFromWindow() {
+        scope.cancel()
         owner.destroy()
         super.onDetachedFromWindow()
     }
@@ -229,8 +261,12 @@ class DisplayActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        windowBrightness(graph.prefs.brightness.value)?.let { level ->
+        val brightness = chosenBrightness()
+        windowBrightness(brightness)?.let { level ->
             window.attributes = window.attributes.apply { screenBrightness = level }
+        }
+        if (brightness.mode == BrightnessMode.Auto) {
+            lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { followRoomLight(this@DisplayActivity, window) } }
         }
         hideSystemBars(window)
         setContent { DeskglowTheme { LiveDisplay(onExit = ::finish) } }
