@@ -21,6 +21,10 @@ interface Feeds {
     val media: StateFlow<MediaState>
     val nextEvent: StateFlow<EventState>
     val weather: StateFlow<WeatherState>
+    val alarm: StateFlow<AlarmState>
+    val f1: StateFlow<F1State>
+    /** Prayer times by Aladhan [method] and Asr [school]; widgets with the same choices share one feed. */
+    fun prayer(method: Int, school: Int): StateFlow<PrayerState>
 }
 
 val LocalFeeds = staticCompositionLocalOf<Feeds> { error("No feeds provided") }

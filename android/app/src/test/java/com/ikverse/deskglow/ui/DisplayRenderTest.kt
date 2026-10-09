@@ -39,6 +39,30 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.time.LocalDateTime
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import com.ikverse.deskglow.F1Samples
+import com.ikverse.deskglow.data.AlarmState
+import com.ikverse.deskglow.data.F1State
+import com.ikverse.deskglow.data.Prayer
+import com.ikverse.deskglow.data.PrayerDay
+import com.ikverse.deskglow.data.PrayerState
+import com.ikverse.deskglow.data.Sky
+import com.ikverse.deskglow.widgets.AlarmWidget
+import com.ikverse.deskglow.widgets.Bell
+import com.ikverse.deskglow.widgets.DetailGlyph
+import com.ikverse.deskglow.widgets.F1StandingsWidget
+import com.ikverse.deskglow.widgets.F1WeekendWidget
+import com.ikverse.deskglow.widgets.Glyph
+import com.ikverse.deskglow.widgets.PrayerWidget
+import com.ikverse.deskglow.widgets.WeatherIcon
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 /**
  * Draws the display in every state its data can be in, and every clock style and font in both
@@ -157,13 +181,17 @@ class DisplayRenderTest {
 
     private fun weatherLayouts(outline: Boolean) {
         feeds.weather.value = WeatherState.Ready(cairo, WeatherWidget.SAMPLE)
-        val items = WeatherWidget.LAYOUTS.mapIndexed { i, (layout, _) ->
+        // Each layout twice: at the size a new widget gets, and wide.
+        val items = WeatherWidget.LAYOUTS.flatMapIndexed { i, (layout, _) ->
             val settings = WeatherWidget.defaults.with(WeatherWidget.LAYOUT, layout)
                 .with(WeatherWidget.ICON_STYLE, if (outline) "outline" else "filled")
                 .with(WeatherWidget.SHOW_FEELS, true).with(WeatherWidget.SHOW_HUMIDITY, i % 2 == 0)
                 .with(WeatherWidget.SHOW_WIND, true).with(WeatherWidget.SHOW_RAIN, i % 2 == 1)
                 .with(Common.ALIGN, listOf("left", "center", "right", "left")[i])
-            WidgetItem("w$i", WeatherWidget.id, Box(8, i * 100 + 8, 396, 92), true, settings)
+            listOf(
+                WidgetItem("w$i", WeatherWidget.id, Box(8, i * 200 + 8, 396, 112), true, settings),
+                WidgetItem("s$i", WeatherWidget.id, Box(8, i * 200 + 128, 176, 64), true, settings),
+            )
         }
         show(Layout(items))
         save(if (outline) "weather-outline" else "weather-filled")
@@ -178,18 +206,66 @@ class DisplayRenderTest {
     @Test
     fun `every sky draws as a filled and as an outline icon, day and night`() {
         compose.setContent {
-            androidx.compose.foundation.layout.Column {
+            Column(Modifier.background(Color.Black)) {
                 for (outline in listOf(false, true)) for (day in listOf(true, false)) {
-                    androidx.compose.foundation.layout.Row {
-                        com.ikverse.deskglow.data.Sky.entries.forEach {
-                            com.ikverse.deskglow.widgets.WeatherIcon(it, day, androidx.compose.ui.graphics.Color.White, androidx.compose.ui.Modifier.size(40.dp), outline)
-                        }
+                    Row {
+                        Sky.entries.forEach { WeatherIcon(it, day, Color(0xFFF5B942), Modifier.size(48.dp), outline, Color.White) }
                     }
+                }
+                Row {
+                    Glyph.entries.forEach { DetailGlyph(it, Color.White, Modifier.size(32.dp)) }
+                    Bell(Color(0xFFF5B942), Modifier.size(32.dp))
                 }
             }
         }
         compose.waitForIdle()
         save("weather-icons")
+    }
+
+    private val tonight = listOf(
+        PrayerDay(LocalDate.of(2026, 10, 7), mapOf(Prayer.Fajr to LocalTime.of(4, 26), Prayer.Dhuhr to LocalTime.of(11, 41), Prayer.Asr to LocalTime.of(15, 1), Prayer.Maghrib to LocalTime.of(17, 32), Prayer.Isha to LocalTime.of(20, 50))),
+        PrayerDay(LocalDate.of(2026, 10, 8), mapOf(Prayer.Fajr to LocalTime.of(4, 27), Prayer.Dhuhr to LocalTime.of(11, 40), Prayer.Asr to LocalTime.of(15, 0), Prayer.Maghrib to LocalTime.of(17, 31), Prayer.Isha to LocalTime.of(18, 49))),
+    )
+
+    private fun newWidgets(): Layout = Layout(listOf(
+        WidgetItem("p1", PrayerWidget.id, Box(8, 8, 396, 104), true, PrayerWidget.defaults),
+        WidgetItem("p2", PrayerWidget.id, Box(8, 120, 396, 104), true, PrayerWidget.defaults.with(Common.ARABIC, true).with(Common.ALIGN, "right")),
+        WidgetItem("a1", AlarmWidget.id, Box(8, 232, 260, 72), true, AlarmWidget.defaults),
+        WidgetItem("f1", F1WeekendWidget.id, Box(8, 312, 396, 120), true, F1WeekendWidget.defaults.with(F1WeekendWidget.FAVOURITE, "VER")),
+        WidgetItem("s1", F1StandingsWidget.id, Box(8, 440, 196, 240), true, F1StandingsWidget.defaults.with(F1StandingsWidget.FAV_DRIVER, "HAM").with(F1StandingsWidget.ROWS, 4)),
+        WidgetItem("s2", F1StandingsWidget.id, Box(212, 440, 196, 240), true,
+            F1StandingsWidget.defaults.with(F1StandingsWidget.TABLE, "constructors").with(F1StandingsWidget.VALUE, "gap").with(F1StandingsWidget.FAV_TEAM, "ferrari")),
+    ))
+
+    @Test
+    fun `prayer times, the next alarm and F1 with live-looking data`() {
+        feeds.prayers.value = PrayerState.Ready(cairo, tonight)
+        feeds.alarm.value = AlarmState(LocalDateTime.of(2026, 10, 8, 6, 30))
+        feeds.f1.value = F1State.Ready(F1Samples.data)
+        show(newWidgets())
+        save("new-widgets")
+    }
+
+    @Test
+    fun `the F1 weekend counting down, and live`() {
+        fun at(utc: LocalDateTime) = LocalDateTime.ofInstant(utc.toInstant(ZoneOffset.UTC), ZoneId.systemDefault())
+        feeds.f1.value = F1State.Ready(F1Samples.data)
+        val counting = at(LocalDateTime.of(2026, 10, 9, 5, 20, 15))
+        feeds.minute.value = counting
+        feeds.second.value = counting
+        show(Layout(listOf(WidgetItem("f1", F1WeekendWidget.id, Box(8, 8, 396, 120), true, F1WeekendWidget.defaults))))
+        save("f1-countdown")
+        val live = at(LocalDateTime.of(2026, 10, 10, 6, 30))
+        feeds.minute.value = live
+        feeds.second.value = live
+        compose.waitForIdle()
+        save("f1-live")
+    }
+
+    @Test
+    fun `the new widgets with nothing to show, in the editor where hints appear`() {
+        show(newWidgets(), editing = true)
+        save("new-widgets-empty")
     }
 
     @Test
