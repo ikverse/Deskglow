@@ -86,7 +86,7 @@ fun HomeScreen(graph: AppGraph, go: (Screen) -> Unit) {
         HomeRow("Edit portrait layout", "Phone upright: move, resize and style your widgets") { go(Screen.Editor) }
         HomeRow("Edit landscape layout", "Phone on its side, for a dock") { go(Screen.EditorLandscape) }
         HomeRow("Saved layouts", if (saved.isEmpty()) "Back up both layouts and restore them later" else "${saved.size} saved · back up to a file") { go(Screen.Snapshots) }
-        HomeRow("Start now", "Show it full screen without waiting for the charger") {
+        HomeRow("Start now", "Full screen without the charger · also a home-screen widget, app-icon shortcut and Quick Settings tile") {
             context.startActivity(Intent(context, DisplayActivity::class.java))
         }
         HomeRow("Start automatically when charging", autoStart) { go(Screen.AutoStart) }
