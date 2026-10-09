@@ -12,13 +12,53 @@ data class Placed(val id: String, val box: Box)
 /** Which edge, or centre line, a group of widgets is lined up on. */
 enum class Align { Left, CentreX, Right, Top, CentreY, Bottom }
 
+/** The corner a resize drags; [left] and [top] say which of its edges move. The opposite corner stays put. */
+enum class Corner(val left: Boolean, val top: Boolean) {
+    TopStart(true, true), TopEnd(false, true), BottomStart(true, false), BottomEnd(false, false),
+}
+
 /**
  * Keeps widgets from ever overlapping: anything in the way of a widget being moved, resized, added
- * or brought back is pushed straight down, just far enough to clear it, and whatever that lands on is
- * pushed in turn. Nothing moves sideways and nothing else rearranges itself, so gaps the owner left
- * stay where they are. Everything works on the canvas of one [Orientation]; portrait is the default.
+ * or brought back is pushed just far enough to clear it, and whatever that lands on is pushed in turn.
+ * A widget met side-on (the overlap is shallower across than down) is pushed left or right, away from
+ * what it overlaps; one met from above or below is pushed down. Nothing else rearranges itself, so gaps
+ * the owner left stay where they are. Everything works on the canvas of one [Orientation]; portrait is
+ * the default.
  */
 object Packer {
+    /** After this many sideways pushes one widget is pushed down instead, so two neighbours cannot trade it back and forth. */
+    private const val MAX_SIDEWAYS = 8
+
+    /**
+     * [start] moved clear of everything in [placed]: sideways when it is overlapped side-on and there is
+     * room inside [width], otherwise down to the bottom of whatever it overlaps.
+     */
+    private fun clear(start: Box, placed: List<Box>, width: Int): Box {
+        var box = start
+        var sideways = 0
+        while (true) {
+            val hit = placed.firstOrNull { it.overlaps(box) } ?: return box
+            val aside = if (sideways < MAX_SIDEWAYS) sidestep(box, hit, width) else null
+            if (aside != null) {
+                sideways++
+                box = aside
+            } else {
+                box = box.copy(y = hit.bottom)
+            }
+        }
+    }
+
+    /** [box] pushed left or right off [hit], or null if the overlap is not side-on or neither side has room. */
+    private fun sidestep(box: Box, hit: Box, width: Int): Box? {
+        val across = minOf(hit.right, box.right) - maxOf(hit.x, box.x)
+        val down = minOf(hit.bottom, box.bottom) - maxOf(hit.y, box.y)
+        if (across >= down) return null
+        val left = hit.x - box.w
+        val right = hit.right
+        val away = if (box.x * 2 + box.w < hit.x * 2 + hit.w) listOf(left, right) else listOf(right, left)
+        return away.firstOrNull { it >= 0 && it + box.w <= width }?.let { box.copy(x = it) }
+    }
+
     /** New widgets prefer spots the editor leaves uncovered ([Orientation.visibleY]); a hidden spot costs this much. */
     private const val HIDDEN_PENALTY = 300
 
@@ -27,8 +67,9 @@ object Packer {
     /**
      * Lays [others] out again with [fixed] held where it is. Each of the others starts from the place
      * given (not wherever an earlier call left it), so calling this on every step of a drag means a
-     * widget pushed down comes back up when the pusher moves away. Top to bottom, each drops below
-     * whatever it would touch. Returns every widget's box, or null if one would run off the bottom.
+     * widget pushed aside or down comes back when the pusher moves away. Top to bottom, each steps
+     * aside from (or drops below) whatever it would touch. Returns every widget's box, or null if one
+     * would run off the bottom.
      */
     fun resolve(fixed: Placed, others: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box>? =
         resolveGroup(listOf(fixed), others, orientation)
@@ -44,11 +85,7 @@ object Packer {
         val out = LinkedHashMap<String, Box>()
         fixed.forEach { out[it.id] = it.box }
         for (other in others.filter { it.id !in fixedIds }.sortedWith(compareBy({ it.box.y }, { it.box.x }))) {
-            var box = other.box
-            while (true) {
-                val hit = placed.firstOrNull { it.overlaps(box) } ?: break
-                box = box.copy(y = hit.bottom)
-            }
+            val box = clear(other.box, placed, orientation.width)
             if (box.bottom > orientation.height) return null
             placed += box
             out[other.id] = box
@@ -69,7 +106,7 @@ object Packer {
         val visible = orientation.visibleY
         fun attempt(x: Int, y: Int): Pair<Map<String, Box>, Int>? {
             val result = resolve(Placed(id, Box(x, y, w, h)), rest, orientation) ?: return null
-            val moved = rest.sumOf { abs(result.getValue(it.id).y - it.box.y) }
+            val moved = rest.sumOf { abs(result.getValue(it.id).x - it.box.x) + abs(result.getValue(it.id).y - it.box.y) }
             return result to moved
         }
         if (prefer != null) attempt(prefer.x, prefer.y)?.let { return it.first }
@@ -132,16 +169,12 @@ object Packer {
         )
     }
 
-    /** A layout saved before overlaps were prevented, tidied once: top to bottom, each drops below what it touches. */
+    /** A layout saved before overlaps were prevented, tidied once: top to bottom, each steps aside from or drops below what it touches. */
     fun tidy(items: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box> {
         val placed = ArrayList<Box>(items.size)
         val out = LinkedHashMap<String, Box>()
         for (item in items.sortedWith(compareBy({ it.box.y }, { it.box.x }))) {
-            var box = item.box
-            while (true) {
-                val hit = placed.firstOrNull { it.overlaps(box) } ?: break
-                box = box.copy(y = hit.bottom)
-            }
+            var box = clear(item.box, placed, orientation.width)
             box = box.copy(y = minOf(box.y, orientation.height - box.h).coerceAtLeast(0))
             placed += box
             out[item.id] = box
@@ -164,6 +197,8 @@ class DragSession(
     private val orientation: Orientation = Orientation.Portrait,
     /** Widgets that move with this one, by the same distance, as a rigid group. Not used when resizing. */
     companions: Set<String> = emptySet(),
+    /** Which corner a resize drags. */
+    private val corner: Corner = Corner.BottomEnd,
 ) {
     private var last: Box = start
     private val together: List<Placed> = if (resize) emptyList() else base.filter { it.id in companions && it.id != id }
@@ -190,23 +225,36 @@ class DragSession(
         return (if (next < Stage.MIN_SIZE) Stage.MIN_SIZE else next).coerceAtMost(canvas - from)
     }
 
+    /**
+     * The left or top side of a resized widget, dragged to [edge]: the far side stays at [end], the
+     * dragged one lands on a dot and stops at the canvas edge. Returns the new start and size.
+     */
+    private fun nearSide(end: Int, edge: Float): Pair<Int, Int> {
+        val at = minOf(onGrid(edge), end - Stage.MIN_SIZE).coerceAtLeast(0)
+        return at to end - at
+    }
+
     /** The nearest dot of the background grid to [position]. */
     private fun onGrid(position: Float): Int = (position / Stage.STEP).roundToInt() * Stage.STEP
 
     /** How far the group at [origin] moves to land its edge on a dot after travelling [distance]. */
     private fun stepped(origin: Int, distance: Float): Int = onGrid(origin + distance) - origin
 
-    /** [right], [bottom]: where the edges would be with no snapping. */
-    private fun resized(right: Float, bottom: Float) = Box(
-        start.x, start.y,
-        side(start.w, right - start.right, start.x, orientation.width),
-        side(start.h, bottom - start.bottom, start.y, orientation.height),
-    )
+    /** Where the dragged corner of [box] is. */
+    private fun cornerX(box: Box) = if (corner.left) box.x else box.right
+    private fun cornerY(box: Box) = if (corner.top) box.y else box.bottom
+
+    /** [edgeX], [edgeY]: where the dragged corner would be with no snapping. */
+    private fun resized(edgeX: Float, edgeY: Float): Box {
+        val (x, w) = if (corner.left) nearSide(start.right, edgeX) else start.x to side(start.w, edgeX - start.right, start.x, orientation.width)
+        val (y, h) = if (corner.top) nearSide(start.bottom, edgeY) else start.y to side(start.h, edgeY - start.bottom, start.y, orientation.height)
+        return Box(x, y, w, h)
+    }
 
     /** Moves (or resizes) by [dx], [dy] canvas units from where the drag started. Null if nothing fits at all. */
     fun update(dx: Float, dy: Float): Map<String, Box>? {
         val want = if (resize) {
-            resized(start.right + dx, start.bottom + dy)
+            resized(cornerX(start) + dx, cornerY(start) + dy)
         } else {
             // The whole group stays on the canvas; for a lone widget the group is the widget.
             // Its top-left corner always sits on a dot of the background grid.
@@ -227,7 +275,7 @@ class DragSession(
             repeat(6) {
                 val t = (lo + hi) / 2
                 val step = if (resize) {
-                    resized(last.right + (want.right - last.right) * t, last.bottom + (want.bottom - last.bottom) * t)
+                    resized(cornerX(last) + (cornerX(want) - cornerX(last)) * t, cornerY(last) + (cornerY(want) - cornerY(last)) * t)
                 } else {
                     Box(
                         start.x + stepped(groupStart.x, last.x - start.x + (want.x - last.x) * t).coerceIn(minOf(last.x, want.x) - start.x, maxOf(last.x, want.x) - start.x),

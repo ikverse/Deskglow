@@ -7,6 +7,7 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+android/.kotlin/
 
 # Signing keys never go in the repository
 *.keystore
