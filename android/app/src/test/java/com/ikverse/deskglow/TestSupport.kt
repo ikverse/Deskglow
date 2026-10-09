@@ -4,6 +4,7 @@ import com.ikverse.deskglow.data.AlarmState
 import com.ikverse.deskglow.data.BatteryState
 import com.ikverse.deskglow.data.ChargeStatus
 import com.ikverse.deskglow.data.EventState
+import com.ikverse.deskglow.data.F1LiveState
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.Feeds
 import com.ikverse.deskglow.data.Http
@@ -27,6 +28,7 @@ class FakeFeeds : Feeds {
     override val weather = MutableStateFlow<WeatherState>(WeatherState.NoCity)
     override val alarm = MutableStateFlow(AlarmState(null))
     override val f1 = MutableStateFlow<F1State>(F1State.Loading)
+    override val f1Live = MutableStateFlow<F1LiveState>(F1LiveState.Waiting)
     /** One prayer feed for every method, set directly by tests. */
     val prayers = MutableStateFlow<PrayerState>(PrayerState.NoLocation)
     override fun prayer(method: Int, school: Int) = prayers

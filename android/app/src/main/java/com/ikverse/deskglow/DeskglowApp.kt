@@ -3,6 +3,9 @@ package com.ikverse.deskglow
 import android.app.Application
 import android.content.Context
 import com.ikverse.deskglow.data.EventState
+import com.ikverse.deskglow.data.F1LiveRepository
+import com.ikverse.deskglow.data.F1LiveState
+import com.ikverse.deskglow.data.F1LiveTimingFeed
 import com.ikverse.deskglow.data.F1Repository
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.Feeds
@@ -126,9 +129,10 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     val weather = WeatherRepository(prefs, http, locate = locationFinder::locate)
     val prayer = PrayerRepository(prefs, http, locate = locationFinder::locate)
     val f1 = F1Repository(prefs, http)
+    val f1Live = F1LiveRepository(prefs, F1LiveTimingFeed, http)
     val fontLibrary = FontLibrary(app, prefs, http)
     val fonts = FontResolver(app, fontLibrary)
-    val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather, prayer, f1)
+    val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather, prayer, f1, f1Live)
 }
 
 /**
@@ -142,6 +146,7 @@ private class LiveFeeds(
     weatherRepository: WeatherRepository,
     private val prayerRepository: PrayerRepository,
     f1Repository: F1Repository,
+    f1LiveRepository: F1LiveRepository,
 ) : Feeds {
     // The last value is kept after a feed stops, so a screen that comes back shows it at once rather
     // than an empty placeholder while the feed starts up again.
@@ -157,6 +162,7 @@ private class LiveFeeds(
     override val weather = weatherRepository.updates().shared<WeatherState>(WeatherState.NoCity)
     override val alarm = alarmUpdates(context).shared(currentAlarm(context))
     override val f1 = f1Repository.updates().shared<F1State>(F1State.Loading)
+    override val f1Live = f1LiveRepository.updates(f1).shared<F1LiveState>(F1LiveState.Waiting)
 
     private val prayers = HashMap<Pair<Int, Int>, StateFlow<PrayerState>>()
 
