@@ -1,6 +1,8 @@
 package com.ikverse.deskglow.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDateTime
@@ -212,10 +214,18 @@ class DataParsingTest {
     }
 
     @Test
-    fun `the race weekend shows the podium until the next weekend starts, then counts down, then goes live`() {
+    fun `the race weekend shows the podium until a day before the next weekend, then counts down, then goes live`() {
         val afterSingapore = weekendView(f1, utc(2026, 10, 6, 12)) as WeekendView.AfterRace
         assertEquals(listOf("NOR", "VER", "LEC"), afterSingapore.result.podium.map { it.id })
         assertEquals("Japanese GP", afterSingapore.next!!.name)
+
+        // Japan's FP1 is at 02:30 UTC on the 9th: still the podium 25 hours before, the practice countdown 7 hours before.
+        assertTrue(weekendView(f1, utc(2026, 10, 8, 1, 30)) is WeekendView.AfterRace)
+        val sevenHoursOut = weekendView(f1, utc(2026, 10, 8, 19, 30)) as WeekendView.Upcoming
+        assertEquals("Japanese GP", sevenHoursOut.race.name)
+        assertNull(sevenHoursOut.live)
+        assertEquals("FP1", sevenHoursOut.next!!.kind)
+        assertEquals("7 h 0 m", countdownText(utc(2026, 10, 8, 19, 30), sevenHoursOut.next.start))
 
         val friday = weekendView(f1, utc(2026, 10, 9, 4)) as WeekendView.Upcoming
         assertEquals("Japanese GP", friday.race.name)
@@ -230,6 +240,41 @@ class DataParsingTest {
         val afterJapan = weekendView(f1, utc(2026, 10, 12, 12)) as WeekendView.Upcoming
         assertEquals("United States GP", afterJapan.race.name)
         assertEquals(WeekendView.Empty, weekendView(f1.copy(lastResult = null), utc(2026, 11, 1, 0)))
+    }
+
+    @Test
+    fun `the circuit is found by the meeting that starts with the weekend, never a test`() {
+        val japan = f1.races[1]
+        val meetings = """[
+            {"meeting_name":"Pre-Season Testing","date_start":"2026-10-09T02:30:00+00:00","circuit_key":63},
+            {"meeting_name":"Singapore Grand Prix","date_start":"2026-10-02T09:30:00+00:00","circuit_key":61},
+            {"meeting_name":"Japanese Grand Prix","date_start":"2026-10-09T02:30:00+00:00","circuit_key":46}
+        ]"""
+        assertEquals(46, circuitKeyFor(meetings, japan))
+        assertNull(circuitKeyFor("""[{"meeting_name":"Australian Grand Prix","date_start":"2026-03-06T01:30:00+00:00","circuit_key":10}]""", japan))
+        assertEquals(japan, trackRace(f1, utc(2026, 10, 6, 12)))
+    }
+
+    @Test
+    fun `a track outline is turned, flipped to run down the screen, and scaled to a box of side 1`() {
+        // A 10 by 5 rectangle, drawn as it comes: twice as wide as tall, top edge first once flipped.
+        val flat = parseTrack("""{"x":[0,10,10,0],"y":[0,0,5,5],"rotation":0}""", 2026, 18)!!
+        assertEquals(2f, flat.aspect, 0.001f)
+        assertEquals(listOf(0f to 0.5f, 1f to 0.5f, 1f to 0f, 0f to 0f), flat.points)
+        // Turned a quarter: now half as wide as tall.
+        val turned = parseTrack("""{"x":[0,10,10,0],"y":[0,0,5,5],"rotation":90}""", 2026, 18)!!
+        assertEquals(0.5f, turned.aspect, 0.001f)
+        assertNull(parseTrack("""{"x":[0,1],"y":[0,1]}""", 2026, 18))
+
+        assertTrue(flat.isFor(f1.races[1]))
+        assertFalse(flat.isFor(f1.races[2]))
+        assertEquals(flat, F1Track.fromJson(flat.toJson()))
+    }
+
+    @Test
+    fun `standings split into two columns, the left one taking the odd row`() {
+        assertEquals((1..5).toList() to (6..10).toList(), standingColumns((1..10).toList()))
+        assertEquals((1..4).toList() to (5..7).toList(), standingColumns((1..7).toList()))
     }
 
     @Test

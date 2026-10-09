@@ -1,13 +1,17 @@
 package com.ikverse.deskglow.widgets
 
 import android.text.format.DateFormat
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +26,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,6 +41,7 @@ import com.ikverse.deskglow.data.F1Result
 import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.F1Session
 import com.ikverse.deskglow.data.F1State
+import com.ikverse.deskglow.data.F1Track
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.WeekendView
 import com.ikverse.deskglow.data.countdownText
@@ -51,6 +60,7 @@ import kotlin.math.min
 
 object F1WeekendWidget : WidgetType {
     val SHOW_SCHEDULE = FlagKey("showSchedule", true)
+    val SHOW_TRACK = FlagKey("showTrack", false)
     val FAVOURITE = TextKey("favourite", "")
     val CLOCK = TextKey("clock", "phone")
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
@@ -64,6 +74,7 @@ object F1WeekendWidget : WidgetType {
 
     override fun fields(settings: Settings) = listOf(
         ToggleField("Show the weekend's schedule", SHOW_SCHEDULE),
+        ToggleField("Show the track", SHOW_TRACK),
         ChoiceField("Favourite driver", FAVOURITE, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }),
         ChoiceField("Times", CLOCK, listOf("phone" to "Phone setting", "12" to "12-hour", "24" to "24-hour")),
         ColourField("Accent colour", ACCENT),
@@ -71,7 +82,8 @@ object F1WeekendWidget : WidgetType {
         Common.brightnessField,
     )
 
-    override fun note(settings: Settings) = "F1 data from the Jolpica F1 API (api.jolpi.ca), in your phone's time zone. Not affiliated with Formula 1."
+    override fun note(settings: Settings) =
+        "F1 data from the Jolpica F1 API (api.jolpi.ca), track outlines from OpenF1 and MultiViewer, times in your phone's time zone. Not affiliated with Formula 1."
 
     @Composable
     override fun Content(settings: Settings) {
@@ -100,42 +112,94 @@ object F1WeekendWidget : WidgetType {
     }
 }
 
+/**
+ * The weekend, with the circuit beside it when the track is on and its outline has arrived: at the
+ * right in a box wider than it is tall, along the bottom in a taller one.
+ */
 @Composable
 private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, now: Instant, h24: Boolean) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val h = constraints.maxHeight.toFloat()
         val w = constraints.maxWidth.toFloat()
-        val colour = Color(settings[Common.COLOUR])
         val accent = Color(settings[F1WeekendWidget.ACCENT])
-        val small = min(h * 0.13f, w * 0.04f)
-        val big = min(h * 0.3f, w * 0.085f)
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-            when (view) {
-                WeekendView.Empty -> Text("No races scheduled", color = Muted, fontSize = pxToSp(small * 1.3f))
-                is WeekendView.AfterRace -> Podium(view.result, view.next, data, now, settings[F1WeekendWidget.FAVOURITE], colour, accent, small, big)
-                is WeekendView.Upcoming -> {
-                    Header(view.race.name, view.race.place, accent, colour, small)
-                    Spacer(Modifier.height(pxToDp(h * 0.04f)))
-                    val live = view.live
-                    val next = view.next
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (live != null) {
-                            LiveBadge(accent, small)
-                            Spacer(Modifier.width(pxToDp(small * 0.6f)))
-                            Text(live.kind, color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
-                        } else if (next != null) {
-                            Text(next.kind, color = Muted, fontSize = pxToSp(big * 0.62f), maxLines = 1, softWrap = false)
-                            Spacer(Modifier.width(pxToDp(big * 0.3f)))
-                            Text(countdownText(now, next.start), color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
-                        }
-                    }
-                    if (settings[F1WeekendWidget.SHOW_SCHEDULE]) {
-                        Spacer(Modifier.height(pxToDp(h * 0.06f)))
-                        Schedule(view.race.sessions, view.live ?: view.next, now, h24, accent, small)
-                    }
+        val track = data.track?.takeIf { settings[F1WeekendWidget.SHOW_TRACK] && view != WeekendView.Empty }
+        when {
+            track == null -> WeekendContent(settings, data, view, now, h24, w, h, wrap = false)
+            w >= h -> {
+                val gap = h * 0.12f
+                val trackW = min(h * 0.9f * track.aspect, w * 0.32f)
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f).fillMaxHeight()) { WeekendContent(settings, data, view, now, h24, w - trackW - gap, h, wrap = false) }
+                    Spacer(Modifier.width(pxToDp(gap)))
+                    TrackOutline(track, accent, Modifier.width(pxToDp(trackW)).fillMaxHeight())
+                }
+            }
+            else -> {
+                val gap = w * 0.05f
+                val trackH = min(w / track.aspect, h * 0.45f)
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxWidth().weight(1f)) { WeekendContent(settings, data, view, now, h24, w, h - trackH - gap, wrap = true) }
+                    Spacer(Modifier.height(pxToDp(gap)))
+                    TrackOutline(track, accent, Modifier.fillMaxWidth().height(pxToDp(trackH)))
                 }
             }
         }
+    }
+}
+
+/** The words: the weekend and its countdown or session running, or the last podium. Sized to [w] by [h]; [wrap] lets the schedule run onto a second line. */
+@Composable
+private fun WeekendContent(settings: Settings, data: F1Data, view: WeekendView, now: Instant, h24: Boolean, w: Float, h: Float, wrap: Boolean) {
+    val colour = Color(settings[Common.COLOUR])
+    val accent = Color(settings[F1WeekendWidget.ACCENT])
+    val small = min(h * 0.13f, w * 0.04f)
+    val big = min(h * 0.3f, w * 0.085f)
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+        when (view) {
+            WeekendView.Empty -> Text("No races scheduled", color = Muted, fontSize = pxToSp(small * 1.3f))
+            is WeekendView.AfterRace -> Podium(view.result, view.next, data, now, settings[F1WeekendWidget.FAVOURITE], colour, accent, small, big)
+            is WeekendView.Upcoming -> {
+                Header(view.race.name, view.race.place, accent, colour, small)
+                Spacer(Modifier.height(pxToDp(h * 0.04f)))
+                val live = view.live
+                val next = view.next
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (live != null) {
+                        LiveBadge(accent, small)
+                        Spacer(Modifier.width(pxToDp(small * 0.6f)))
+                        Text(live.kind, color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                    } else if (next != null) {
+                        Text(next.kind, color = Muted, fontSize = pxToSp(big * 0.62f), maxLines = 1, softWrap = false)
+                        Spacer(Modifier.width(pxToDp(big * 0.3f)))
+                        Text(countdownText(now, next.start), color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
+                    }
+                }
+                if (settings[F1WeekendWidget.SHOW_SCHEDULE]) {
+                    Spacer(Modifier.height(pxToDp(h * 0.06f)))
+                    Schedule(view.race.sessions, view.live ?: view.next, now, h24, accent, small, wrap)
+                }
+            }
+        }
+    }
+}
+
+/** The circuit as one closed line in [colour], as large as [modifier]'s box allows and centred in it. */
+@Composable
+private fun TrackOutline(track: F1Track, colour: Color, modifier: Modifier) {
+    Canvas(modifier) {
+        val stroke = (min(size.width, size.height) * 0.035f).coerceAtLeast(1.5f)
+        val spanW = if (track.aspect >= 1f) 1f else track.aspect
+        val spanH = if (track.aspect >= 1f) 1f / track.aspect else 1f
+        val scale = min((size.width - 2 * stroke) / spanW, (size.height - 2 * stroke) / spanH)
+        if (scale <= 0f) return@Canvas
+        val dx = (size.width - spanW * scale) / 2
+        val dy = (size.height - spanH * scale) / 2
+        val path = Path()
+        track.points.forEachIndexed { i, (x, y) ->
+            if (i == 0) path.moveTo(dx + x * scale, dy + y * scale) else path.lineTo(dx + x * scale, dy + y * scale)
+        }
+        path.close()
+        drawPath(path, colour, style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
@@ -165,13 +229,17 @@ private fun LiveBadge(accent: Color, px: Float) {
     }
 }
 
-/** Each session: its name and day ("FP1 · FRI") over its time. Past ones dim; the one running or next is lit. */
+/**
+ * Each session: its name and day ("FP1 · FRI") over its time. Past ones dim; the one running or next
+ * is lit. Spread across one line, or with [wrap], set close together and running onto more lines.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Schedule(sessions: List<F1Session>, current: F1Session?, now: Instant, h24: Boolean, accent: Color, px: Float) {
+private fun Schedule(sessions: List<F1Session>, current: F1Session?, now: Instant, h24: Boolean, accent: Color, px: Float, wrap: Boolean) {
     val zone = ZoneId.systemDefault()
     val day = DateTimeFormatter.ofPattern("EEE", Locale.UK)
     val time = DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    val items: @Composable () -> Unit = {
         sessions.forEach { session ->
             val shade = when {
                 session == current -> accent
@@ -187,6 +255,15 @@ private fun Schedule(sessions: List<F1Session>, current: F1Session?, now: Instan
                 Text(local.format(time), color = shade, fontSize = pxToSp(px * 0.95f), maxLines = 1, softWrap = false)
             }
         }
+    }
+    if (wrap) {
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(pxToDp(px * 1.4f)),
+            verticalArrangement = Arrangement.spacedBy(pxToDp(px * 0.6f)),
+        ) { items() }
+    } else {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { items() }
     }
 }
 
