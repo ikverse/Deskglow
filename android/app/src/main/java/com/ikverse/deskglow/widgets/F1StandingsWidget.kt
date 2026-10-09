@@ -50,7 +50,7 @@ object F1StandingsWidget : WidgetType {
 
     override val id = "f1standings"
     override val label = "F1 standings"
-    override val blurb = "The championship table, with your favourite always on it"
+    override val blurb = "The championship table"
     override val width = 176
     override val height = 208
     override val defaults: Settings = Common.base()

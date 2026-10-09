@@ -58,6 +58,8 @@ sealed interface Field {
 
 data class ToggleField(override val label: String, val key: FlagKey) : Field
 data class ChoiceField(override val label: String, val key: TextKey, val options: List<Pair<String, String>>) : Field
+/** A choice shown as small drawings of the widget itself, one per option ([options] are value to label), so a layout is picked by how it looks. */
+data class LayoutField(override val label: String, val key: TextKey, val options: List<Pair<String, String>>) : Field
 data class SliderField(override val label: String, val key: IntKey, val range: IntRange, val suffix: String = "") : Field
 data class ColourField(override val label: String, val key: ColourKey) : Field
 /** The sideways strip of preview tiles (clock styles, date fonts), ending in "More fonts". */

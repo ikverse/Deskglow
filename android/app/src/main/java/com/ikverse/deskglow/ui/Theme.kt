@@ -13,27 +13,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-/** The app's few colours: plain text on near-black, thin rules, one blue for "selected" and one red for "delete". */
+/**
+ * The app's colours: warm near-black surfaces, a warm off-white for text, and one amber that glows.
+ * Amber marks the active thing (the selected widget, the current screen, the main button) and nothing else.
+ */
 object Palette {
-    val Page = Color(0xFF0B0B0B)
-    val Sheet = Color(0xFF141414)
-    val Raised = Color(0xFF1D1D1D)
-    val Rule = Color(0xFF262626)
-    val Ink = Color(0xFFFFFFFF)
-    val Muted = Color(0xFF8C8C8C)
-    val Select = Color(0xFF4F9DFF)
-    val Danger = Color(0xFFF23645)
-    val Accent = Color(0xFF44B98A)
+    val Page = Color(0xFF000000)
+    val Sheet = Color(0xFF0F0E0C)
+    val Raised = Color(0xFF181614)
+    val Rule = Color(0xFF26231F)
+    val Ink = Color(0xFFEDE6DA)
+    val Muted = Color(0xFF8A8378)
+    val Select = Color(0xFFFFB547)
+    val Danger = Color(0xFFFF6B5A)
+    val Accent = Color(0xFFFFB547)
+    /** Text and marks drawn on an amber fill. */
+    val OnAccent = Color(0xFF1C1205)
+    /** The soft halo round the active element. */
+    val Glow = Color(0x55FFB547)
 
     /** The outline of a tile in a strip. */
-    val Edge = Color(0xFF2C2C2C)
+    val Edge = Color(0xFF2E2A25)
     /** The outline of a colour swatch. */
-    val EdgeStrong = Color(0xFF444444)
+    val EdgeStrong = Color(0xFF4A453D)
     /** The message bar that carries Undo, and its outline. */
-    val ToastFill = Color(0xFF232323)
-    val ToastEdge = Color(0xFF343434)
+    val ToastFill = Color(0xFF232019)
+    val ToastEdge = Color(0xFF38342C)
     /** The editor's top bar: near-black, a little see-through. */
-    val Bar = Color(0xF00A0A0A)
+    val Bar = Color(0xF00F0E0C)
 }
 
 @Composable
@@ -41,7 +48,7 @@ fun DeskglowTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Palette.Select,
-            onPrimary = Color.White,
+            onPrimary = Palette.OnAccent,
             background = Palette.Page,
             onBackground = Palette.Ink,
             surface = Palette.Sheet,
@@ -58,7 +65,7 @@ fun DeskglowTheme(content: @Composable () -> Unit) {
     }
 }
 
-/** A thin dividing line, the app's only separator. */
+/** A thin dividing line. */
 @Composable
 fun Rule(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(1.dp).background(Palette.Rule))

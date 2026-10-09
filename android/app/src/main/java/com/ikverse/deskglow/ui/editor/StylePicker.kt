@@ -30,6 +30,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.ikverse.deskglow.ui.pressable
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -137,20 +142,26 @@ fun StyleStrip(field: StyleField, settings: Settings, state: EditorState, graph:
     }
 }
 
+/** One choice in a strip: a drawing of it over its name. [width] and [previewHeight] let a strip of whole widgets be larger than one of type samples. */
 @Composable
-private fun Tile(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit, preview: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(6.dp)
+internal fun Tile(
+    label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit,
+    width: Dp = 104.dp, previewHeight: Dp = 56.dp, preview: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
     Column(
-        Modifier.width(104.dp).alpha(if (enabled) 1f else 0.35f).clip(shape)
-            .border(if (selected) 2.dp else 1.dp, if (selected) Palette.Select else Palette.Edge, shape)
-            .clickable(enabled = enabled, onClick = onClick).padding(6.dp),
+        Modifier.width(width).alpha(if (enabled) 1f else 0.35f).clip(shape)
+            .border(if (selected) 1.5.dp else 1.dp, if (selected) Palette.Select else Palette.Edge, shape)
+            .pressable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(Modifier.fillMaxWidth().height(56.dp).background(Color.Black).padding(4.dp), contentAlignment = Alignment.Center) { preview() }
+        Box(Modifier.fillMaxWidth().height(previewHeight).clip(RoundedCornerShape(8.dp)).background(Color.Black).padding(4.dp), contentAlignment = Alignment.Center) { preview() }
         // Two lines, so "Seven-segment · Western only" is read in full; anything longer ends in "…" rather than being cut mid-letter.
         Text(
-            label, fontSize = 11.5.sp, color = if (selected) Palette.Ink else Palette.Muted,
-            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp),
+            label, fontSize = 11.5.sp, color = if (selected) Palette.Select else Palette.Muted,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp),
         )
     }
 }

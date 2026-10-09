@@ -10,6 +10,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -83,7 +85,7 @@ class EditorLandscapeTest {
     fun `the settings are a panel beside the canvas, and tapping a widget fills it`() {
         compose.onNodeWithTag("sheet").assertIsDisplayed()
         compose.onNodeWithTag("widget ${idOf("date")}").performClick()
-        compose.onNodeWithText("Format").assertIsDisplayed()
+        compose.onNodeWithText("Format").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -100,7 +102,7 @@ class EditorLandscapeTest {
 
     @Test
     fun `the add picker lists every widget, and adding one keeps it inside the canvas`() {
-        compose.onAllNodesWithText("+ Add widget")[0].performClick()
+        compose.onNodeWithContentDescription("Add widget").performClick()
         compose.onNodeWithText("Add a widget").assertIsDisplayed()
         compose.onNodeWithText("Your next calendar item").performClick()
         assertEquals(DefaultLayout.create(Orientation.Landscape).items.size + 1, layout.items.size)
@@ -108,8 +110,8 @@ class EditorLandscapeTest {
     }
 
     @Test
-    fun `Done leaves the editor`() {
-        compose.onNodeWithText("Done").performClick()
+    fun `Back leaves the editor`() {
+        compose.onNodeWithContentDescription("Back").performClick()
         assertTrue(done)
     }
 
@@ -132,6 +134,6 @@ class EditorLandscapeTest {
         assertNotEquals(before, layout.find(clock)!!.box)
         assertInsideAndNoOverlaps()
         compose.onNodeWithTag("widget ${idOf("date")}").performClick()
-        compose.onNodeWithText("Format").assertIsDisplayed()
+        compose.onNodeWithText("Format").performScrollTo().assertIsDisplayed()
     }
 }
