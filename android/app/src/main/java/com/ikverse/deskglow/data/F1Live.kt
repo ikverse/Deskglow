@@ -313,6 +313,35 @@ fun needsCatchUp(saved: LiveSession?, races: List<F1Race>, now: Instant): Boolea
     return saved.start.isBefore(last.start.minus(Duration.ofHours(1)))
 }
 
+/** How long before the next session the race-weekend widget turns from a session's top 3 back to its countdown. */
+val TOP_THREE_UNTIL: Duration = Duration.ofHours(1)
+
+/** How far a result's start may be from the calendar's time for that session and still be taken as its result. */
+private val SAME_SESSION: Duration = Duration.ofMinutes(90)
+
+/** The last session's top 3 for the race-weekend widget: [session] of [race], and the session after it, if any, of [nextRace]. */
+data class SessionTop(val race: F1Race, val session: F1Session, val rows: List<LiveRow>, val nextRace: F1Race?, val next: F1Session?)
+
+/**
+ * The top 3 of the session that started last, from [result], for as long as the race-weekend widget
+ * shows it: from the session's end until an hour before the next one, or after a race until a day
+ * before the next weekend, as the podium does. Null while a session is on, and when [result] is not
+ * that session's (an older one, while the newer result is still to come).
+ */
+fun sessionTop(races: List<F1Race>, result: LiveSession?, now: Instant): SessionTop? {
+    val start = result?.start ?: return null
+    if (!result.finished || result.rows.isEmpty()) return null
+    val sessions = races.flatMap { race -> race.sessions.map { race to it } }
+    val (race, session) = sessions.lastOrNull { !it.second.start.isAfter(now) } ?: return null
+    if (session.liveAt(now) || Duration.between(start, session.start).abs() > SAME_SESSION) return null
+    val after = sessions.firstOrNull { it.second.start.isAfter(now) }
+    if (after != null) {
+        val lead = if (after.first == race) TOP_THREE_UNTIL else UPCOMING_LEAD
+        if (!now.isBefore(after.second.start.minus(lead))) return null
+    }
+    return SessionTop(race, session, result.rows.take(3), after?.first, after?.second)
+}
+
 /**
  * Live timing for the session on now, and the result of the last one. Connects only from just before
  * a session starts until the feed says it is over, then saves the classification, disconnects
