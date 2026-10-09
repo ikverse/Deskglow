@@ -35,6 +35,7 @@
         <activity
             android:name=".display.DisplayActivity"
             android:exported="false"
+            android:taskAffinity=""
             android:theme="@style/Theme.Deskglow.Display" />
 
         <!-- Home-screen widget: one press starts the display. -->

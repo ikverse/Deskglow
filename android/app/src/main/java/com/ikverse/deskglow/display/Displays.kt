@@ -1,6 +1,7 @@
 package com.ikverse.deskglow.display
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.service.dreams.DreamService
 import android.view.View
@@ -18,7 +19,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -67,6 +68,7 @@ import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.store.Brightness
 import com.ikverse.deskglow.store.BrightnessMode
 import com.ikverse.deskglow.ui.DeskglowTheme
+import com.ikverse.deskglow.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -74,15 +76,17 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 /**
  * The display itself, as both the screen saver and "Start now" show it. It always opens on the first
  * screen; two fingers swiping sideways move between screens, and a swipe shows which screen is open
- * for a few seconds so the dots do not stay lit. Double-tapping closes it; a single tap does nothing.
+ * for a few seconds so the dots do not stay lit. Double-tapping closes it ([onExit]) and triple-tapping
+ * closes it into the app ([onOpenApp]); a single tap does nothing.
  */
 @Composable
-internal fun LiveDisplay(onExit: () -> Unit) {
+internal fun LiveDisplay(onExit: () -> Unit, onOpenApp: () -> Unit) {
     val graph = androidx.compose.ui.platform.LocalContext.current.graph
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
     var swipes by remember { mutableIntStateOf(0) }
@@ -108,7 +112,7 @@ internal fun LiveDisplay(onExit: () -> Unit) {
                         graph.prefs.setLastPage(orientation, page)
                         swipes++
                     }
-                    .pointerInput(onExit) { detectTapGestures(onDoubleTap = { onExit() }) },
+                    .doubleOrTripleTap(onDouble = onExit, onTriple = onOpenApp),
             ) {
                 AnimatedContent(
                     targetState = shown,
@@ -169,6 +173,30 @@ private fun Modifier.twoFingerSwipe(onSwipe: (direction: Int) -> Unit): Modifier
 }
 
 /**
+ * Calls [onDouble] after two quick taps, or [onTriple] after three. The second tap waits one
+ * double-tap interval for a third, so a double tap lands a moment after the finger lifts.
+ */
+private fun Modifier.doubleOrTripleTap(onDouble: () -> Unit, onTriple: () -> Unit): Modifier = pointerInput(onDouble, onTriple) {
+    val gap = viewConfiguration.doubleTapTimeoutMillis
+    awaitEachGesture {
+        var taps = 0
+        awaitFirstDown()
+        while (true) {
+            waitForUpOrCancellation() ?: return@awaitEachGesture
+            taps++
+            if (taps == 3) {
+                onTriple()
+                return@awaitEachGesture
+            }
+            if (withTimeoutOrNull(gap) { awaitFirstDown() } == null) {
+                if (taps == 2) onDouble()
+                return@awaitEachGesture
+            }
+        }
+    }
+}
+
+/**
  * Hides the status and navigation bars, and with them Samsung's gesture hint: a white bar that would
  * sit in one place for hours on a screen that stays lit, which is how an AMOLED panel gets marked.
  */
@@ -185,6 +213,11 @@ internal fun windowBrightness(brightness: Brightness): Float? = when (brightness
     BrightnessMode.System, BrightnessMode.Auto -> null // Auto is set as the room's light is read
     BrightnessMode.Dim -> 0.02f
     BrightnessMode.Custom -> (brightness.level / 100f).coerceIn(0.01f, 1f)
+}
+
+/** Brings the Deskglow app to the front, reusing it if it is already open. */
+private fun Context.openApp() {
+    startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
 }
 
 /** The brightness setting, except that Auto on a phone with no light sensor is Dim. */
@@ -225,7 +258,9 @@ class DeskglowDream : DreamService() {
         owner.create()
         setContentView(ComposeView(this).also { view ->
             owner.attach(view)
-            view.setContent { DeskglowTheme { LiveDisplay(onExit = ::finish) } }
+            view.setContent {
+                DeskglowTheme { LiveDisplay(onExit = ::finish, onOpenApp = { openApp(); finish() }) }
+            }
         })
         window?.let(::hideSystemBars)
     }
@@ -255,7 +290,7 @@ class DeskglowDream : DreamService() {
 
 /**
  * "Start now": the display full screen without waiting for the charger, kept on until closed. A double
- * tap closes it; so does Back.
+ * tap closes it back to whatever was open before; a triple tap closes it into the app. Back closes it too.
  */
 class DisplayActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -269,7 +304,9 @@ class DisplayActivity : ComponentActivity() {
             lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { followRoomLight(this@DisplayActivity, window) } }
         }
         hideSystemBars(window)
-        setContent { DeskglowTheme { LiveDisplay(onExit = ::finish) } }
+        setContent {
+            DeskglowTheme { LiveDisplay(onExit = ::finish, onOpenApp = { openApp(); finish() }) }
+        }
     }
 }
 
