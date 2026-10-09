@@ -544,7 +544,7 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
                             state.holdWidget(item.id)
                             state.haptic(Haptic.Centre)
                         },
-                        onTap = { if (state.selecting) state.toggleInGroup(item.id) else state.selectAndOpen(item.id) },
+                        onTap = { if (state.selecting) state.toggleInGroup(item.id) else state.tapWidget(item.id) },
                     )
                 }
                 .pointerInput(item.id, unit) {

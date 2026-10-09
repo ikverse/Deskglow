@@ -520,4 +520,18 @@ class EditorStateTest {
         state.sheetOpen = true
         assertEquals(SheetStop.Full, state.sheetStop)
     }
+
+    @Test
+    fun `the first tap on a widget selects it and a second opens the sheet`() {
+        val (a, b) = state.layout.items.filter { it.visible }.map { it.id }
+        state.tapWidget(a)
+        assertEquals(a, state.selectedId)
+        assertEquals(SheetStop.Peek, state.sheetStop)
+        state.tapWidget(b)
+        assertEquals(b, state.selectedId)
+        assertEquals(SheetStop.Peek, state.sheetStop)
+        state.tapWidget(b)
+        assertEquals(b, state.selectedId)
+        assertEquals(SheetStop.Half, state.sheetStop)
+    }
 }

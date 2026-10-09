@@ -172,6 +172,11 @@ class EditorState(
         if (selectedId != null && sheetStop == SheetStop.Peek) sheetStop = SheetStop.Half
     }
 
+    /** A tap on a widget on the canvas: the first selects it, a second on the same widget brings the settings sheet up. */
+    fun tapWidget(id: String) {
+        if (selectedId == id) selectAndOpen(id) else select(id)
+    }
+
     fun select(id: String?) {
         selectedId = id?.takeIf { layout.find(it) != null }
         if (selectedId != null) tab = SheetTab.Settings else if (tab == SheetTab.Settings) tab = SheetTab.Widgets
