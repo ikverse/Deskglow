@@ -14,6 +14,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -33,6 +38,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,6 +53,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
@@ -79,6 +87,7 @@ import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
@@ -313,27 +322,96 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+/** How far the canvas can be pinched in, as a multiple of the size that fits the stage. */
+private const val MAX_ZOOM = 6f
+
+/**
+ * Where the zoomed canvas may sit: its centre can move from the stage centre by half of what
+ * overhangs the stage on each axis, so no edge is pulled past the stage edge, and a canvas that fits
+ * on an axis stays centred on it.
+ */
+private fun clampPan(pan: Offset, content: Size, view: Size): Offset {
+    val limitX = ((content.width - view.width) / 2f).coerceAtLeast(0f)
+    val limitY = ((content.height - view.height) / 2f).coerceAtLeast(0f)
+    return Offset(pan.x.coerceIn(-limitX, limitX), pan.y.coerceIn(-limitY, limitY))
+}
+
+/**
+ * The canvas, fitted to the stage. Pinching with two fingers zooms it (and two fingers moving pan it)
+ * so a widget can be placed precisely. The zoom is carried by [unit], the pixels per canvas unit, so
+ * every drag and snap below it works at the zoomed scale unchanged, and widgets are redrawn sharp.
+ */
 @Composable
 private fun Stage(state: EditorState, modifier: Modifier) {
     val canvas = state.orientation
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
-        val unit = min(constraints.maxWidth / canvas.width.toFloat(), constraints.maxHeight / canvas.height.toFloat())
+    var zoom by remember(canvas) { mutableFloatStateOf(1f) }
+    var pan by remember(canvas) { mutableStateOf(Offset.Zero) }
+    BoxWithConstraints(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+        val fit = min(constraints.maxWidth / canvas.width.toFloat(), constraints.maxHeight / canvas.height.toFloat())
+        val unit = fit * zoom
+        val view = Size(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+        val content = Size(canvas.width * unit, canvas.height * unit)
         val density = LocalDensity.current
         // The canvas is a drawing in fixed coordinates, not text: it is never mirrored for a right-to-left
         // language, or a widget would move opposite to the finger that drags it.
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Box(
                 Modifier
-                    .size(with(density) { (canvas.width * unit).toDp() }, with(density) { (canvas.height * unit).toDp() })
-                    .pointerInput(Unit) { detectTapGestures { state.select(null) } },
+                    .fillMaxSize()
+                    // Looked at before the widgets below see a touch, so that once a second finger is
+                    // down the gesture is the stage's and the widget under the first finger lets go.
+                    .pointerInput(canvas, fit, constraints.maxWidth, constraints.maxHeight) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.changes.count { it.pressed } >= 2) {
+                                    val centre = Offset(size.width / 2f, size.height / 2f)
+                                    val focus = event.calculateCentroid(useCurrent = false) - centre
+                                    val next = (zoom * event.calculateZoom()).coerceIn(1f, MAX_ZOOM)
+                                    // Keep the point between the fingers under them while the scale changes.
+                                    val moved = focus - (focus - pan) * (next / zoom) + event.calculatePan()
+                                    zoom = next
+                                    pan = clampPan(moved, Size(canvas.width * fit * next, canvas.height * fit * next), view)
+                                    event.changes.forEach { it.consume() }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    },
+                contentAlignment = Alignment.Center,
             ) {
-                GridDots(unit)
-                for (item in state.layout.items) {
-                    if (!item.visible || Widgets.find(item.type) == null) continue
-                    key(item.id) { EditableWidget(state, item, unit) }
+                Box(
+                    Modifier
+                        .requiredSize(with(density) { content.width.toDp() }, with(density) { content.height.toDp() })
+                        .offset {
+                            val p = clampPan(pan, content, view)
+                            IntOffset(p.x.roundToInt(), p.y.roundToInt())
+                        }
+                        .pointerInput(Unit) { detectTapGestures { state.select(null) } },
+                ) {
+                    GridDots(unit)
+                    for (item in state.layout.items) {
+                        if (!item.visible || Widgets.find(item.type) == null) continue
+                        key(item.id) { EditableWidget(state, item, unit) }
+                    }
+                    CentreGuides(state, unit)
                 }
-                CentreGuides(state, unit)
             }
+        }
+        if (zoom > 1.001f) {
+            Text(
+                "${(zoom * 10).roundToInt() / 10f}× · Reset",
+                color = Palette.Select,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Palette.Bar.copy(alpha = 0.85f))
+                    .clickable(role = Role.Button) { zoom = 1f; pan = Offset.Zero }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("zoom reset"),
+            )
         }
     }
 }
