@@ -9,11 +9,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -21,10 +21,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
 import com.ikverse.deskglow.display.WidgetHost
 import com.ikverse.deskglow.graph
@@ -35,9 +37,6 @@ enum class Screen { Home, Editor, EditorLandscape, AutoStart, Permissions, City,
 
 /** The editors draw edge to edge; every other screen stays inside the system bars. */
 private val Screen.isEditor: Boolean get() = this == Screen.Editor || this == Screen.EditorLandscape
-
-/** A strong ease-out: starts fast, so the new screen is already moving the moment it is asked for. */
-private val EaseOut = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +55,8 @@ class MainActivity : ComponentActivity() {
 fun App() {
     val graph = LocalContext.current.graph
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
+    // Which screen of its layout the editor opens on: the one the home preview was showing.
+    var editorPage by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = screen != Screen.Home && !screen.isEditor) { screen = Screen.Home }
     WidgetHost(graph) {
         Box(Modifier.fillMaxSize().background(Palette.Page)) {
@@ -65,16 +66,30 @@ fun App() {
             AnimatedContent(
                 targetState = screen,
                 transitionSpec = {
-                    (fadeIn(tween(160, easing = EaseOut)) togetherWith fadeOut(tween(100, easing = EaseOut)))
+                    // Opening an editor from Home: the editor grows out of where the preview is, about 300 ms,
+                    // with no bounce. Everything else is the short fade.
+                    val opening = initialState == Screen.Home && targetState.isEditor
+                    val enter = if (opening) {
+                        fadeIn(tween(200, easing = EaseOutStrong)) +
+                            scaleIn(tween(300, easing = EaseOutStrong), initialScale = 0.92f, transformOrigin = TransformOrigin(0.5f, 0.38f))
+                    } else fadeIn(tween(160, easing = EaseOutStrong))
+                    (enter togetherWith fadeOut(tween(100, easing = EaseOutStrong)))
                         .using(SizeTransform(clip = false) { _, _ -> snap() })
                 },
                 label = "screen",
             ) { current ->
                 Box(Modifier.fillMaxSize().then(if (current.isEditor) Modifier else Modifier.safeDrawingPadding())) {
                     when (current) {
-                        Screen.Home -> HomeScreen(graph) { screen = it }
-                        Screen.Editor -> EditorScreen(graph, Orientation.Portrait) { screen = Screen.Home }
-                        Screen.EditorLandscape -> EditorScreen(graph, Orientation.Landscape) { screen = Screen.Home }
+                        Screen.Home -> HomeScreen(
+                            graph,
+                            go = { screen = it },
+                            edit = { orientation, page ->
+                                editorPage = page
+                                screen = if (orientation == Orientation.Portrait) Screen.Editor else Screen.EditorLandscape
+                            },
+                        )
+                        Screen.Editor -> EditorScreen(graph, Orientation.Portrait, startPage = editorPage) { screen = Screen.Home }
+                        Screen.EditorLandscape -> EditorScreen(graph, Orientation.Landscape, startPage = editorPage) { screen = Screen.Home }
                         Screen.AutoStart -> AutoStartScreen { screen = Screen.Home }
                         Screen.Permissions -> PermissionsScreen { screen = Screen.Home }
                         Screen.City -> CityScreen(graph) { screen = Screen.Home }

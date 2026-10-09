@@ -4,22 +4,27 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,28 +34,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
-import com.ikverse.deskglow.BuildConfig
 import com.ikverse.deskglow.data.hasCalendarAccess
 import com.ikverse.deskglow.data.hasLocationAccess
 import com.ikverse.deskglow.data.hasNotificationAccess
 import com.ikverse.deskglow.display.DeskglowDream
 import com.ikverse.deskglow.display.DisplayActivity
 import com.ikverse.deskglow.display.DisplayContent
-import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.store.BrightnessMode
 
+/**
+ * [go] opens a screen; [edit] opens a layout's editor on one of its screens (the one being shown in
+ * the preview).
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun HomeScreen(graph: AppGraph, go: (Screen) -> Unit) {
+fun HomeScreen(
+    graph: AppGraph,
+    go: (Screen) -> Unit,
+    edit: (Orientation, Int) -> Unit = { orientation, _ -> go(if (orientation == Orientation.Portrait) Screen.Editor else Screen.EditorLandscape) },
+) {
     val context = LocalContext.current
-    val portrait by graph.layouts.layout.collectAsStateWithLifecycle()
-    val landscape by graph.landscapeLayouts.layout.collectAsStateWithLifecycle()
+    val portraitScreens by graph.prefs.pageCount(Orientation.Portrait).collectAsStateWithLifecycle()
+    val landscapeScreens by graph.prefs.pageCount(Orientation.Landscape).collectAsStateWithLifecycle()
     val city by graph.prefs.city.collectAsStateWithLifecycle()
     val auto by graph.prefs.autoLocation.collectAsStateWithLifecycle()
     val detected by graph.prefs.detectedCity.collectAsStateWithLifecycle()
@@ -65,93 +79,124 @@ fun HomeScreen(graph: AppGraph, go: (Screen) -> Unit) {
     }
     val autoStart = remember(resumes) { screenSaverStatus(context) }
     val permissions = remember(resumes) {
-        listOf(
-            "Notifications " + if (hasNotificationAccess(context)) "allowed" else "off",
-            "Calendar " + if (hasCalendarAccess(context)) "allowed" else "off",
-        ).joinToString(" · ")
-    }
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("Deskglow", fontSize = 26.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 16.dp))
-        // Both layouts side by side, in the same proportions as the screens they are for (1 : 2 in width).
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            LayoutPreview("Portrait", portrait, Orientation.Portrait, Modifier.weight(1f)) { go(Screen.Editor) }
-            LayoutPreview("Landscape", landscape, Orientation.Landscape, Modifier.weight(2f)) { go(Screen.EditorLandscape) }
-        }
-        Box(Modifier.padding(top = 16.dp)) { Rule() }
-        HomeRow("Edit portrait layout", "Phone upright: move, resize and style your widgets") { go(Screen.Editor) }
-        HomeRow("Edit landscape layout", "Phone on its side, for a dock") { go(Screen.EditorLandscape) }
-        HomeRow("Saved layouts", if (saved.isEmpty()) "Back up both layouts and restore them later" else "${saved.size} saved · back up to a file") { go(Screen.Snapshots) }
-        HomeRow("Start now", "Full screen without the charger · also a home-screen widget, app-icon shortcut and Quick Settings tile") {
-            context.startActivity(Intent(context, DisplayActivity::class.java))
-        }
-        HomeRow("Start automatically when charging", autoStart) { go(Screen.AutoStart) }
-        HomeRow("Permissions", permissions) { go(Screen.Permissions) }
-        val located = remember(resumes) { hasLocationAccess(context) }
-        val autoLocation = auto && located
-        HomeRow("Weather city", if (autoLocation) "Auto: " + (detected ?: city)?.label.orEmpty().ifBlank { "finding…" } else city?.label ?: "Not set") { go(Screen.City) }
-        HomeRow(
-            "Brightness and burn-in",
-            when (brightness.mode) {
-                BrightnessMode.System -> "Follows the phone"
-                BrightnessMode.Dim -> "Dim"
-                BrightnessMode.Custom -> "${brightness.level}%"
-            } + if (burnIn) " · burn-in protection on" else " · burn-in protection off",
-        ) { go(Screen.Brightness) }
-        HomeRow("About and licences", "Version ${BuildConfig.VERSION_NAME}") { go(Screen.About) }
-    }
-}
-
-/** One layout drawn live, as small as a thumbnail, with its name under it. Tapping it opens its editor. */
-@Composable
-private fun LayoutPreview(caption: String, layout: Layout, orientation: Orientation, modifier: Modifier, onClick: () -> Unit) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(orientation.width.toFloat() / orientation.height)
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, Palette.Rule, RoundedCornerShape(12.dp))
-                .clickable(onClick = onClick),
-        ) {
-            DisplayContent(layout, burnIn = false, orientation = orientation)
-        }
-        Text(caption, fontSize = 13.sp, color = Palette.Muted, modifier = Modifier.padding(top = 6.dp))
-    }
-}
-
-@Composable
-fun HomeRow(title: String, detail: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 16.sp)
-                Text(detail, fontSize = 13.sp, color = Palette.Muted)
-            }
-            Text("›", fontSize = 22.sp, color = Palette.Muted)
-        }
-        Rule()
-    }
-}
-
-/** A plain screen with a back link and a title. */
-@Composable
-fun ScreenFrame(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("‹ Back", color = Palette.Select, fontSize = 15.sp) }
-        }
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp))
-        Rule()
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            content = content,
+        val off = listOfNotNull(
+            "Notifications".takeUnless { hasNotificationAccess(context) },
+            "Calendar".takeUnless { hasCalendarAccess(context) },
         )
+        if (off.isEmpty()) "All allowed" else off.joinToString(" and ") + " off"
+    }
+    val located = remember(resumes) { hasLocationAccess(context) }
+    val shownCity = if (auto && located) detected ?: city else city
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 20.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Desk", fontSize = Type.Title, fontWeight = FontWeight.Medium, letterSpacing = 0.04.em)
+            Text("glow", fontSize = Type.Title, fontWeight = FontWeight.Medium, letterSpacing = 0.04.em, color = Palette.Select)
+        }
+
+        PreviewCard(graph, edit)
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppButton(
+                "Start Deskglow", { context.startActivity(Intent(context, DisplayActivity::class.java)) },
+                Modifier.fillMaxWidth().height(56.dp), kind = ButtonKind.Primary, glyph = Glyph.Play,
+            )
+            Text(
+                "Full screen without the charger. Also on the home-screen widget, the app-icon shortcut and the Quick Settings tile.",
+                fontSize = Type.Small, color = Palette.Muted, modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val charging = autoStart.startsWith("On")
+            Chip(if (charging) "Starts when charging" else "Auto-start off", { go(Screen.AutoStart) }, dot = charging)
+            Chip(
+                "Brightness " + when (brightness.mode) {
+                    BrightnessMode.System -> "follows phone"
+                    BrightnessMode.Dim -> "dim"
+                    BrightnessMode.Custom -> "${brightness.level}%"
+                } + if (burnIn) "" else " · burn-in off",
+                { go(Screen.Brightness) },
+            )
+            Chip(shownCity?.label?.substringBefore(',') ?: "Set weather city", { go(Screen.City) })
+        }
+
+        Card {
+            CardRow(Glyph.Phone, "Portrait layout", screensLabel(portraitScreens), { edit(Orientation.Portrait, 0) })
+            CardRow(Glyph.PhoneSideways, "Landscape layout", screensLabel(landscapeScreens), { edit(Orientation.Landscape, 0) })
+            CardRow(
+                Glyph.Archive, "Saved layouts",
+                if (saved.isEmpty()) "Back up both layouts and restore them later" else "${saved.size} saved · back up to a file",
+                { go(Screen.Snapshots) }, last = true,
+            )
+        }
+        Card {
+            CardRow(Glyph.Shield, "Permissions", permissions, { go(Screen.Permissions) })
+            CardRow(Glyph.Info, "About and licences", null, { go(Screen.About) }, last = true)
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+private fun screensLabel(count: Int) = if (count == 1) "1 screen" else "$count screens"
+
+/**
+ * Every screen of both layouts, drawn live, to swipe through. Tapping one, or Edit layout, opens the
+ * editor on that screen.
+ */
+@Composable
+private fun PreviewCard(graph: AppGraph, edit: (Orientation, Int) -> Unit) {
+    val portraitScreens by graph.prefs.pageCount(Orientation.Portrait).collectAsStateWithLifecycle()
+    val landscapeScreens by graph.prefs.pageCount(Orientation.Landscape).collectAsStateWithLifecycle()
+    val screens = remember(portraitScreens, landscapeScreens) {
+        (0 until portraitScreens).map { Orientation.Portrait to it } + (0 until landscapeScreens).map { Orientation.Landscape to it }
+    }
+    val pager = rememberPagerState { screens.size }
+    val (orientation, index) = screens[pager.currentPage.coerceIn(0, screens.lastIndex)]
+    Card {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            HorizontalPager(pager, Modifier.fillMaxWidth().height(330.dp).testTag("preview pager"), pageSpacing = 12.dp) { page ->
+                val (pageOrientation, pageIndex) = screens[page]
+                val layout by graph.layoutsFor(pageOrientation, pageIndex).layout.collectAsStateWithLifecycle()
+                BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    val aspect = pageOrientation.width.toFloat() / pageOrientation.height
+                    val wide = maxWidth / maxHeight > aspect
+                    val density = LocalDensity.current
+                    val fitHeight = if (wide) maxHeight else maxWidth / aspect
+                    val fitWidth = if (wide) maxHeight * aspect else maxWidth
+                    Box(
+                        Modifier
+                            .size(fitWidth, fitHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, Palette.Rule, RoundedCornerShape(12.dp))
+                            .pressable(role = androidx.compose.ui.semantics.Role.Button) { edit(pageOrientation, pageIndex) },
+                    ) {
+                        DisplayContent(layout, burnIn = false, orientation = pageOrientation)
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "${orientation.name} · screen ${index + 1} of ${if (orientation == Orientation.Portrait) portraitScreens else landscapeScreens}",
+                        fontSize = Type.Small, color = Palette.Muted,
+                    )
+                    Row(Modifier.testTag("preview dots"), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        for (i in screens.indices) {
+                            val current = i == pager.currentPage
+                            Box(
+                                Modifier.height(4.dp).width(if (current) 18.dp else 6.dp).clip(RoundedCornerShape(2.dp))
+                                    .background(if (current) Palette.Select else Palette.Edge),
+                            )
+                        }
+                    }
+                }
+                AppButton("Edit layout", { edit(orientation, index) })
+            }
+        }
     }
 }
 

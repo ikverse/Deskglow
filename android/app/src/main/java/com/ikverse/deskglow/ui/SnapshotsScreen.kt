@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -67,45 +69,46 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
     ScreenFrame("Saved layouts", onBack) {
         Text(
             "Saves your portrait and landscape layouts together. Export a copy to a file to keep it outside the app.",
-            fontSize = 13.sp,
+            fontSize = Type.Small,
             color = Palette.Muted,
         )
         OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = {
+            AppButton("Save current layouts", {
                 val saved = graph.snapshots.save(name, graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape))
                 message = "Saved “${saved.name}”."
                 name = SnapshotRepository.proposeName(System.currentTimeMillis())
-            }) { Text("Save current layouts", color = Palette.Select) }
-            TextButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) { Text("Import from file", color = Palette.Select) }
+            }, Modifier.weight(1f), kind = ButtonKind.Primary)
+            AppButton("Import from file", { importLauncher.launch(arrayOf("*/*")) }, Modifier.weight(1f))
         }
-        message?.let { Text(it, fontSize = 13.sp, color = Palette.Accent) }
-        Rule()
+        message?.let { Text(it, fontSize = Type.Small, color = Palette.Select) }
         if (snapshots.isEmpty()) Text("Nothing saved yet.", color = Palette.Muted)
         for (snapshot in snapshots) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Thumb(snapshot.portrait.first(), Orientation.Portrait, Modifier.width(30.dp))
-                    Thumb(snapshot.landscape.first(), Orientation.Landscape, Modifier.width(60.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(snapshot.name, fontSize = 16.sp)
-                        val date = SnapshotRepository.dateLabel(snapshot.created)
-                        val screens = if (snapshot.portrait.size > 1 || snapshot.landscape.size > 1) {
-                            " · ${snapshot.portrait.size} portrait, ${snapshot.landscape.size} landscape"
-                        } else ""
-                        Text(date + screens, fontSize = 13.sp, color = Palette.Muted)
+            Card {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Thumb(snapshot.portrait.first(), Orientation.Portrait, Modifier.width(30.dp))
+                        Thumb(snapshot.landscape.first(), Orientation.Landscape, Modifier.width(60.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(snapshot.name, fontSize = Type.Body)
+                            val date = SnapshotRepository.dateLabel(snapshot.created)
+                            val screens = if (snapshot.portrait.size > 1 || snapshot.landscape.size > 1) {
+                                " · ${snapshot.portrait.size} portrait, ${snapshot.landscape.size} landscape"
+                            } else ""
+                            Text(date + screens, fontSize = Type.Small, color = Palette.Muted)
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Chip("Restore", { restoring = snapshot })
+                        Chip("Rename", { renaming = snapshot })
+                        Chip("Export", {
+                            exporting = snapshot
+                            exportLauncher.launch("deskglow-" + snapshot.name.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-') + ".json")
+                        })
+                        Spacer(Modifier.weight(1f))
+                        IconAction(Glyph.Trash, "Delete ${snapshot.name}", { deleting = snapshot }, tint = Palette.Danger)
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { restoring = snapshot }) { Text("Restore", color = Palette.Select) }
-                    TextButton(onClick = { renaming = snapshot }) { Text("Rename", color = Palette.Select) }
-                    TextButton(onClick = {
-                        exporting = snapshot
-                        exportLauncher.launch("deskglow-" + snapshot.name.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-') + ".json")
-                    }) { Text("Export", color = Palette.Select) }
-                    TextButton(onClick = { deleting = snapshot }) { Text("Delete", color = Palette.Danger) }
-                }
-                Rule()
             }
         }
     }

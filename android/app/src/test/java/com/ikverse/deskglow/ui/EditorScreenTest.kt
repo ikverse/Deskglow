@@ -9,6 +9,8 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -36,6 +38,7 @@ import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import com.ikverse.deskglow.ui.editor.EditorScreen
 import com.ikverse.deskglow.ui.editor.EditorState
 import com.ikverse.deskglow.widgets.ClockWidget
@@ -88,12 +91,13 @@ class EditorScreenTest {
     @Test
     fun `tapping a widget opens its settings`() {
         compose.onNodeWithTag("widget ${idOf("date")}").performClick()
-        compose.onNodeWithText("Format").assertIsDisplayed()
+        compose.onNodeWithText("Format").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("عربي / Arabic").performScrollTo().assertIsDisplayed()
     }
 
     @Test
     fun `a widget under the sheet is reached from the widget list`() {
+        compose.onNodeWithText("Widgets").performClick()
         compose.onNodeWithText("Weather").performScrollTo().performClick()
         compose.onNodeWithText("Show high and low").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Weather data by Open-Meteo.com. Set your city on the Home screen.").performScrollTo().assertIsDisplayed()
@@ -125,7 +129,7 @@ class EditorScreenTest {
     }
 
     @Test
-    fun `the red cross deletes, and Undo brings it back`() {
+    fun `the pill's delete removes a widget, and Undo brings it back`() {
         val before = layout
         compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
         compose.onNodeWithTag("delete").performClick()
@@ -137,7 +141,7 @@ class EditorScreenTest {
 
     @Test
     fun `the add picker adds a widget with a live preview of each kind`() {
-        compose.onAllNodesWithText("+ Add widget")[0].performClick()
+        compose.onNodeWithContentDescription("Add widget").performClick()
         compose.onNodeWithText("Add a widget").assertIsDisplayed()
         compose.onNodeWithText("Your next calendar item").performClick()
         assertEquals(DefaultLayout.create().items.size + 1, layout.items.size)
@@ -165,8 +169,8 @@ class EditorScreenTest {
     }
 
     @Test
-    fun `Done leaves the editor`() {
-        compose.onNodeWithText("Done").performClick()
+    fun `Back leaves the editor`() {
+        compose.onNodeWithContentDescription("Back").performClick()
         assertTrue(done)
     }
 
@@ -201,6 +205,7 @@ class EditorScreenTest {
 
     @Test
     fun `a setting's switch is named by its label, and the whole row toggles it`() {
+        compose.onNodeWithText("Widgets").performClick()
         compose.onNodeWithText("Weather").performScrollTo().performClick()
         compose.onNodeWithText("Show city").performScrollTo().assertIsOn()
         compose.onNodeWithText("Show city").performClick()
@@ -234,15 +239,18 @@ class EditorScreenTest {
     @Test
     fun `the canvas sits below the top bar, so nothing on it is covered`() {
         compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
-        // The bar is 48 dp and its rule 1 dp. The clock is the highest widget, so its red cross is the highest chrome.
+        // The bar is 52 dp and its rule 1 dp. The clock is the highest widget, so its action pill is the highest chrome.
         assertTrue(compose.onNodeWithTag("delete").getUnclippedBoundsInRoot().top >= 49.dp)
     }
 
     @Test
-    fun `the red cross, the handle and the fold chevron have names`() {
+    fun `the action pill, the handle and the fold chevron have names`() {
         compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
         compose.onNodeWithContentDescription("Delete Clock").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Resize Clock").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Duplicate Clock").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Hide Clock").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Settings for Clock").assertIsDisplayed()
+        compose.onNodeWithTag("handle").assertContentDescriptionEquals("Resize Clock from bottom right")
         compose.onNodeWithContentDescription("Fold settings").performClick()
         compose.onNodeWithContentDescription("Unfold settings").assertIsDisplayed()
     }
@@ -255,5 +263,91 @@ class EditorScreenTest {
         assertEquals(0xFF44B98A.toInt(), layout.find(idOf("clock"))!!.settings[Common.COLOUR])
         compose.onNodeWithTag("delete").performClick()
         compose.onNodeWithText("Clock deleted").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion))
+    }
+
+    private fun sheetHeight() = compose.onNodeWithTag("sheet").getUnclippedBoundsInRoot().height
+
+    @Test
+    fun `the sheet starts as just its tabs, and the chevron opens and folds it`() {
+        assertTrue(sheetHeight() < 100.dp)
+        compose.onNodeWithContentDescription("Unfold settings").performClick()
+        compose.waitForIdle()
+        assertTrue(sheetHeight() > 250.dp)
+        compose.onNodeWithContentDescription("Fold settings").performClick()
+        compose.waitForIdle()
+        assertTrue(sheetHeight() < 100.dp)
+    }
+
+    @Test
+    fun `flicking the sheet up carries it to a higher stop`() {
+        compose.onNodeWithTag("sheet").performTouchInput { swipe(Offset(centerX, 30f), Offset(centerX, -400f), 120) }
+        compose.waitForIdle()
+        assertTrue(sheetHeight() > 250.dp)
+    }
+
+    @Test
+    fun `tapping a widget brings the sheet up with its settings`() {
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.waitForIdle()
+        assertTrue(sheetHeight() > 250.dp)
+    }
+
+    @Test
+    fun `the screen switcher adds a screen and deletes it`() {
+        compose.onNodeWithTag("screens").performClick()
+        compose.onNodeWithTag("add screen").performClick()
+        compose.onNodeWithTag("add blank screen").performClick()
+        compose.waitForIdle()
+        assertEquals(2, graph.prefs.pageCount(Orientation.Portrait).value)
+        compose.onNodeWithText("Portrait · Screen 2").assertIsDisplayed()
+        compose.onNodeWithTag("screens").performClick()
+        compose.onNodeWithTag("delete screen").performClick()
+        compose.onNodeWithTag("confirm delete screen").performClick()
+        compose.waitForIdle()
+        assertEquals(1, graph.prefs.pageCount(Orientation.Portrait).value)
+    }
+
+    @Test
+    fun `the pill's duplicate copies the widget, and Undo takes the copy away`() {
+        val before = layout
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.onNodeWithContentDescription("Duplicate Date").performClick()
+        compose.waitForIdle()
+        assertEquals(before.items.size + 1, layout.items.size)
+        assertNoOverlaps()
+        compose.onNodeWithText("Undo").performClick()
+        assertEquals(before, layout)
+    }
+
+    @Test
+    fun `the picker narrows its widgets by what is typed`() {
+        compose.onNodeWithContentDescription("Add widget").performClick()
+        compose.onNodeWithTag("picker search").performTextInput("race")
+        compose.onNodeWithText("F1 race weekend").assertIsDisplayed()
+        compose.onAllNodesWithText("Clock").assertCountEquals(0)
+    }
+
+    @Test
+    fun `the picker narrows its widgets by category`() {
+        compose.onNodeWithContentDescription("Add widget").performClick()
+        compose.onNodeWithText("Battery").performClick()
+        compose.onNodeWithText("Charging ring").assertIsDisplayed()
+        compose.onAllNodesWithText("Weather").assertCountEquals(0)
+    }
+
+    @Test
+    fun `the more menu resets only after a confirmation, and Undo brings the layout back`() {
+        val before = layout
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("delete").performClick()
+        val edited = layout
+        compose.onNodeWithTag("more").performClick()
+        compose.onNodeWithTag("reset").performClick()
+        assertEquals(edited, layout)
+        compose.onNodeWithTag("confirm reset").performClick()
+        compose.waitForIdle()
+        assertEquals(DefaultLayout.create(), layout)
+        assertNotEquals(edited, layout)
+        assertEquals(before, DefaultLayout.create())
     }
 }

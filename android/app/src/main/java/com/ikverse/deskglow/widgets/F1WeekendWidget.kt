@@ -69,13 +69,13 @@ object F1WeekendWidget : WidgetType {
 
     override val id = "f1weekend"
     override val label = "F1 race weekend"
-    override val blurb = "Countdown to the next session, and the last podium"
+    override val blurb = "Countdown and podium"
     override val width = 372
     override val height = 112
     override val defaults: Settings = Common.base()
 
     override fun fields(settings: Settings) = buildList {
-        add(ChoiceField("Layout", LAYOUT, LAYOUTS))
+        add(LayoutField("Layout", LAYOUT, LAYOUTS))
         if (settings[LAYOUT] in TRACK_OPTIONAL) add(ToggleField("Show the track", SHOW_TRACK))
         add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
         add(ColourField("Accent colour", ACCENT))

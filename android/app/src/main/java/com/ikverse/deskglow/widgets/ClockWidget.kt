@@ -23,7 +23,7 @@ object ClockWidget : WidgetType {
 
     override val id = "clock"
     override val label = "Clock"
-    override val blurb = "Big time, drawn or in any font"
+    override val blurb = "Big time in any font"
     override val width = 220
     override val height = 64
     override val defaults: Settings = Common.base()

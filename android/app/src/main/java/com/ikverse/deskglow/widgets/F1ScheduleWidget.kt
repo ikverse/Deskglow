@@ -60,13 +60,13 @@ object F1ScheduleWidget : WidgetType {
 
     override val id = "f1schedule"
     override val label = "F1 schedule"
-    override val blurb = "The race weekend's sessions, with the one on now or next lit"
+    override val blurb = "Weekend session times"
     override val width = 220
     override val height = 200
     override val defaults: Settings = Common.base()
 
     override fun fields(settings: Settings) = listOf(
-        ChoiceField("Layout", LAYOUT, listOf("list" to "List", "days" to "Days", "timeline" to "Timeline", "strip" to "Strip")),
+        LayoutField("Layout", LAYOUT, listOf("list" to "List", "days" to "Days", "timeline" to "Timeline", "strip" to "Strip")),
         ChoiceField("Times", CLOCK, listOf("phone" to "Phone setting", "12" to "12-hour", "24" to "24-hour")),
         ToggleField("Show dates", SHOW_DATES),
         ToggleField("Show the countdown", SHOW_COUNTDOWN),

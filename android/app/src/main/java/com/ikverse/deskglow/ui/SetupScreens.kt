@@ -9,6 +9,9 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,14 +20,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,10 +63,15 @@ private fun Context.open(intent: Intent) {
 }
 
 @Composable
-private fun Body(text: String) = Text(text, fontSize = 15.sp, lineHeight = 22.sp)
+private fun Body(text: String) = Text(text, fontSize = Type.Body, lineHeight = 22.sp)
 
 @Composable
-private fun Small(text: String) = Text(text, fontSize = 13.sp, color = Palette.Muted, lineHeight = 19.sp)
+private fun Small(text: String) = Text(text, fontSize = Type.Small, color = Palette.Muted, lineHeight = 19.sp)
+
+/** A card whose content is spaced like a short group of paragraphs. */
+@Composable
+private fun Section(content: @Composable ColumnScope.() -> Unit) =
+    Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
 
 @Composable
 fun AutoStartScreen(onBack: () -> Unit) {
@@ -77,10 +83,12 @@ fun AutoStartScreen(onBack: () -> Unit) {
     }
     val status = remember(resumes) { screenSaverStatus(context) }
     ScreenFrame("Start automatically when charging", onBack) {
-        Small(status)
-        Body("Android can start Deskglow by itself whenever the phone is charging and the screen would turn off. It ends when you unplug or touch the phone, and uses nothing the rest of the time.")
-        Body("1. Tap Open screen saver settings.\n2. Choose Deskglow, set When to start to While charging, and switch it on.")
-        Button(onClick = { context.open(Intent(Settings.ACTION_DREAM_SETTINGS)) }) { Text("Open screen saver settings") }
+        Section {
+            Text(status, fontSize = Type.Body, fontWeight = FontWeight.Medium, color = if (status.startsWith("On")) Palette.Select else Palette.Ink)
+            Body("Android can start Deskglow by itself whenever the phone is charging and the screen would turn off. It ends when you unplug or touch the phone, and uses nothing the rest of the time.")
+            Body("1. Tap Open screen saver settings.\n2. Choose Deskglow, set When to start to While charging, and switch it on.")
+        }
+        AppButton("Open screen saver settings", { context.open(Intent(Settings.ACTION_DREAM_SETTINGS)) }, Modifier.fillMaxWidth(), kind = ButtonKind.Primary)
     }
 }
 
@@ -101,25 +109,29 @@ fun PermissionsScreen(onBack: () -> Unit) {
     }
     ScreenFrame("Permissions", onBack) {
         Small("Both are optional. The clock, date and battery widgets need neither.")
-        Body("Notification access")
-        Small("For the notification icons and Now playing. Deskglow only looks while its screen is showing, and nothing leaves the phone.")
-        Small(if (notifications) "Allowed" else "Not allowed")
-        OutlinedButton(onClick = { context.open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) {
-            Text(if (notifications) "Change in settings" else "Allow in settings")
+        Section {
+            Body("Notification access")
+            Small("For the notification icons and Now playing. Deskglow only looks while its screen is showing, and nothing leaves the phone.")
+            Text(if (notifications) "Allowed" else "Not allowed", fontSize = Type.Small, color = if (notifications) Palette.Select else Palette.Muted)
+            AppButton(
+                if (notifications) "Change in settings" else "Allow in settings",
+                { context.open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }, Modifier.fillMaxWidth(),
+            )
         }
-        Rule()
-        Body("Calendar")
-        Small("For the Next event widget. Only read, never changed.")
-        Small(if (calendar) "Allowed" else "Not allowed")
-        if (!calendar) {
-            OutlinedButton(onClick = {
-                if (asked) {
-                    // Asked once and refused: Android will not ask again, so the app's own settings page is the way.
-                    context.open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
-                } else {
-                    request.launch(Manifest.permission.READ_CALENDAR)
-                }
-            }) { Text(if (asked) "Allow in settings" else "Allow") }
+        Section {
+            Body("Calendar")
+            Small("For the Next event widget. Only read, never changed.")
+            Text(if (calendar) "Allowed" else "Not allowed", fontSize = Type.Small, color = if (calendar) Palette.Select else Palette.Muted)
+            if (!calendar) {
+                AppButton(if (asked) "Allow in settings" else "Allow", {
+                    if (asked) {
+                        // Asked once and refused: Android will not ask again, so the app's own settings page is the way.
+                        context.open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+                    } else {
+                        request.launch(Manifest.permission.READ_CALENDAR)
+                    }
+                }, Modifier.fillMaxWidth())
+            }
         }
     }
 }
@@ -161,26 +173,28 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
     }
     val shown = if (auto && allowed) detected ?: current else current
     ScreenFrame("Weather city", onBack) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Body("Use my location")
-                Small("Finds your city by itself and keeps it up to date. Only its rough position is used.")
-            }
-            Switch(checked = auto, onCheckedChange = { on ->
-                graph.prefs.setAutoLocation(on)
-                if (on && !allowed && !asked) request.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-            })
-        }
-        if (auto && !allowed) {
-            Small("Location is not allowed, so the city chosen below is used.")
-            OutlinedButton(onClick = {
-                if (asked) {
-                    // Asked once and refused: Android will not ask again, so the app's own settings page is the way.
-                    context.open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
-                } else {
-                    request.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        Section {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Body("Use my location")
+                    Small("Finds your city by itself and keeps it up to date. Only its rough position is used.")
                 }
-            }) { Text(if (asked) "Allow in settings" else "Allow location") }
+                Switch(checked = auto, onCheckedChange = { on ->
+                    graph.prefs.setAutoLocation(on)
+                    if (on && !allowed && !asked) request.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                })
+            }
+            if (auto && !allowed) {
+                Small("Location is not allowed, so the city chosen below is used.")
+                AppButton(if (asked) "Allow in settings" else "Allow location", {
+                    if (asked) {
+                        // Asked once and refused: Android will not ask again, so the app's own settings page is the way.
+                        context.open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+                    } else {
+                        request.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    }
+                })
+            }
         }
         Small(shown?.let { "Showing the weather for ${it.label}." } ?: "No city set yet. The weather widget stays empty until one is.")
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -194,18 +208,21 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(10.dp))
-            Button(onClick = ::search, enabled = !searching) { Text(if (searching) "…" else "Search") }
+            AppButton(if (searching) "…" else "Search", ::search, kind = ButtonKind.Primary, enabled = !searching)
         }
         message?.let { Small(it) }
-        results?.forEach { city ->
-            Column(Modifier.fillMaxWidth().clickable { graph.prefs.setCity(city); onBack() }) {
-                Text(city.name, fontSize = 16.sp, modifier = Modifier.padding(top = 4.dp))
-                Small(city.region)
-                Spacer(Modifier.padding(4.dp))
-                Rule()
+        results?.takeIf { it.isNotEmpty() }?.let { found ->
+            Card {
+                found.forEachIndexed { i, city ->
+                    Column(Modifier.fillMaxWidth().pressable { graph.prefs.setCity(city); onBack() }.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(city.name, fontSize = Type.Body)
+                        Small(city.region)
+                    }
+                    if (i < found.lastIndex) Rule()
+                }
             }
         }
-        if (current != null) TextButton(onClick = { graph.prefs.setCity(null) }) { Text("Remove city", color = Palette.Danger) }
+        if (current != null) AppButton("Remove city", { graph.prefs.setCity(null) }, kind = ButtonKind.Danger)
         Small("Weather data by Open-Meteo.com. Only a position rounded to about a kilometre is sent, never your name or anything else.")
     }
 }
@@ -216,34 +233,43 @@ fun BrightnessScreen(graph: AppGraph, onBack: () -> Unit) {
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
     ScreenFrame("Brightness and burn-in", onBack) {
         Small("How bright the display is while it shows.")
-        listOf(
-            BrightnessMode.Dim to "Dim (the screen saver's own low brightness)",
-            BrightnessMode.System to "Follow the phone's brightness",
-            BrightnessMode.Custom to "Choose a level",
-        ).forEach { (mode, label) ->
-            Row(Modifier.fillMaxWidth().clickable { graph.prefs.setBrightness(brightness.copy(mode = mode)) }, verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = brightness.mode == mode, onClick = { graph.prefs.setBrightness(brightness.copy(mode = mode)) })
-                Text(label, fontSize = 15.sp)
+        Card {
+            val modes = listOf(
+                BrightnessMode.Dim to "Dim (the screen saver's own low brightness)",
+                BrightnessMode.System to "Follow the phone's brightness",
+                BrightnessMode.Custom to "Choose a level",
+            )
+            modes.forEachIndexed { i, (mode, label) ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { graph.prefs.setBrightness(brightness.copy(mode = mode)) }.padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = brightness.mode == mode, onClick = { graph.prefs.setBrightness(brightness.copy(mode = mode)) })
+                    Text(label, fontSize = Type.Body)
+                }
+                if (i < modes.lastIndex) Rule()
+            }
+            if (brightness.mode == BrightnessMode.Custom) {
+                Rule()
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Slider(
+                        value = brightness.level.toFloat(),
+                        onValueChange = { graph.prefs.setBrightness(Brightness(BrightnessMode.Custom, it.toInt())) },
+                        valueRange = 1f..100f,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("${brightness.level}%", color = Palette.Muted, modifier = Modifier.padding(start = 10.dp))
+                }
             }
         }
-        if (brightness.mode == BrightnessMode.Custom) {
+        Section {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Slider(
-                    value = brightness.level.toFloat(),
-                    onValueChange = { graph.prefs.setBrightness(Brightness(BrightnessMode.Custom, it.toInt())) },
-                    valueRange = 1f..100f,
-                    modifier = Modifier.weight(1f),
-                )
-                Text("${brightness.level}%", color = Palette.Muted, modifier = Modifier.padding(start = 10.dp))
+                Column(Modifier.weight(1f)) {
+                    Body("Burn-in protection")
+                    Small("Moves the whole layout a few pixels every minute, so hours of the same white digits cannot mark the screen.")
+                }
+                Switch(checked = burnIn, onCheckedChange = graph.prefs::setBurnIn)
             }
-        }
-        Rule()
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Body("Burn-in protection")
-                Small("Moves the whole layout a few pixels every minute, so hours of the same white digits cannot mark the screen.")
-            }
-            Switch(checked = burnIn, onCheckedChange = graph.prefs::setBurnIn)
         }
     }
 }
@@ -253,24 +279,30 @@ fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var open by remember { mutableStateOf<String?>(null) }
     ScreenFrame("About and licences", onBack) {
-        Body("Deskglow ${BuildConfig.VERSION_NAME}")
-        Small("A charging and desk screen for your phone. Nothing runs while it is not showing.")
-        Rule()
-        Body("Weather")
-        Small("Weather data by Open-Meteo.com, under the Creative Commons Attribution 4.0 licence.")
-        Rule()
-        Body("Fonts")
-        Small("The fonts below ship with Deskglow under the SIL Open Font License 1.1. Fonts you pick from Google Fonts are open source too; each one's licence is listed at fonts.google.com. Tap a font to read its licence.")
-        BundledFonts.all.forEach { font ->
-            Column(Modifier.fillMaxWidth().clickable { open = if (open == font.id) null else font.id }) {
-                Text(font.label, fontSize = 15.sp, modifier = Modifier.padding(vertical = 6.dp))
-                if (open == font.id) {
-                    val text = remember(font.id) {
-                        runCatching { context.assets.open("licences/${font.licenceFile}").bufferedReader().readText() }.getOrDefault("")
+        Section {
+            Body("Deskglow ${BuildConfig.VERSION_NAME}")
+            Small("A charging and desk screen for your phone. Nothing runs while it is not showing.")
+        }
+        Section {
+            Body("Weather")
+            Small("Weather data by Open-Meteo.com, under the Creative Commons Attribution 4.0 licence.")
+        }
+        Section {
+            Body("Fonts")
+            Small("The fonts below ship with Deskglow under the SIL Open Font License 1.1. Fonts you pick from Google Fonts are open source too; each one's licence is listed at fonts.google.com. Tap a font to read its licence.")
+        }
+        Card {
+            BundledFonts.all.forEachIndexed { i, font ->
+                Column(Modifier.fillMaxWidth().pressable { open = if (open == font.id) null else font.id }.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Text(font.label, fontSize = Type.Body, modifier = Modifier.padding(vertical = 10.dp))
+                    if (open == font.id) {
+                        val text = remember(font.id) {
+                            runCatching { context.assets.open("licences/${font.licenceFile}").bufferedReader().readText() }.getOrDefault("")
+                        }
+                        Text(text, fontSize = 11.sp, color = Palette.Muted, lineHeight = 15.sp, modifier = Modifier.padding(bottom = 10.dp))
                     }
-                    Text(text, fontSize = 11.sp, color = Palette.Muted, lineHeight = 15.sp)
                 }
-                Rule()
+                if (i < BundledFonts.all.lastIndex) Rule()
             }
         }
     }

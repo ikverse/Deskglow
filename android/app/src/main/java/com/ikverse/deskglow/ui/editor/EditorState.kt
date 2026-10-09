@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ikverse.deskglow.layout.Align
 import com.ikverse.deskglow.layout.Centring
+import com.ikverse.deskglow.layout.Corner
 import com.ikverse.deskglow.layout.DragSession
 import com.ikverse.deskglow.layout.Packer
 import com.ikverse.deskglow.layout.Placed
@@ -24,6 +25,9 @@ import com.ikverse.deskglow.widgets.WidgetType
 import com.ikverse.deskglow.widgets.Widgets
 
 enum class SheetTab { Widgets, Settings }
+
+/** How far the settings sheet is pulled up: just its tabs, about half the screen, or nearly all of it. */
+enum class SheetStop { Peek, Half, Full }
 
 /** A light tick for each grid square a resize crosses, a harder one on reaching the centre. */
 enum class Haptic { Step, Centre }
@@ -50,7 +54,13 @@ class EditorState(
     var selectedId by mutableStateOf<String?>(null)
         private set
     var tab by mutableStateOf(SheetTab.Widgets)
-    var sheetOpen by mutableStateOf(true)
+    var sheetStop by mutableStateOf(SheetStop.Peek)
+    /** Whether the sheet shows more than its tabs. Opening it brings it to half height. */
+    var sheetOpen: Boolean
+        get() = sheetStop != SheetStop.Peek
+        set(open) {
+            sheetStop = if (!open) SheetStop.Peek else if (sheetStop == SheetStop.Peek) SheetStop.Half else sheetStop
+        }
     /** The widget being dragged or resized, if any. The sheet tucks away and pushed widgets glide while this is set. */
     var dragId by mutableStateOf<String?>(null)
         private set
@@ -60,6 +70,9 @@ class EditorState(
     /** Told when the screen should buzz; set by the screen, which has a view to buzz through. */
     var haptic: (Haptic) -> Unit = {}
     var pickerOpen by mutableStateOf(false)
+    /** The widget just added or copied, so the canvas can let it settle into place instead of appearing. */
+    var justAdded by mutableStateOf<String?>(null)
+        private set
     var moreFonts by mutableStateOf<StyleKind?>(null)
     var toast by mutableStateOf<Toast?>(null)
 
@@ -153,6 +166,12 @@ class EditorState(
     private fun visiblePlaced(except: String? = null) =
         layout.items.filter { it.visible && it.id != except }.map { Placed(it.id, it.box) }
 
+    /** Selects a widget the person tapped or added, and brings the settings sheet up to show it. A drag does not: the canvas must not move under the finger. */
+    fun selectAndOpen(id: String) {
+        select(id)
+        if (selectedId != null && sheetStop == SheetStop.Peek) sheetStop = SheetStop.Half
+    }
+
     fun select(id: String?) {
         selectedId = id?.takeIf { layout.find(it) != null }
         if (selectedId != null) tab = SheetTab.Settings else if (tab == SheetTab.Settings) tab = SheetTab.Widgets
@@ -242,12 +261,13 @@ class EditorState(
 
     // ---- dragging: every step is worked out from where everything was when the drag began ----
 
-    fun beginDrag(id: String, resize: Boolean) {
+    /** [corner]: which corner a resize drags. */
+    fun beginDrag(id: String, resize: Boolean, corner: Corner = Corner.BottomEnd) {
         val item = layout.find(id) ?: return
         // In select mode a drag moves the gathered group, or just the one widget, and selects nothing.
         if (!selecting) select(id)
         val companions = if (!resize && id in groupIds && groupIds.size >= 2) groupIds else emptySet()
-        session = DragSession(id, resize, item.box, visiblePlaced(), orientation, companions)
+        session = DragSession(id, resize, item.box, visiblePlaced(), orientation, companions, corner)
         dragBase = layout
         dragId = id
     }
@@ -302,8 +322,34 @@ class EditorState(
         }
         val item = WidgetItem(id, type.id, boxes.getValue(id), true, type.defaults)
         commit(Layout(layout.items + item).withBoxes(boxes))
-        select(id)
+        justAdded = id
+        selectAndOpen(id)
         return true
+    }
+
+    /** A copy of a widget, with its settings, in the nearest free space and just after it in the list. Undo removes it. */
+    fun duplicate(id: String) {
+        val index = layout.items.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val item = layout.items[index]
+        val newId = layout.nextId()
+        val boxes = Packer.place(newId, item.box.w, item.box.h, null, visiblePlaced(), orientation)
+        if (boxes == null) {
+            toast = Toast(NO_ROOM)
+            return
+        }
+        val copy = item.copy(id = newId, box = boxes.getValue(newId))
+        commit(Layout(layout.items.toMutableList().apply { add(index + 1, copy) }).withBoxes(boxes))
+        justAdded = newId
+        select(newId)
+        val after = layout
+        toast = Toast("${titleOf(copy)} duplicated", undo = {
+            if (layout == after) undo() else {
+                commit(Layout(layout.items.filter { it.id != newId }))
+                groupIds -= newId
+                if (selectedId == newId) select(null)
+            }
+        })
     }
 
     fun delete(id: String) {

@@ -475,4 +475,49 @@ class EditorStateTest {
         s.delete("w1")
         assertEquals(setOf("w2"), s.groupIds)
     }
+
+    @Test
+    fun `duplicating copies a widget and its settings next to it, selects the copy, and undo removes it`() {
+        assertTrue(state.add(StatWidget))
+        val original = state.selected!!
+        state.set(Common.COLOUR, 0xFF44B98A.toInt())
+        val before = state.layout
+        state.duplicate(original.id)
+        assertEquals(before.items.size + 1, state.layout.items.size)
+        val index = state.layout.items.indexOfFirst { it.id == original.id }
+        val copy = state.layout.items[index + 1]
+        assertEquals("stat", copy.type)
+        assertEquals(before.find(original.id)!!.settings, copy.settings)
+        assertEquals(copy.id, state.selectedId)
+        assertEquals(copy.id, state.justAdded)
+        noOverlaps(state.layout)
+        state.toast!!.undo!!()
+        assertEquals(before, state.layout)
+    }
+
+    @Test
+    fun `duplicating on a full screen says there is no room and adds nothing`() {
+        val full = EditorState(Layout(listOf(WidgetItem("w1", "ring", Box(0, 0, Orientation.Portrait.width, Orientation.Portrait.height))))) {}
+        full.duplicate("w1")
+        assertEquals(1, full.layout.items.size)
+        assertEquals(EditorState.NO_ROOM, full.toast?.message)
+    }
+
+    @Test
+    fun `tapping a widget brings the sheet up, but a drag that only starts on one does not`() {
+        val id = state.layout.items.first().id
+        assertEquals(SheetStop.Peek, state.sheetStop)
+        state.beginDrag(id, resize = false)
+        state.endDrag()
+        assertEquals(SheetStop.Peek, state.sheetStop)
+        state.selectAndOpen(id)
+        assertEquals(SheetStop.Half, state.sheetStop)
+        state.sheetOpen = false
+        assertEquals(SheetStop.Peek, state.sheetStop)
+        state.sheetOpen = true
+        assertEquals(SheetStop.Half, state.sheetStop)
+        state.sheetStop = SheetStop.Full
+        state.sheetOpen = true
+        assertEquals(SheetStop.Full, state.sheetStop)
+    }
 }

@@ -85,7 +85,7 @@ object NotificationsWidget : WidgetType {
 
     override val id = "notifs"
     override val label = "Notifications"
-    override val blurb = "Icons of apps with unread notifications"
+    override val blurb = "Unread app icons"
     override val width = 164
     override val height = 28
     override val defaults: Settings = Common.base(0xFFCFCFCF)
@@ -146,7 +146,7 @@ object WeatherWidget : WidgetType {
 
     override val id = "weather"
     override val label = "Weather"
-    override val blurb = "Temperature and conditions"
+    override val blurb = "Temperature and sky"
     override val width = 176
     override val height = 64
     override val defaults: Settings = Common.base()

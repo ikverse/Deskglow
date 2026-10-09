@@ -43,7 +43,7 @@ object AlarmWidget : WidgetType {
 
     override val id = "alarm"
     override val label = "Next alarm"
-    override val blurb = "When your alarm rings, and how long until"
+    override val blurb = "Time to your next alarm"
     override val width = 240
     override val height = 64
     override val defaults: Settings = Common.base()

@@ -7,10 +7,10 @@ import android.content.pm.ActivityInfo
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,12 +22,12 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -44,58 +44,55 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.text.font.FontWeight
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ikverse.deskglow.store.MAX_PAGES
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ImageShader
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.PointMode
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -103,20 +100,29 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.display.WidgetBody
-import com.ikverse.deskglow.display.WidgetTextStyle
 import com.ikverse.deskglow.layout.Align
-import androidx.compose.material3.LocalTextStyle
+import com.ikverse.deskglow.layout.Corner
 import com.ikverse.deskglow.layout.other
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
+import com.ikverse.deskglow.store.MAX_PAGES
+import com.ikverse.deskglow.ui.Chip
+import com.ikverse.deskglow.ui.EaseOutStrong
+import com.ikverse.deskglow.ui.Glyph
+import com.ikverse.deskglow.ui.GlyphIcon
+import com.ikverse.deskglow.ui.IconAction
 import com.ikverse.deskglow.ui.Palette
 import com.ikverse.deskglow.ui.Rule
+import com.ikverse.deskglow.ui.Type
+import com.ikverse.deskglow.ui.pressable
 import com.ikverse.deskglow.widgets.LocalEditing
 import com.ikverse.deskglow.widgets.Widgets
 import kotlinx.coroutines.delay
@@ -125,20 +131,21 @@ import kotlin.math.roundToInt
 
 /**
  * The layout editor: the screen as it will look, with every widget movable (drag it), resizable
- * (drag its corner handle) and removable (its red ×). Widgets never overlap: whatever is in the way
- * is pushed down and slides back while the drag is still held.
+ * (drag its handle) and, once tapped, with its own small bar of actions above it. Widgets never
+ * overlap: whatever is in the way is pushed down and slides back while the drag is still held.
  *
  * It edits the layout of one [orientation]. The portrait layout holds the screen upright while it is
  * open; the landscape layout can be edited with the phone either way. Held upright, the settings sheet
- * lies along the bottom; on its side, the settings are a panel beside the canvas.
+ * lies along the bottom and can be pulled up; on its side, the settings are a panel beside the canvas.
  */
 @Composable
-fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrait, onDone: () -> Unit) {
+fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrait, startPage: Int = 0, onDone: () -> Unit) {
     val pageCount by graph.prefs.pageCount(orientation).collectAsStateWithLifecycle()
-    var requestedPage by rememberSaveable { mutableIntStateOf(0) }
+    var requestedPage by rememberSaveable { mutableIntStateOf(startPage) }
     val page = requestedPage.coerceIn(0, pageCount - 1)
     var addingPage by remember { mutableStateOf(false) }
     var deletingPage by remember { mutableStateOf(false) }
+    var resetting by remember { mutableStateOf(false) }
     val repository = graph.layoutsFor(orientation, page)
     val state = remember(orientation, page) {
         EditorState(repository.layout.value, orientation, copyTarget = graph.layoutsFor(orientation.other, page), save = repository::update,
@@ -174,18 +181,18 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             // The arrangement follows how the phone is actually held, not which layout is being edited.
             if (maxWidth > maxHeight) {
-                LandscapeEditor(state, graph, pages, onDone)
+                LandscapeEditor(state, graph, pages, onDone, onReset = { resetting = true })
             } else {
-                // The canvas sits between the top bar and the settings sheet; nothing lies over it.
-                val sheetHeight = maxHeight * 0.44f
+                val screenHeight = maxHeight
                 Column(Modifier.fillMaxSize()) {
-                    TopBar(state, onDone, Modifier)
-                    PageStrip(pages)
+                    TopBar(state, pages, onDone, onReset = { resetting = true })
+                    // The canvas takes whatever the top bar and the sheet leave, so it is big while the sheet is down.
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        Stage(state, Modifier.fillMaxSize())
+                        Stage(state, Modifier.fillMaxSize().padding(bottom = DOCK_RESERVE))
+                        Dock(state, Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp))
                         if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
                     }
-                    EditorSheet(state, graph, openHeight = sheetHeight)
+                    EditorSheet(state, graph, screenHeight = screenHeight)
                 }
             }
             if (state.pickerOpen) AddPicker(state, Modifier.fillMaxSize())
@@ -226,6 +233,21 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
                     containerColor = Palette.Sheet,
                 )
             }
+            if (resetting) {
+                AlertDialog(
+                    onDismissRequest = { resetting = false },
+                    title = { Text("Reset this layout?") },
+                    text = { Text("This screen goes back to the default widgets. You can undo it right after.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            resetting = false
+                            state.reset()
+                        }, modifier = Modifier.testTag("confirm reset")) { Text("Reset", color = Palette.Danger) }
+                    },
+                    dismissButton = { TextButton(onClick = { resetting = false }) { Text("Cancel") } },
+                    containerColor = Palette.Sheet,
+                )
+            }
             state.moreFonts?.let { MoreFontsSheet(it, state, graph, Modifier.fillMaxSize()) }
             // The font list covers the canvas area, so a message from it (a font that could not be downloaded)
             // is drawn over the whole screen, last, rather than under it. That list has no toolbar to hide.
@@ -234,25 +256,25 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
     }
 }
 
+/** Room under the canvas for the dock that floats there, so nothing on the canvas is ever covered by it. */
+private val DOCK_RESERVE = 64.dp
+
 /**
  * Landscape: the top bar across the screen, then the canvas with the settings panel beside it. The
  * canvas gets what is left of the width, so it is smaller than the real screen (about two thirds on
  * a Note 9); nothing sits on top of it.
  */
 @Composable
-private fun LandscapeEditor(state: EditorState, graph: AppGraph, pages: PageActions, onDone: () -> Unit) {
+private fun LandscapeEditor(state: EditorState, graph: AppGraph, pages: PageActions, onDone: () -> Unit, onReset: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
         val panel = (maxWidth * 0.36f).coerceIn(240.dp, 320.dp)
         Column(Modifier.fillMaxSize()) {
-            TopBar(state, onDone, Modifier)
+            TopBar(state, pages, onDone, onReset)
             Row(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))) {
-                // The screen strip sits over the canvas only, so the settings panel keeps its full height.
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    PageStrip(pages)
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        Stage(state, Modifier.fillMaxSize())
-                        if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
-                    }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    Stage(state, Modifier.fillMaxSize().padding(bottom = DOCK_RESERVE))
+                    Dock(state, Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp))
+                    if (state.moreFonts == null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
                 }
                 Box(Modifier.fillMaxHeight().width(1.dp).background(Palette.Rule))
                 EditorSidePanel(state, graph, Modifier.fillMaxHeight().width(panel))
@@ -261,7 +283,7 @@ private fun LandscapeEditor(state: EditorState, graph: AppGraph, pages: PageActi
     }
 }
 
-/** What the page strip shows and does: which screen is open, and how to switch, add or delete one. */
+/** What the screen switcher shows and does: which screen is open, and how to switch, add or delete one. */
 private class PageActions(
     val count: Int,
     val current: Int,
@@ -269,34 +291,6 @@ private class PageActions(
     val onAdd: () -> Unit,
     val onDelete: () -> Unit,
 )
-
-/** One row under the top bar to move between the display's screens (the ones swiped between with two fingers). */
-@Composable
-private fun PageStrip(pages: PageActions) {
-    Column(Modifier.fillMaxWidth().background(Palette.Bar)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Screen", color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp, end = 4.dp))
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
-                for (i in 0 until pages.count) {
-                    TextButton(onClick = { pages.onSelect(i) }, modifier = Modifier.testTag("screen ${i + 1}")) {
-                        Text(
-                            "${i + 1}", fontSize = 15.sp,
-                            color = if (i == pages.current) Palette.Accent else Palette.Select,
-                            fontWeight = if (i == pages.current) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    }
-                }
-                if (pages.count < MAX_PAGES) {
-                    TextButton(onClick = pages.onAdd, modifier = Modifier.testTag("add screen")) { Text("+", color = Palette.Select, fontSize = 17.sp) }
-                }
-            }
-            if (pages.count > 1) {
-                TextButton(onClick = pages.onDelete, modifier = Modifier.testTag("delete screen")) { Text("Delete", color = Palette.Danger, fontSize = 15.sp) }
-            }
-        }
-        Rule()
-    }
-}
 
 /**
  * Keeps the screen upright while the portrait layout is edited, and lets it turn freely again on
@@ -395,6 +389,8 @@ private fun Stage(state: EditorState, modifier: Modifier) {
                         key(item.id) { EditableWidget(state, item, unit) }
                     }
                     CentreGuides(state, unit)
+                    // Over the widgets, so a touch on it never reaches the widget beneath.
+                    state.selected?.takeIf { it.visible && !state.selecting && state.sheetStop != SheetStop.Full }?.let { ActionPill(state, it, unit, content) }
                 }
             }
         }
@@ -402,7 +398,7 @@ private fun Stage(state: EditorState, modifier: Modifier) {
             Text(
                 "${(zoom * 10).roundToInt() / 10f}× · Reset",
                 color = Palette.Select,
-                fontSize = 13.sp,
+                fontSize = Type.Small,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp)
@@ -463,9 +459,10 @@ private fun CentreGuides(state: EditorState, unit: Float) {
     )
 }
 
-private val dashColour =Color.White.copy(alpha = 0.3f)
+/** The hairline round every widget while moving, resizing or gathering them, so they can be told apart. */
+private val hairline = Color.White.copy(alpha = 0.14f)
 
-/** Room around each widget for its × and handle, which sit half outside its edges. */
+/** Room around each widget for its handles and glow, which sit half outside its edges. */
 private val CHROME = 16.dp
 
 /** Touch and hold to start selecting. Longer than the default so a slow start to a drag does not trigger it. */
@@ -495,10 +492,19 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
     val target = IntOffset((item.box.x * unit).roundToInt() - chrome, (item.box.y * unit).roundToInt() - chrome)
     // Widgets pushed out of the way glide; the one being dragged follows the finger exactly.
     val offset by animateIntOffsetAsState(target, if (dragging && state.dragId != item.id) tween(150) else snap(), label = "widget")
+    val arrive = remember(item.id) { Animatable(if (state.justAdded == item.id) 0f else 1f) }
+    LaunchedEffect(item.id) { if (arrive.value < 1f) arrive.animateTo(1f, tween(220, easing = EaseOutStrong)) }
     Box(
         Modifier
             .offset { offset }
             .size(with(density) { (item.box.w * unit).toDp() + CHROME * 2 }, with(density) { (item.box.h * unit).toDp() + CHROME * 2 })
+            // A widget just added or copied fades in and settles from a touch smaller.
+            .graphicsLayer {
+                val shown = arrive.value
+                alpha = shown
+                scaleX = 0.96f + 0.04f * shown
+                scaleY = 0.96f + 0.04f * shown
+            }
             // Each widget is drawn once into its own texture and then only moved, so dragging one
             // widget (and the ones it pushes) costs the others nothing.
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
@@ -515,10 +521,21 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
                     customActions = actions
                 }
                 .drawBehind {
-                    if (selected || inGroup) {
-                        drawRect(Palette.Select, style = Stroke(1.5.dp.toPx()))
-                    } else {
-                        drawRect(dashColour, style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))))
+                    when {
+                        selected -> {
+                            // The one lit thing on the canvas: a soft amber halo, then a thin amber line.
+                            val steps = 5
+                            for (i in steps downTo 1) {
+                                val grow = 11.dp.toPx() * i / steps
+                                drawRoundRect(
+                                    Palette.Select.copy(alpha = 0.045f), Offset(-grow, -grow),
+                                    Size(size.width + grow * 2, size.height + grow * 2), CornerRadius(4.dp.toPx() + grow),
+                                )
+                            }
+                            drawRoundRect(Palette.Select, cornerRadius = CornerRadius(3.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+                        }
+                        inGroup -> drawRoundRect(Palette.Select, cornerRadius = CornerRadius(3.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+                        dragging || state.selecting -> drawRoundRect(hairline, cornerRadius = CornerRadius(3.dp.toPx()), style = Stroke(1.dp.toPx()))
                     }
                 }
                 .pointerInput(item.id) {
@@ -527,7 +544,7 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
                             state.holdWidget(item.id)
                             state.haptic(Haptic.Centre)
                         },
-                        onTap = { if (state.selecting) state.toggleInGroup(item.id) else state.select(item.id) },
+                        onTap = { if (state.selecting) state.toggleInGroup(item.id) else state.selectAndOpen(item.id) },
                     )
                 }
                 .pointerInput(item.id, unit) {
@@ -547,45 +564,54 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
             WidgetBody(item, Modifier.fillMaxSize())
         }
         if (selected) {
-            // Delete: one tap, with Undo for five seconds.
-            Box(
-                Modifier.align(Alignment.TopStart).padding(start = CHROME - 11.dp, top = CHROME - 11.dp).size(22.dp)
-                    .clip(CircleShape).background(Palette.Danger).border(3.dp, Color.Black, CircleShape)
-                    .clickable(role = Role.Button) { state.delete(item.id) }
-                    .semantics { contentDescription = "Delete ${state.titleOf(item)}" }
-                    .testTag("delete"),
-                contentAlignment = Alignment.Center,
-            ) {
-                Canvas(Modifier.size(9.dp)) {
-                    val w = 1.8.dp.toPx()
-                    drawLine(Color.White, Offset.Zero, Offset(size.width, size.height), w, StrokeCap.Round)
-                    drawLine(Color.White, Offset(size.width, 0f), Offset(0f, size.height), w, StrokeCap.Round)
+            // Resize from any corner: a 32 dp touch area. The bottom-right one is the lit handle; the others are small and quiet.
+            for (corner in Corner.entries) {
+                val main = corner == Corner.BottomEnd
+                Box(
+                    Modifier.align(corner.alignment).size(32.dp)
+                        .testTag(if (main) "handle" else "handle ${corner.name}")
+                        .semantics { contentDescription = "Resize ${state.titleOf(item)} from ${corner.label}" }
+                        .pointerInput(item.id, unit) {
+                            var total = Offset.Zero
+                            detectDragGestures(
+                                onDragStart = { total = Offset.Zero; state.beginDrag(item.id, resize = true, corner = corner) },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    total += amount
+                                    state.dragTo(total.x / unit, total.y / unit)
+                                },
+                                onDragEnd = state::endDrag,
+                                onDragCancel = state::endDrag,
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (main) {
+                        Box(Modifier.size(20.dp).clip(CircleShape).background(Palette.Select).border(3.dp, Color.Black, CircleShape))
+                    } else {
+                        Box(Modifier.size(9.dp).clip(CircleShape).background(Palette.Ink.copy(alpha = 0.55f)).border(2.dp, Color.Black, CircleShape))
+                    }
                 }
-            }
-            // Resize: a 32 dp touch area around a 22 dp dot, so it is easy to catch with a thumb.
-            Box(
-                Modifier.align(Alignment.BottomEnd).size(32.dp).testTag("handle")
-                    .semantics { contentDescription = "Resize ${state.titleOf(item)}" }
-                    .pointerInput(item.id, unit) {
-                        var total = Offset.Zero
-                        detectDragGestures(
-                            onDragStart = { total = Offset.Zero; state.beginDrag(item.id, resize = true) },
-                            onDrag = { change, amount ->
-                                change.consume()
-                                total += amount
-                                state.dragTo(total.x / unit, total.y / unit)
-                            },
-                            onDragEnd = state::endDrag,
-                            onDragCancel = state::endDrag,
-                        )
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(Modifier.size(22.dp).clip(CircleShape).background(Palette.Select).border(3.dp, Color.Black, CircleShape))
             }
         }
     }
 }
+
+private val Corner.alignment
+    get() = when (this) {
+        Corner.TopStart -> Alignment.TopStart
+        Corner.TopEnd -> Alignment.TopEnd
+        Corner.BottomStart -> Alignment.BottomStart
+        Corner.BottomEnd -> Alignment.BottomEnd
+    }
+
+private val Corner.label
+    get() = when (this) {
+        Corner.TopStart -> "top left"
+        Corner.TopEnd -> "top right"
+        Corner.BottomStart -> "bottom left"
+        Corner.BottomEnd -> "bottom right"
+    }
 
 /** Moving and resizing as actions a screen reader can offer, each one step of [EditorState.STEP] units. */
 private fun widgetActions(state: EditorState, id: String, inGroup: Boolean): List<CustomAccessibilityAction> {
@@ -607,52 +633,183 @@ private fun widgetActions(state: EditorState, id: String, inGroup: Boolean): Lis
     )
 }
 
+private val PILL_BUTTON = 40.dp
+private const val PILL_BUTTONS = 4
+
+/**
+ * The small bar of actions over the selected widget (below it, when there is no room above): its
+ * settings, a copy, hide, delete. It grows out of the widget, and stays out of the way while one is dragged.
+ */
 @Composable
-private fun TopBar(state: EditorState, onDone: () -> Unit, modifier: Modifier) {
-    var armed by remember { mutableStateOf(false) }
-    LaunchedEffect(armed) {
-        if (armed) {
-            delay(3_000)
-            armed = false
-        }
+private fun ActionPill(state: EditorState, item: WidgetItem, unit: Float, content: Size) {
+    val density = LocalDensity.current
+    val width = with(density) { (PILL_BUTTON * PILL_BUTTONS + 12.dp).toPx() }
+    val height = with(density) { (PILL_BUTTON + 4.dp).toPx() }
+    val gap = with(density) { 10.dp.toPx() }
+    val top = item.box.y * unit
+    val bottom = (item.box.y + item.box.h) * unit
+    val y = when {
+        top - height - gap >= 0f -> top - height - gap
+        bottom + gap + height <= content.height -> bottom + gap
+        else -> top + gap
     }
-    Column(modifier.fillMaxWidth().background(Palette.Bar)) {
-        // Each button has a slot of its own, so "Reset" turning into "Tap again to reset" cannot push the others about.
+    val x = ((item.box.x + item.box.w / 2f) * unit - width / 2f).coerceIn(0f, (content.width - width).coerceAtLeast(0f))
+    val appear = remember(item.id) { Animatable(0f) }
+    LaunchedEffect(item.id) { appear.animateTo(1f, tween(120, easing = EaseOutStrong)) }
+    val shape = RoundedCornerShape(22.dp)
+    Row(
+        Modifier
+            .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
+            .size(with(density) { width.toDp() }, with(density) { height.toDp() })
+            .graphicsLayer {
+                // Grows from the side nearest the widget; gone while a widget is being dragged.
+                val shown = if (state.dragId != null) 0f else appear.value
+                alpha = shown
+                scaleX = 0.95f + 0.05f * shown
+                scaleY = 0.95f + 0.05f * shown
+                transformOrigin = TransformOrigin(0.5f, if (y < top) 1f else 0f)
+            }
+            .clip(shape)
+            .background(Palette.Raised)
+            .border(1.dp, Palette.Edge, shape)
+            .pointerInput(Unit) { detectTapGestures { } }
+            .testTag("action pill"),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val title = state.titleOf(item)
+        PillButton(Glyph.Sliders, "Settings for $title", Palette.Ink) {
+            state.tab = SheetTab.Settings
+            if (state.sheetStop == SheetStop.Peek) state.sheetStop = SheetStop.Half
+        }
+        PillButton(Glyph.Duplicate, "Duplicate $title", Palette.Ink) { state.duplicate(item.id) }
+        PillButton(Glyph.EyeOff, "Hide $title", Palette.Ink) { state.setVisible(item.id, false) }
+        PillButton(Glyph.Trash, "Delete $title", Palette.Danger, Modifier.testTag("delete")) { state.delete(item.id) }
+    }
+}
+
+@Composable
+private fun PillButton(glyph: Glyph, description: String, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) =
+    IconAction(glyph, description, onClick, modifier.size(PILL_BUTTON), tint = tint, size = 19.dp)
+
+/** Back, the screen switcher, undo and redo, and the menu with everything less often wanted. */
+@Composable
+private fun TopBar(state: EditorState, pages: PageActions, onDone: () -> Unit, onReset: () -> Unit) {
+    Column(Modifier.fillMaxWidth().background(Palette.Bar)) {
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 48.dp).padding(horizontal = 4.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 52.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.weight(1.0f), contentAlignment = Alignment.CenterStart) {
-                TextButton(onClick = {
-                    if (armed) {
-                        armed = false
-                        state.reset()
-                    } else armed = true
-                }) { Text(if (armed) "Tap again to reset" else "Reset", color = if (armed) Palette.Danger else Palette.Select, fontSize = 15.sp) }
-            }
-            HistoryButton("↶", "Undo", state.canUndo, Modifier.testTag("undo")) { state.undo() }
-            HistoryButton("↷", "Redo", state.canRedo, Modifier.testTag("redo")) { state.redo() }
-            Box(Modifier.weight(1.4f), contentAlignment = Alignment.Center) {
-                TextButton(onClick = { state.pickerOpen = true }) { Text("+ Add widget", color = Palette.Select, fontSize = 15.sp, maxLines = 1, softWrap = false) }
-            }
-            Box(Modifier.weight(0.6f), contentAlignment = Alignment.CenterEnd) {
-                TextButton(onClick = onDone) { Text("Done", color = Palette.Select, fontSize = 15.sp) }
-            }
+            IconAction(Glyph.Back, "Back", onDone, Modifier.testTag("done"))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { ScreenSwitcher(state, pages) }
+            IconAction(Glyph.Undo, "Undo", state::undo, Modifier.testTag("undo"), enabled = state.canUndo)
+            IconAction(Glyph.Redo, "Redo", state::redo, Modifier.testTag("redo"), enabled = state.canRedo)
+            MoreMenu(state, onReset)
         }
         Rule()
         SelectBar(state)
     }
 }
 
-/** An undo or redo arrow: a 44 dp touch target, dimmed (and inert) when there is nothing to step to. */
+/** "Portrait · Screen 1 ▾": tap for the list of screens, and to add or delete one. */
 @Composable
-private fun HistoryButton(arrow: String, name: String, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Box(
-        modifier.size(44.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = name },
-        contentAlignment = Alignment.Center,
+private fun ScreenSwitcher(state: EditorState, pages: PageActions) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        val shape = RoundedCornerShape(18.dp)
+        Row(
+            Modifier
+                .heightIn(min = 40.dp)
+                .clip(shape)
+                .background(Palette.Raised)
+                .border(1.dp, Palette.Edge, shape)
+                .pressable(onClickLabel = "Switch screen") { open = true }
+                .padding(start = 14.dp, end = 10.dp)
+                .testTag("screens"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("${state.orientation.name} · Screen ${pages.current + 1}", fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            GlyphIcon(Glyph.ChevronDown, tint = Palette.Muted, size = 16.dp, weight = 2.2f)
+        }
+        DropdownMenu(open, { open = false }, containerColor = Palette.Raised) {
+            for (i in 0 until pages.count) {
+                DropdownMenuItem(
+                    text = { Text("Screen ${i + 1}", color = if (i == pages.current) Palette.Select else Palette.Ink) },
+                    onClick = { open = false; pages.onSelect(i) },
+                    leadingIcon = { if (i == pages.current) GlyphIcon(Glyph.Check, tint = Palette.Select, size = 18.dp, weight = 2.2f) else Spacer(Modifier.size(18.dp)) },
+                    modifier = Modifier.testTag("screen ${i + 1}"),
+                )
+            }
+            HorizontalDivider(color = Palette.Rule)
+            if (pages.count < MAX_PAGES) {
+                DropdownMenuItem(
+                    text = { Text("Add screen") },
+                    onClick = { open = false; pages.onAdd() },
+                    leadingIcon = { GlyphIcon(Glyph.Plus, size = 18.dp) },
+                    modifier = Modifier.testTag("add screen"),
+                )
+            }
+            if (pages.count > 1) {
+                DropdownMenuItem(
+                    text = { Text("Delete screen ${pages.current + 1}", color = Palette.Danger) },
+                    onClick = { open = false; pages.onDelete() },
+                    leadingIcon = { GlyphIcon(Glyph.Trash, tint = Palette.Danger, size = 18.dp) },
+                    modifier = Modifier.testTag("delete screen"),
+                )
+            }
+        }
+    }
+}
+
+/** The ⋯ menu: select several widgets, snap everything to the grid, copy to the other layout, reset. */
+@Composable
+private fun MoreMenu(state: EditorState, onReset: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconAction(Glyph.More, "More", { open = true }, Modifier.testTag("more"))
+        DropdownMenu(open, { open = false }, containerColor = Palette.Raised) {
+            DropdownMenuItem(
+                text = { Text(if (state.selecting) "Stop selecting" else "Select widgets") },
+                onClick = { open = false; state.selectMode(!state.selecting) },
+                modifier = Modifier.testTag("select"),
+            )
+            DropdownMenuItem(
+                text = { Text("Snap all to grid") },
+                onClick = { open = false; state.snapAllToGrid() },
+            )
+            DropdownMenuItem(
+                text = { Text("Copy to ${state.orientation.other.name.lowercase()} layout") },
+                onClick = { open = false; state.copyConfirm = true },
+                modifier = Modifier.testTag("copy"),
+            )
+            HorizontalDivider(color = Palette.Rule)
+            DropdownMenuItem(
+                text = { Text("Reset layout", color = Palette.Danger) },
+                onClick = { open = false; onReset() },
+                modifier = Modifier.testTag("reset"),
+            )
+        }
+    }
+}
+
+/** The floating bar under the canvas: add a widget, arrange them all, snap them to the grid. */
+@Composable
+private fun Dock(state: EditorState, modifier: Modifier) {
+    val shape = RoundedCornerShape(26.dp)
+    Row(
+        modifier.height(52.dp).clip(shape).background(Palette.Raised).border(1.dp, Palette.Edge, shape).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(arrow, fontSize = 22.sp, color = if (enabled) Palette.Select else Palette.Muted.copy(alpha = 0.35f))
+        Box(
+            Modifier.size(44.dp).clip(CircleShape).background(Palette.Select)
+                .pressable { state.pickerOpen = true }
+                .semantics { contentDescription = "Add widget" }
+                .testTag("add widget"),
+            contentAlignment = Alignment.Center,
+        ) { GlyphIcon(Glyph.Plus, tint = Palette.OnAccent, size = 22.dp, weight = 2.4f) }
+        IconAction(Glyph.Sparkle, "Auto-arrange", state::smartArrange, Modifier.testTag("auto arrange"))
+        IconAction(Glyph.Grid, "Snap all to grid", state::snapAllToGrid, Modifier.testTag("snap all"))
     }
 }
 
@@ -662,35 +819,25 @@ private fun HistoryButton(arrow: String, name: String, enabled: Boolean, modifie
  */
 @Composable
 private fun SelectBar(state: EditorState) {
+    if (!state.selecting) return
     val count = state.groupIds.size
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 4.dp),
+        Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TextButton(onClick = { state.selectMode(!state.selecting) }, modifier = Modifier.testTag("select")) {
-            Text(if (state.selecting) "Cancel" else "Select", color = Palette.Select, fontSize = 15.sp)
-        }
-        TextButton(onClick = state::snapAllToGrid, modifier = Modifier.testTag("snap all")) {
-            Text("Snap all", color = Palette.Select, fontSize = 15.sp, maxLines = 1)
-        }
-        TextButton(onClick = state::smartArrange, modifier = Modifier.testTag("auto arrange")) {
-            Text("Auto-arrange", color = Palette.Select, fontSize = 15.sp, maxLines = 1)
-        }
-        if (state.selecting) {
-            Text(
-                if (count == 0) "Tap widgets" else "$count selected", color = Palette.Muted, fontSize = 13.sp,
-                modifier = Modifier.padding(end = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
-            )
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
-                for ((mode, label) in ALIGN_LABELS) {
-                    TextButton(onClick = { state.align(mode) }, enabled = count >= 2) {
-                        Text(label, color = if (count >= 2) Palette.Select else Palette.Muted, fontSize = 14.sp)
-                    }
-                }
+        Text(
+            if (count == 0) "Tap widgets" else "$count selected", color = Palette.Muted, fontSize = Type.Small,
+            modifier = Modifier.padding(end = 10.dp).semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for ((mode, label) in ALIGN_LABELS) {
+                Chip(label, { if (count >= 2) state.align(mode) })
             }
         }
+        Spacer(Modifier.width(8.dp))
+        Chip("Done", { state.selectMode(false) }, selected = true)
     }
-    if (state.selecting) Rule()
+    Rule()
 }
 
 private val ALIGN_LABELS = listOf(
@@ -704,9 +851,10 @@ private fun ToastBar(state: EditorState, toast: Toast, modifier: Modifier) {
         delay(5_000)
         if (state.toast?.id == toast.id) state.toast = null
     }
+    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp).fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp)).background(Palette.ToastFill).border(1.dp, Palette.ToastEdge, RoundedCornerShape(6.dp))
+            .clip(shape).background(Palette.ToastFill).border(1.dp, Palette.ToastEdge, shape)
             .clickable { state.toast = null }
             .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -723,37 +871,5 @@ private fun ToastBar(state: EditorState, toast: Toast, modifier: Modifier) {
             }) { Text("Undo", color = Palette.Select, fontSize = 14.sp) }
         }
         TextButton(onClick = { state.toast = null }) { Text("Dismiss", color = Palette.Muted, fontSize = 14.sp) }
-    }
-}
-
-/** The add-widget picker: every kind of widget, each with a live preview. */
-@Composable
-private fun AddPicker(state: EditorState, modifier: Modifier) {
-    Column(modifier.background(Palette.Page).statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().height(52.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Add a widget", color = Palette.Muted, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = { state.pickerOpen = false }) { Text("Cancel", color = Palette.Select, fontSize = 15.sp) }
-        }
-        Rule()
-        LazyVerticalGrid(GridCells.Adaptive(180.dp), Modifier.fillMaxSize()) {
-            items(Widgets.all, key = { it.id }) { type ->
-                Column(
-                    Modifier.clickable { state.add(type) }.drawBehind {
-                        drawLine(Palette.Rule, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
-                        drawLine(Palette.Rule, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx())
-                    }.padding(12.dp),
-                ) {
-                    BoxWithConstraints(Modifier.fillMaxWidth().height(92.dp).background(Color.Black), contentAlignment = Alignment.Center) {
-                        val density = LocalDensity.current
-                        val scale = min(constraints.maxWidth * 0.94f / type.width, constraints.maxHeight * 0.9f / type.height)
-                        Box(Modifier.size(with(density) { (type.width * scale).toDp() }, with(density) { (type.height * scale).toDp() })) {
-                            CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle) { type.Content(type.defaults) }
-                        }
-                    }
-                    Text(type.label, fontSize = 15.sp, modifier = Modifier.padding(top = 8.dp))
-                    Text(type.blurb, fontSize = 12.sp, color = Palette.Muted)
-                }
-            }
-        }
     }
 }

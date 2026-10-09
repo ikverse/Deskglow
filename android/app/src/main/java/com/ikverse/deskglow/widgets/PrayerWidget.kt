@@ -47,7 +47,7 @@ object PrayerWidget : WidgetType {
 
     override val id = "prayer"
     override val label = "Prayer times"
-    override val blurb = "The next prayer and a countdown, for where you are"
+    override val blurb = "Next prayer countdown"
     override val width = 372
     override val height = 96
     override val defaults: Settings = Common.base()

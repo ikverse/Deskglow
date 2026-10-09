@@ -20,7 +20,7 @@ object DateWidget : WidgetType {
 
     override val id = "date"
     override val label = "Date"
-    override val blurb = "Day and date, in English or Arabic"
+    override val blurb = "Day and date"
     override val width = 164
     override val height = 24
     override val defaults: Settings = Common.base(0xFFD8D8D8)
