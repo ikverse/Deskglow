@@ -337,4 +337,172 @@ class DataParsingTest {
         assertEquals("in 1 h 20 m", w.countdownText(now, today.atTime(15, 0), arabic = false, arabicDigits = false))
         assertEquals("بعد ١ س ٢٠ د", w.countdownText(now, today.atTime(15, 0), arabic = true, arabicDigits = true))
     }
+
+
+    // ---- live timing: Singapore Sprint Qualifying as the feed held it after the flag, trimmed ----
+
+    private val sprintQuali = org.json.JSONObject(javaClass.classLoader!!.getResource("f1live-sprint-quali.json")!!.readText())
+
+    private fun snapshotOf(topics: org.json.JSONObject) = LiveTiming().apply {
+        topics.keys().forEach { apply(LiveMessage(it, org.json.JSONObject(topics.getJSONObject(it).toString()), full = true)) }
+    }
+
+    @Test
+    fun `a finished qualifying session is read from the feed's snapshot`() {
+        val s = snapshotOf(sprintQuali).session()!!
+        assertEquals(11379, s.key)
+        assertEquals("Singapore GP", s.meeting)
+        assertEquals("Sprint Qualifying", s.name)
+        assertEquals(utc(2026, 10, 9, 12, 30), s.start) // 20:30 at the track, eight hours ahead of UTC
+        assertTrue(s.finished)
+        assertFalse(s.running)
+        assertEquals(3, s.part)
+        assertEquals(22, s.rows.size)
+        assertEquals(listOf("VER", "RUS", "LEC", "PIA"), s.rows.take(4).map { it.code })
+        // The leader shows its best lap in the last part; the rest their gap in it.
+        assertEquals("1:31.156", s.rows[0].gap)
+        assertEquals("+0.120", s.rows[1].gap)
+        // Still in the last part but with no lap in it: no gap, rather than an older one that would read as faster.
+        assertEquals("HAD", s.rows[8].code)
+        assertEquals("", s.rows[8].gap)
+        // Knocked out in the second part: its gap from there, dimmed.
+        val col = s.rows[10]
+        assertEquals("COL", col.code)
+        assertTrue(col.knockedOut)
+        assertEquals("+1.003", col.gap)
+        assertEquals(0xFFF47600, s.rows.first { it.code == "NOR" }.teamColour)
+    }
+
+    @Test
+    fun `live changes are merged in - places swap, a list entry changes, a red flag stops the session`() {
+        val live = org.json.JSONObject(sprintQuali.toString())
+        live.put("SessionStatus", org.json.JSONObject("""{"Status":"Started","Started":"Started"}"""))
+        live.getJSONObject("SessionInfo").put("SessionStatus", "Started")
+        live.getJSONObject("TimingData").put("SessionPart", 1)
+        val timing = snapshotOf(live)
+        assertTrue(timing.session()!!.running)
+        assertFalse(timing.session()!!.finished)
+
+        timing.apply(LiveMessage("TimingData", org.json.JSONObject("""{"Lines":{"63":{"Line":1,"Position":"1"},"3":{"Line":2,"Position":"2"}}}"""), full = false))
+        timing.apply(LiveMessage("TimingData", org.json.JSONObject("""{"Lines":{"3":{"Stats":{"0":{"TimeDiffToFastest":"+0.200","TimeDifftoPositionAhead":"+0.200"}}}}}"""), full = false))
+        var s = timing.session()!!
+        assertEquals(listOf("RUS", "VER"), s.rows.take(2).map { it.code })
+        assertEquals("+0.200", s.rows[1].gap)
+        assertEquals(TrackFlag.Clear, s.flag)
+
+        timing.apply(LiveMessage("TrackStatus", org.json.JSONObject("""{"Status":"5","Message":"Red"}"""), full = false))
+        timing.apply(LiveMessage("SessionStatus", org.json.JSONObject("""{"Status":"Aborted"}"""), full = false))
+        s = timing.session()!!
+        assertEquals(TrackFlag.Red, s.flag)
+        assertTrue(s.running)
+
+        // The end of the first part is not the end of qualifying.
+        timing.apply(LiveMessage("SessionStatus", org.json.JSONObject("""{"Status":"Finished"}"""), full = false))
+        assertFalse(timing.session()!!.finished)
+        timing.apply(LiveMessage("TimingData", org.json.JSONObject("""{"SessionPart":3}"""), full = false))
+        assertTrue(timing.session()!!.finished)
+    }
+
+    @Test
+    fun `a race is read with gaps, intervals, laps and a retirement`() {
+        val topics = mapOf(
+            "SessionInfo" to org.json.JSONObject("""{"Key":11388,"Type":"Race","Name":"Race","StartDate":"2026-10-11T20:00:00","GmtOffset":"08:00:00","Meeting":{"Name":"Singapore Grand Prix"}}"""),
+            "SessionStatus" to org.json.JSONObject("""{"Status":"Started"}"""),
+            "TrackStatus" to org.json.JSONObject("""{"Status":"4","Message":"SCDeployed"}"""),
+            "LapCount" to org.json.JSONObject("""{"CurrentLap":23,"TotalLaps":62}"""),
+            "DriverList" to org.json.JSONObject("""{"1":{"Tla":"NOR","TeamColour":"F47600"},"63":{"Tla":"RUS","TeamColour":"00D7B6"},"16":{"Tla":"LEC","TeamColour":"ED1131"}}"""),
+            "TimingData" to org.json.JSONObject(
+                """{"Lines":{"63":{"Position":"2","GapToLeader":"+1.234","IntervalToPositionAhead":{"Value":"+1.234"},"InPit":true},
+                "1":{"Position":"1","GapToLeader":"LAP 23","IntervalToPositionAhead":{"Value":"LAP 23"}},
+                "16":{"Position":"3","GapToLeader":"1L","IntervalToPositionAhead":{"Value":"1L"},"Retired":true}}}""",
+            ),
+        )
+        val s = parseLiveSession(topics)!!
+        assertTrue(s.isRace)
+        assertEquals(TrackFlag.SafetyCar, s.flag)
+        assertEquals(23, s.lap)
+        assertEquals(62, s.totalLaps)
+        assertEquals(listOf("NOR", "RUS", "LEC"), s.rows.map { it.code })
+        assertEquals("Leader", s.rows[0].gap)
+        assertEquals("+1.234", s.rows[1].interval)
+        assertTrue(s.rows[1].inPit)
+        assertTrue(s.rows[2].out)
+        assertEquals("Lap 23/62", com.ikverse.deskglow.widgets.sessionProgress(s, java.time.Instant.EPOCH))
+    }
+
+    @Test
+    fun `the session clock counts down between the feed's updates`() {
+        val s = parseLiveSession(mapOf(
+            "SessionInfo" to org.json.JSONObject("""{"Key":1,"Type":"Qualifying","Name":"Sprint Qualifying","StartDate":"2026-10-09T20:30:00","GmtOffset":"08:00:00"}"""),
+            "SessionStatus" to org.json.JSONObject("""{"Status":"Started"}"""),
+            "TimingData" to org.json.JSONObject("""{"SessionPart":2,"NoEntries":[22,16,10],"Lines":{}}"""),
+            "ExtrapolatedClock" to org.json.JSONObject("""{"Utc":"2026-10-09T12:35:00.0246118Z","Remaining":"00:06:59","Extrapolating":true}"""),
+        ))!!
+        val at = java.time.Instant.parse("2026-10-09T12:35:00Z")
+        assertEquals("SQ2 · 6:59 left", com.ikverse.deskglow.widgets.sessionProgress(s, at))
+        assertEquals("SQ2 · 4:59 left", com.ikverse.deskglow.widgets.sessionProgress(s, at.plusSeconds(120)))
+        assertEquals("SQ2 · 0:00 left", com.ikverse.deskglow.widgets.sessionProgress(s, at.plusSeconds(3600)))
+    }
+
+    @Test
+    fun `SignalR frames - the subscription's answer is every topic in full, a feed call is one change`() {
+        val rs = "\u001e"
+        val body = "{}" + rs +
+            """{"type":3,"invocationId":"1","result":{"TrackStatus":{"Status":"1"},"SessionStatus":{"Status":"Started"},"Heartbeat":null}}""" + rs +
+            """{"type":1,"target":"feed","arguments":["TrackStatus",{"Status":"2","Message":"Yellow"},"2026-10-09T12:35:21Z"]}""" + rs +
+            """{"type":1,"target":"feed","arguments":["Position.z","eJyLjgUAARUAuQ==","2026-10-09T12:35:21Z"]}""" + rs +
+            """{"type":6}""" + rs
+        val messages = parseSignalR(body)
+        assertEquals(setOf("TrackStatus" to true, "SessionStatus" to true), messages.take(2).map { it.topic to it.full }.toSet())
+        assertEquals("TrackStatus" to false, messages[2].topic to messages[2].full)
+        assertEquals(3, messages.size)
+        assertEquals("2", messages[2].data.getString("Status"))
+        assertTrue(runCatching { parseSignalR("""{"type":7,"error":"bye"}""" + rs) }.exceptionOrNull() is java.io.IOException)
+    }
+
+    @Test
+    fun `the widget connects from five minutes before a session, and the later of two overlapping windows wins`() {
+        val japan = f1.races[1]
+        assertNull(liveWindowSession(f1.races, utc(2026, 10, 9, 2, 20)))
+        assertEquals(japan.sessions[0], liveWindowSession(f1.races, utc(2026, 10, 9, 2, 26)))
+        // First practice's window runs on to 06:30, but the second practice's opens at 05:55.
+        assertEquals(japan.sessions[0], liveWindowSession(f1.races, utc(2026, 10, 9, 5, 50)))
+        assertEquals(japan.sessions[1], liveWindowSession(f1.races, utc(2026, 10, 9, 5, 56)))
+        assertNull(liveWindowSession(f1.races, utc(2026, 10, 9, 12, 0)))
+    }
+
+    @Test
+    fun `a result is fetched again when the widget missed the last session`() {
+        val fp1 = LiveSession(1, "Japanese GP", "Practice 1", "Practice", utc(2026, 10, 9, 2, 30), "Ends", true, emptyList())
+        assertTrue(needsCatchUp(null, f1.races, utc(2026, 10, 9, 12, 0)))
+        // Second practice ended at 07:00 and the saved result is first practice's.
+        assertTrue(needsCatchUp(fp1, f1.races, utc(2026, 10, 9, 12, 0)))
+        assertFalse(needsCatchUp(fp1, f1.races, utc(2026, 10, 9, 4, 0)))
+        assertFalse(needsCatchUp(fp1.copy(start = utc(2026, 10, 9, 6, 0)), f1.races, utc(2026, 10, 9, 12, 0)))
+    }
+
+    @Test
+    fun `a saved result comes back as it was`() {
+        val s = snapshotOf(sprintQuali).session()!!
+        val back = LiveSession.fromJson(s.toJson())
+        assertEquals(s.copy(flag = TrackFlag.Clear, part = null, remaining = null, clockAt = null, clockRunning = false), back)
+    }
+
+    @Test
+    fun `an OpenF1 result is read, qualifying times and race gaps alike`() {
+        val session = org.json.JSONObject("""{"session_key":11379,"session_type":"Qualifying","session_name":"Sprint Qualifying","date_start":"2026-10-09T12:30:00+00:00","meeting_key":1296}""")
+        val drivers = """[{"driver_number":1,"name_acronym":"VER","team_colour":"4781D7"},{"driver_number":63,"name_acronym":"RUS","team_colour":"00D7B6"},{"driver_number":55,"name_acronym":"SAI","team_colour":"1868DB"}]"""
+        val results = """[{"position":2,"driver_number":63,"gap_to_leader":[0.096,0.368,0.12],"duration":[93.573,92.614,91.276]},
+            {"position":1,"driver_number":1,"gap_to_leader":[0,0,0],"duration":[93.477,92.701,91.156]},
+            {"position":22,"driver_number":55,"gap_to_leader":[3.899,null,null],"duration":[97.376,null,null],"dns":false}]"""
+        val s = parseOpenF1Result(session, "Singapore Grand Prix", results, drivers)!!
+        assertEquals("Singapore GP", s.meeting)
+        assertTrue(s.finished)
+        assertEquals(listOf("VER", "RUS", "SAI"), s.rows.map { it.code })
+        assertEquals("1:31.156", s.rows[0].gap)
+        assertEquals("+0.120", s.rows[1].gap)
+        assertEquals("+3.899", s.rows[2].gap)
+        assertEquals("+3.779", s.rows[2].interval)
+        assertNull(parseOpenF1Result(session, "", "[]", drivers))
+    }
 }

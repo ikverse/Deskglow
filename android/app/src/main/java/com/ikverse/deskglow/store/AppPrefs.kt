@@ -131,6 +131,11 @@ class AppPrefs(context: Context) {
         get() = prefs.getString(KEY_F1_TRACK, null)
         set(value) = prefs.edit { putString(KEY_F1_TRACK, value) }
 
+    /** The classification of the last F1 session to finish, for the live-session widget. */
+    var f1LiveResult: String?
+        get() = prefs.getString(KEY_F1_LIVE, null)
+        set(value) = prefs.edit { putString(KEY_F1_LIVE, value) }
+
     var pickedFonts: String?
         get() = prefs.getString(KEY_PICKED_FONTS, null)
         set(value) = prefs.edit { putString(KEY_PICKED_FONTS, value) }
@@ -146,6 +151,7 @@ class AppPrefs(context: Context) {
         const val KEY_PRAYER_CACHE = "prayer_cache"
         const val KEY_F1_CACHE = "f1_cache"
         const val KEY_F1_TRACK = "f1_track"
+        const val KEY_F1_LIVE = "f1_live_result"
         const val KEY_PICKED_FONTS = "picked_fonts"
         const val KEY_PAGE_COUNT = "page_count"
     }

@@ -17,6 +17,7 @@ import com.ikverse.deskglow.fonts.BundledFonts
 import com.ikverse.deskglow.fonts.FontResolver
 import com.ikverse.deskglow.fonts.LocalFonts
 import com.ikverse.deskglow.model.Box
+import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
@@ -46,7 +47,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.ikverse.deskglow.F1Samples
 import com.ikverse.deskglow.data.AlarmState
+import com.ikverse.deskglow.data.F1LiveState
 import com.ikverse.deskglow.data.F1State
+import com.ikverse.deskglow.data.LiveSession
+import com.ikverse.deskglow.data.TrackFlag
+import com.ikverse.deskglow.data.parseLiveSession
 import com.ikverse.deskglow.data.Prayer
 import com.ikverse.deskglow.data.PrayerDay
 import com.ikverse.deskglow.data.PrayerState
@@ -54,6 +59,8 @@ import com.ikverse.deskglow.data.Sky
 import com.ikverse.deskglow.widgets.AlarmWidget
 import com.ikverse.deskglow.widgets.Bell
 import com.ikverse.deskglow.widgets.DetailGlyph
+import com.ikverse.deskglow.widgets.F1LiveWidget
+import com.ikverse.deskglow.widgets.F1ScheduleWidget
 import com.ikverse.deskglow.widgets.F1StandingsWidget
 import com.ikverse.deskglow.widgets.F1WeekendWidget
 import com.ikverse.deskglow.widgets.Glyph
@@ -280,6 +287,155 @@ class DisplayRenderTest {
             )),
         )
         save("f1-track-and-two-columns")
+    }
+
+    private fun atUtc(utc: LocalDateTime) = LocalDateTime.ofInstant(utc.toInstant(ZoneOffset.UTC), ZoneId.systemDefault())
+
+    private fun at(utc: LocalDateTime) {
+        val local = atUtc(utc)
+        feeds.minute.value = local
+        feeds.second.value = local
+    }
+
+    private fun weekend(layout: String, track: Boolean = true) =
+        F1WeekendWidget.defaults.with(F1WeekendWidget.LAYOUT, layout).with(F1WeekendWidget.SHOW_TRACK, track).with(F1WeekendWidget.FAVOURITE, "VER")
+
+    private val weekendLayouts = listOf("classic", "hero", "countdown", "watermark", "minimal")
+
+    private fun weekendStack(height: Int = 120): Layout =
+        Layout(weekendLayouts.mapIndexed { i, layout -> WidgetItem("w$i", F1WeekendWidget.id, Box(8, 8 + i * (height + 8), 396, height), true, weekend(layout)) })
+
+    @Test
+    fun `every race weekend layout counting down`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        at(LocalDateTime.of(2026, 10, 8, 19, 30))
+        show(weekendStack())
+        save("f1-weekend-layouts-countdown")
+    }
+
+    @Test
+    fun `every race weekend layout in the last hour, then during a session`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        at(LocalDateTime.of(2026, 10, 9, 5, 20, 15))
+        show(weekendStack())
+        save("f1-weekend-layouts-last-hour")
+        at(LocalDateTime.of(2026, 10, 10, 6, 30))
+        compose.waitForIdle()
+        save("f1-weekend-layouts-live")
+    }
+
+    @Test
+    fun `every race weekend layout showing the last podium`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        at(LocalDateTime.of(2026, 10, 6, 12, 0))
+        show(weekendStack())
+        save("f1-weekend-layouts-podium")
+    }
+
+    @Test
+    fun `every race weekend layout in a tall box and without the track`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        at(LocalDateTime.of(2026, 10, 8, 19, 30))
+        show(Layout(listOf(
+            WidgetItem("hero", F1WeekendWidget.id, Box(8, 8, 196, 240), true, weekend("hero")),
+            WidgetItem("count", F1WeekendWidget.id, Box(212, 8, 196, 240), true, weekend("countdown")),
+            WidgetItem("mark", F1WeekendWidget.id, Box(8, 256, 196, 240), true, weekend("watermark")),
+            WidgetItem("class", F1WeekendWidget.id, Box(212, 256, 196, 240), true, weekend("classic")),
+            WidgetItem("bare", F1WeekendWidget.id, Box(8, 504, 396, 120), true, weekend("hero", track = false)),
+            WidgetItem("none", F1WeekendWidget.id, Box(8, 632, 396, 120), true, weekend("countdown", track = false)),
+        )))
+        save("f1-weekend-layouts-tall")
+    }
+
+    private fun schedule(layout: String, vararg changes: Pair<FlagKey, Boolean>) =
+        changes.fold(F1ScheduleWidget.defaults.with(F1ScheduleWidget.LAYOUT, layout)) { s, (key, value) -> s.with(key, value) }
+
+    @Test
+    fun `every schedule layout on a sprint weekend, with the sprint running`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data)
+        at(LocalDateTime.of(2026, 10, 24, 18, 30))
+        show(Layout(listOf(
+            WidgetItem("list", F1ScheduleWidget.id, Box(8, 8, 196, 232), true, schedule("list")),
+            WidgetItem("strip", F1ScheduleWidget.id, Box(212, 8, 196, 232), true, schedule("strip")),
+            WidgetItem("days", F1ScheduleWidget.id, Box(8, 248, 396, 180), true, schedule("days")),
+            WidgetItem("line", F1ScheduleWidget.id, Box(8, 436, 396, 140), true, schedule("timeline")),
+            WidgetItem("wide", F1ScheduleWidget.id, Box(8, 584, 396, 100), true, schedule("strip")),
+        )))
+        save("f1-schedule-layouts-live")
+    }
+
+    @Test
+    fun `every schedule layout counting down, with dates, 24-hour times and nothing dimmed`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data)
+        at(LocalDateTime.of(2026, 10, 9, 5, 20, 15))
+        val extras = arrayOf(F1ScheduleWidget.SHOW_DATES to true, F1ScheduleWidget.DIM_PAST to false)
+        show(Layout(listOf(
+            WidgetItem("list", F1ScheduleWidget.id, Box(8, 8, 260, 200), true, schedule("list", *extras).with(F1ScheduleWidget.CLOCK, "24")),
+            WidgetItem("days", F1ScheduleWidget.id, Box(8, 216, 396, 170), true, schedule("days", *extras)),
+            WidgetItem("line", F1ScheduleWidget.id, Box(8, 394, 396, 140), true, schedule("timeline", *extras)),
+            WidgetItem("strip", F1ScheduleWidget.id, Box(8, 542, 396, 100), true, schedule("strip", *extras)),
+            WidgetItem("off", F1ScheduleWidget.id, Box(8, 650, 396, 140), true, schedule("timeline", F1ScheduleWidget.SHOW_COUNTDOWN to false)),
+        )))
+        save("f1-schedule-layouts-countdown")
+    }
+
+    @Test
+    fun `the schedule is for the next weekend after a race`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data)
+        at(LocalDateTime.of(2026, 10, 6, 12, 0))
+        show(Layout(listOf(WidgetItem("s", F1ScheduleWidget.id, Box(8, 8, 196, 232), true, F1ScheduleWidget.defaults))))
+        save("f1-schedule-after-race")
+    }
+
+    /** Singapore Sprint Qualifying as the feed held it after the flag. */
+    private val sprintQuali: LiveSession by lazy {
+        val topics = org.json.JSONObject(javaClass.classLoader!!.getResource("f1live-sprint-quali.json")!!.readText())
+        parseLiveSession(topics.keys().asSequence().associateWith { topics.getJSONObject(it) })!!
+    }
+
+    private fun liveStack(): Layout = Layout(listOf(
+        WidgetItem("tall", F1LiveWidget.id, Box(8, 8, 196, 360), true, F1LiveWidget.defaults.with(F1LiveWidget.FAVOURITE, "HAM")),
+        WidgetItem("ahead", F1LiveWidget.id, Box(212, 8, 196, 220), true, F1LiveWidget.defaults.with(F1LiveWidget.ROWS, 6).with(F1LiveWidget.GAP, "ahead")),
+        WidgetItem("wide", F1LiveWidget.id, Box(8, 384, 396, 220), true, F1LiveWidget.defaults.with(F1LiveWidget.FAVOURITE, "NOR")),
+    ))
+
+    @Test
+    fun `the live session widget in qualifying under a red flag, then with its result`() {
+        val now = LocalDateTime.of(2026, 10, 9, 12, 35)
+        at(now)
+        val clockAt = now.toInstant(ZoneOffset.UTC)
+        feeds.f1Live.value = F1LiveState.Live(
+            sprintQuali.copy(
+                status = "Aborted", finished = false, flag = TrackFlag.Red, part = 2,
+                remaining = java.time.Duration.ofSeconds(419), clockAt = clockAt, clockRunning = false,
+            ),
+        )
+        show(liveStack())
+        save("f1-live-session-red-flag")
+        feeds.f1Live.value = F1LiveState.Result(sprintQuali)
+        compose.waitForIdle()
+        save("f1-live-session-result")
+    }
+
+    @Test
+    fun `the live session widget during a race under the safety car`() {
+        at(LocalDateTime.of(2026, 10, 11, 12, 50))
+        val race = sprintQuali.copy(
+            key = 11388, name = "Race", type = "Race", status = "Started", finished = false, flag = TrackFlag.SafetyCar, part = null, lap = 23, totalLaps = 62,
+            rows = sprintQuali.rows.mapIndexed { i, r ->
+                val gap = if (i == 0) "Leader" else String.format(java.util.Locale.US, "+%.3f", i * 1.873)
+                r.copy(gap = gap, interval = if (i == 0) gap else "+1.873", knockedOut = false, inPit = i == 4, out = i == 21)
+            },
+        )
+        feeds.f1Live.value = F1LiveState.Live(race)
+        show(liveStack())
+        save("f1-live-session-race")
+    }
+
+    @Test
+    fun `the live session widget before it has seen any session, in the editor`() {
+        show(Layout(listOf(WidgetItem("w", F1LiveWidget.id, Box(8, 8, 196, 300), true, F1LiveWidget.defaults))), editing = true)
+        save("f1-live-session-waiting")
     }
 
     @Test

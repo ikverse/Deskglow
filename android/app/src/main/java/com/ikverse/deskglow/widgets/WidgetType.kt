@@ -45,7 +45,7 @@ interface WidgetType {
 object Widgets {
     val all: List<WidgetType> = listOf(
         ClockWidget, DateWidget, NotificationsWidget, RingWidget, StatWidget, WeatherWidget, EventWidget, MediaWidget,
-        PrayerWidget, AlarmWidget, F1WeekendWidget, F1StandingsWidget,
+        PrayerWidget, AlarmWidget, F1WeekendWidget, F1ScheduleWidget, F1LiveWidget, F1StandingsWidget,
     )
 
     fun find(id: String): WidgetType? = all.firstOrNull { it.id == id }

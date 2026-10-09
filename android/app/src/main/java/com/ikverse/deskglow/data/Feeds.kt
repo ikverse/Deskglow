@@ -23,6 +23,8 @@ interface Feeds {
     val weather: StateFlow<WeatherState>
     val alarm: StateFlow<AlarmState>
     val f1: StateFlow<F1State>
+    /** The F1 session on now, live, or the last one's result; connects to live timing only while a session runs. */
+    val f1Live: StateFlow<F1LiveState>
     /** Prayer times by Aladhan [method] and Asr [school]; widgets with the same choices share one feed. */
     fun prayer(method: Int, school: Int): StateFlow<PrayerState>
 }
