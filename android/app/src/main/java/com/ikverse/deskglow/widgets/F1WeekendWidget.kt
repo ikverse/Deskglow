@@ -32,15 +32,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.data.F1Data
-import com.ikverse.deskglow.data.F1Entry
+import com.ikverse.deskglow.data.F1LiveState
 import com.ikverse.deskglow.data.F1Race
 import com.ikverse.deskglow.data.F1Result
 import com.ikverse.deskglow.data.F1Roster
+import com.ikverse.deskglow.data.F1Session
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.F1Track
 import com.ikverse.deskglow.data.LocalFeeds
+import com.ikverse.deskglow.data.SessionTop
 import com.ikverse.deskglow.data.WeekendView
 import com.ikverse.deskglow.data.countdownText
+import com.ikverse.deskglow.data.sessionTop
 import com.ikverse.deskglow.data.teamColour
 import com.ikverse.deskglow.data.weekendView
 import com.ikverse.deskglow.model.ColourKey
@@ -60,6 +63,8 @@ object F1WeekendWidget : WidgetType {
     val SHOW_TRACK = FlagKey("showTrack", false)
     val FAVOURITE = TextKey("favourite", "")
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
+    /** "countdown", or "top3" for the last session's top 3 until an hour before the next. */
+    val BETWEEN = TextKey("between", "countdown")
 
     private val LAYOUTS = listOf(
         "classic" to "Classic", "hero" to "Hero · big track", "countdown" to "Countdown blocks",
@@ -77,6 +82,7 @@ object F1WeekendWidget : WidgetType {
     override fun fields(settings: Settings) = buildList {
         add(LayoutField("Layout", LAYOUT, LAYOUTS))
         if (settings[LAYOUT] in TRACK_OPTIONAL) add(ToggleField("Show the track", SHOW_TRACK))
+        add(ChoiceField("Between sessions", BETWEEN, listOf("countdown" to "Countdown", "top3" to "Latest session's top 3")))
         add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
         add(ColourField("Accent colour", ACCENT))
         add(Common.colourField)
@@ -84,7 +90,9 @@ object F1WeekendWidget : WidgetType {
     }
 
     override fun note(settings: Settings) =
-        "F1 data from the Jolpica F1 API (api.jolpi.ca), track outlines from OpenF1 and MultiViewer, times in your phone's time zone. Not affiliated with Formula 1."
+        "F1 data from the Jolpica F1 API (api.jolpi.ca), track outlines from OpenF1 and MultiViewer, times in your phone's time zone. " +
+            (if (settings[BETWEEN] == "top3") "Session results from Formula 1's own live-timing feed, which is unofficial and may stop working, or from OpenF1; it connects only while a session runs. " else "") +
+            "Not affiliated with Formula 1."
 
     @Composable
     override fun Content(settings: Settings) {
@@ -106,7 +114,12 @@ object F1WeekendWidget : WidgetType {
                 val second by feeds.second.collectAsStateWithLifecycle()
                 second.atZone(ZoneId.systemDefault()).toInstant()
             } else roughNow
-            WeekendFace(settings, data, weekendView(data, now), now)
+            // Session results come from the live-timing feed, which is only woken when they are wanted.
+            val latest = if (settings[BETWEEN] == "top3") {
+                val live by feeds.f1Live.collectAsStateWithLifecycle()
+                (live as? F1LiveState.Result)?.session
+            } else null
+            WeekendFace(settings, data, weekendView(data, now), sessionTop(data.races, latest, now), now)
         }
     }
 }
@@ -114,14 +127,39 @@ object F1WeekendWidget : WidgetType {
 /** The widget's colours and the favourite driver, passed down together. */
 private class Look(val colour: Color, val accent: Color, val favourite: String)
 
-/** The chosen layout, with the circuit drawn in the widget's own colour where the layout has one and its outline has arrived. */
+/** One place on a podium as drawn, from a race result or from a session's timing. */
+private class Place(val position: Int, val code: String, val team: Color)
+
+private fun placesOf(result: F1Result) = result.podium.map { Place(it.position, it.id, Color(teamColour(it.teamId))) }
+
+private fun placesOf(top: SessionTop) = top.rows.map { Place(it.position, it.code, Color(it.teamColour ?: 0xFF8C8C8C)) }
+
+/** Whether the session after [top]'s is in the same weekend. */
+private fun sameWeekend(top: SessionTop) = top.nextRace == top.race
+
+/** "Next · Race · in 18 h 40 m", or after a race "Next · Japanese GP · in 6 d 2 h"; null at the end of the season. */
+private fun nextLine(top: SessionTop, now: Instant): String? {
+    val next = top.next ?: return null
+    val what = if (sameWeekend(top)) shortKind(next.kind) else top.nextRace?.name ?: return null
+    return "Next · $what · in ${countdownText(now, next.start)}"
+}
+
+/** "1 NOR  2 PIA  3 VER". */
+private fun placesText(places: List<Place>) = places.joinToString("  ") { "${it.position} ${it.code}" }
+
+/**
+ * The chosen layout, with the circuit drawn in the widget's own colour where the layout has one and its
+ * outline has arrived. [sessionTop], when given, is shown in place of the countdown until a race's podium is in.
+ */
 @Composable
-private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, now: Instant) {
+private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, sessionTop: SessionTop?, now: Instant) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val h = constraints.maxHeight.toFloat()
         val w = constraints.maxWidth.toFloat()
         val look = Look(Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE])
-        if (view == WeekendView.Empty) {
+        // A race's podium, once it has arrived, wins over its top 3 from timing.
+        val top = sessionTop?.takeIf { view !is WeekendView.AfterRace }
+        if (view == WeekendView.Empty && top == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 Text("No races scheduled", color = Muted, fontSize = pxToSp(min(h * 0.2f, w * 0.05f)), maxLines = 1)
             }
@@ -135,14 +173,14 @@ private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, now
         }
         val track = data.track?.takeIf { wantsTrack }
         when (layout) {
-            "hero" -> BesideTrack(track, look.colour, w, h, lead = true, share = 0.45f) { cw, ch -> HeroContent(view, now, look, cw, ch) }
-            "countdown" -> BesideTrack(track, look.colour, w, h, lead = false, share = 0.3f) { cw, ch -> CountdownContent(view, data, now, look, cw, ch) }
+            "hero" -> BesideTrack(track, look.colour, w, h, lead = true, share = 0.45f) { cw, ch -> HeroContent(view, top, now, look, cw, ch) }
+            "countdown" -> BesideTrack(track, look.colour, w, h, lead = false, share = 0.3f) { cw, ch -> CountdownContent(view, top, data, now, look, cw, ch) }
             "watermark" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (track != null) TrackOutline(track, look.colour.copy(alpha = 0.16f), Modifier.fillMaxSize(), strokeShare = 0.05f)
-                ClassicContent(view, data, now, look, w, h, centred = true, spread = true)
+                ClassicContent(view, top, data, now, look, w, h, centred = true, spread = true)
             }
-            "minimal" -> MinimalContent(view, now, look, w, h)
-            else -> BesideTrack(track, look.colour, w, h, lead = false, share = 0.32f) { cw, ch -> ClassicContent(view, data, now, look, cw, ch, centred = false, spread = track == null) }
+            "minimal" -> MinimalContent(view, top, now, look, w, h)
+            else -> BesideTrack(track, look.colour, w, h, lead = false, share = 0.32f) { cw, ch -> ClassicContent(view, top, data, now, look, cw, ch, centred = false, spread = track == null) }
         }
     }
 }
@@ -192,14 +230,18 @@ private fun BesideTrack(track: F1Track?, colour: Color, w: Float, h: Float, lead
 }
 
 /**
- * The weekend and its countdown or session running, or the last podium. [centred] for the
- * Watermark layout; [spread] lays the podium across the full width instead of close together.
+ * The weekend and its countdown or session running, the last session's top 3, or the last podium.
+ * [centred] for the Watermark layout; [spread] lays the podium across the full width instead of close together.
  */
 @Composable
-private fun ClassicContent(view: WeekendView, data: F1Data, now: Instant, look: Look, w: Float, h: Float, centred: Boolean, spread: Boolean) {
+private fun ClassicContent(view: WeekendView, top: SessionTop?, data: F1Data, now: Instant, look: Look, w: Float, h: Float, centred: Boolean, spread: Boolean) {
     val small = min(h * 0.15f, w * 0.042f)
     val big = min(h * 0.34f, w * 0.09f)
     Column(horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start) {
+        if (top != null) {
+            PodiumBlock(top.race.name, shortKind(top.session.kind), placesOf(top), nextLine(top, now), look, small, big, spread)
+            return@Column
+        }
         when (view) {
             WeekendView.Empty -> {}
             is WeekendView.AfterRace -> Podium(view.result, view.next, data, now, look, small, big, spread)
@@ -230,12 +272,29 @@ private fun SessionLine(view: WeekendView.Upcoming, now: Instant, look: Look, sm
     }
 }
 
-/** Name and place over the session next and a large countdown; after a race, the podium as a short table. */
+/** Name and place over the session next and a large countdown; after a session or a race, its top 3 as a short table. */
 @Composable
-private fun HeroContent(view: WeekendView, now: Instant, look: Look, w: Float, h: Float) {
+private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look: Look, w: Float, h: Float) {
     val small = min(h * 0.12f, w * 0.06f)
     val big = min(h * 0.34f, w * 0.19f)
+
+    @Composable
+    fun Table(title: String, subtitle: String, places: List<Place>, after: String?) {
+        Text(title.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false)
+        Text(subtitle, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1)
+        Spacer(Modifier.height(pxToDp(h * 0.04f)))
+        places.forEach { PodiumEntry(it, look, big * 0.5f) }
+        if (after != null) {
+            Spacer(Modifier.height(pxToDp(h * 0.03f)))
+            Text(after, color = Muted, fontSize = pxToSp(small * 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+
     Column {
+        if (top != null) {
+            Table(top.race.name, shortKind(top.session.kind), placesOf(top), nextLine(top, now))
+            return@Column
+        }
         when (view) {
             WeekendView.Empty -> {}
             is WeekendView.Upcoming -> {
@@ -252,26 +311,47 @@ private fun HeroContent(view: WeekendView, now: Instant, look: Look, w: Float, h
                     Text(countdownText(now, next.start), color = look.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
                 }
             }
-            is WeekendView.AfterRace -> {
-                Text(view.result.raceName.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false)
-                Text("Result", color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1)
-                Spacer(Modifier.height(pxToDp(h * 0.04f)))
-                view.result.podium.forEach { PodiumEntry(it, look, big * 0.5f) }
-                view.next?.let { next ->
-                    Spacer(Modifier.height(pxToDp(h * 0.03f)))
-                    Text("Next · ${next.name} · in ${countdownText(now, next.first.start)}", color = Muted, fontSize = pxToSp(small * 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
+            is WeekendView.AfterRace -> Table(
+                view.result.raceName, "Result", placesOf(view.result),
+                view.next?.let { next -> "Next · ${next.name} · in ${countdownText(now, next.first.start)}" },
+            )
         }
     }
 }
 
-/** Large blocks counting down to the next session, or after a race to the next weekend's first one. */
+/**
+ * Large blocks counting down to the next session, or after a race to the next weekend's first one;
+ * after a session or a race, its top 3 on a line underneath.
+ */
 @Composable
-private fun CountdownContent(view: WeekendView, data: F1Data, now: Instant, look: Look, w: Float, h: Float) {
+private fun CountdownContent(view: WeekendView, top: SessionTop?, data: F1Data, now: Instant, look: Look, w: Float, h: Float) {
     val small = min(h * 0.13f, w * 0.04f)
     val big = min(h * 0.36f, w * 0.11f)
+
+    /** [race]'s name over the blocks to [next], and [line] beneath. */
+    @Composable
+    fun BlocksWithLine(race: F1Race, next: F1Session, line: String) {
+        Header(race.name, race.place, look.accent, look.colour, small)
+        Spacer(Modifier.height(pxToDp(h * 0.05f)))
+        Text("${next.kind} in".uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
+        CountdownBlocks(now, next.start, look, small, big)
+        Spacer(Modifier.height(pxToDp(small * 0.6f)))
+        Text(line, color = Muted, fontSize = pxToSp(small * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+
     Column {
+        if (top != null) {
+            val nextRace = top.nextRace
+            val next = top.next
+            val places = placesOf(top)
+            if (nextRace == null || next == null) {
+                PodiumBlock(top.race.name, shortKind(top.session.kind), places, null, look, small, big, spread = false)
+            } else {
+                val what = if (sameWeekend(top)) shortKind(top.session.kind) else top.race.name
+                BlocksWithLine(nextRace, next, "$what · ${placesText(places)}")
+            }
+            return@Column
+        }
         when (view) {
             WeekendView.Empty -> {}
             is WeekendView.Upcoming -> {
@@ -291,15 +371,7 @@ private fun CountdownContent(view: WeekendView, data: F1Data, now: Instant, look
                 if (next == null) {
                     Podium(view.result, null, data, now, look, small, big, spread = false)
                 } else {
-                    Header(next.name, next.place, look.accent, look.colour, small)
-                    Spacer(Modifier.height(pxToDp(h * 0.05f)))
-                    Text("${next.first.kind} in".uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
-                    CountdownBlocks(now, next.first.start, look, small, big)
-                    Spacer(Modifier.height(pxToDp(small * 0.6f)))
-                    Text(
-                        "${view.result.raceName} · " + view.result.podium.joinToString("  ") { "${it.position} ${it.id}" },
-                        color = Muted, fontSize = pxToSp(small * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
+                    BlocksWithLine(next, next.first, "${view.result.raceName} · ${placesText(placesOf(view.result))}")
                 }
             }
         }
@@ -330,15 +402,35 @@ internal fun countdownParts(now: Instant, then: Instant): List<Pair<String, Stri
     }
 }
 
-/** Everything on one line: "Singapore GP · Quali in 4 h 12 m", "● LIVE Quali · Singapore GP", or the podium. */
+/**
+ * Everything on one line: "Singapore GP · Quali in 4 h 12 m", "● LIVE Quali · Singapore GP", the podium,
+ * or "Quali · 1 NOR 2 PIA 3 VER · Race in 18 h 40 m".
+ */
 @Composable
-private fun MinimalContent(view: WeekendView, now: Instant, look: Look, w: Float, h: Float) {
+private fun MinimalContent(view: WeekendView, top: SessionTop?, now: Instant, look: Look, w: Float, h: Float) {
     val px = min(h * 0.4f, w * 0.042f)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             @Composable
             fun Part(text: String, colour: Color, weight: FontWeight = FontWeight.Normal) =
                 Text(text, color = colour, fontSize = pxToSp(px), fontWeight = weight, maxLines = 1, softWrap = false)
+
+            @Composable
+            fun Places(places: List<Place>) = places.forEach { place ->
+                Part("  ${place.position} ", Muted)
+                Part(place.code, if (place.code == look.favourite) look.accent else look.colour, FontWeight.Medium)
+            }
+
+            if (top != null) {
+                // After a race the next weekend is too far off to be worth the room, as with the podium.
+                val inWeekend = sameWeekend(top)
+                Part(if (inWeekend) shortKind(top.session.kind) else top.race.name, look.colour, FontWeight.SemiBold)
+                Part("  · ", Muted)
+                Places(placesOf(top))
+                val next = top.next
+                if (inWeekend && next != null) Part("  ·  ${shortKind(next.kind)} in ${countdownText(now, next.start)}", Muted)
+                return@Row
+            }
             when (view) {
                 WeekendView.Empty -> {}
                 is WeekendView.Upcoming -> {
@@ -360,10 +452,7 @@ private fun MinimalContent(view: WeekendView, now: Instant, look: Look, w: Float
                 is WeekendView.AfterRace -> {
                     Part(view.result.raceName, look.colour, FontWeight.SemiBold)
                     Part("  · ", Muted)
-                    view.result.podium.forEach { entry ->
-                        Part("  ${entry.position} ", Muted)
-                        Part(entry.id, if (entry.id == look.favourite) look.accent else look.colour, FontWeight.Medium)
-                    }
+                    Places(placesOf(view.result))
                 }
             }
         }
@@ -421,14 +510,14 @@ internal fun LiveBadge(accent: Color, px: Float) {
 
 /** One podium place: position, team-colour bar, driver code, the favourite lit. */
 @Composable
-private fun PodiumEntry(entry: F1Entry, look: Look, px: Float) {
+private fun PodiumEntry(place: Place, look: Look, px: Float) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("${entry.position}", color = Muted, fontSize = pxToSp(px * 0.73f), fontWeight = FontWeight.Light, maxLines = 1)
+        Text("${place.position}", color = Muted, fontSize = pxToSp(px * 0.73f), fontWeight = FontWeight.Light, maxLines = 1)
         Spacer(Modifier.width(pxToDp(px * 0.22f)))
-        Box(Modifier.width(pxToDp(px * 0.12f)).height(pxToDp(px * 0.95f)).background(Color(teamColour(entry.teamId)), RoundedCornerShape(pxToDp(px * 0.06f))))
+        Box(Modifier.width(pxToDp(px * 0.12f)).height(pxToDp(px * 0.95f)).background(place.team, RoundedCornerShape(pxToDp(px * 0.06f))))
         Spacer(Modifier.width(pxToDp(px * 0.22f)))
         Text(
-            entry.id, color = if (entry.id == look.favourite) look.accent else look.colour,
+            place.code, color = if (place.code == look.favourite) look.accent else look.colour,
             fontSize = pxToSp(px), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false,
         )
     }
@@ -440,21 +529,28 @@ private fun PodiumEntry(entry: F1Entry, look: Look, px: Float) {
  */
 @Composable
 private fun Podium(result: F1Result, next: F1Race?, data: F1Data, now: Instant, look: Look, small: Float, big: Float, spread: Boolean) {
-    val race = data.races.firstOrNull { it.round == result.round }
-    Header(result.raceName, "Result", look.accent, look.colour, small)
+    val after = when {
+        next != null -> "Next · ${next.name} · in ${countdownText(now, next.first.start)}"
+        data.races.any { it.round == result.round } -> "Season complete"
+        else -> null
+    }
+    PodiumBlock(result.raceName, "Result", placesOf(result), after, look, small, big, spread)
+}
+
+/** [title] and [subtitle] over three [places] in a row, and [after] beneath them. */
+@Composable
+private fun PodiumBlock(title: String, subtitle: String, places: List<Place>, after: String?, look: Look, small: Float, big: Float, spread: Boolean) {
+    Header(title, subtitle, look.accent, look.colour, small)
     Spacer(Modifier.height(pxToDp(small * 0.5f)))
     Row(
         if (spread) Modifier.fillMaxWidth() else Modifier,
         horizontalArrangement = if (spread) Arrangement.SpaceBetween else Arrangement.spacedBy(pxToDp(big * 0.6f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        result.podium.forEach { PodiumEntry(it, look, big * 0.82f) }
+        places.forEach { PodiumEntry(it, look, big * 0.82f) }
     }
-    if (next != null) {
+    if (after != null) {
         Spacer(Modifier.height(pxToDp(small * 0.5f)))
-        Text("Next · ${next.name} · in ${countdownText(now, next.first.start)}", color = Muted, fontSize = pxToSp(small), maxLines = 1, overflow = TextOverflow.Ellipsis)
-    } else if (race != null) {
-        Spacer(Modifier.height(pxToDp(small * 0.5f)))
-        Text("Season complete", color = Muted, fontSize = pxToSp(small), maxLines = 1)
+        Text(after, color = Muted, fontSize = pxToSp(small), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

@@ -3,6 +3,7 @@ package com.ikverse.deskglow.data
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDateTime
@@ -479,6 +480,62 @@ class DataParsingTest {
         assertTrue(needsCatchUp(fp1, f1.races, utc(2026, 10, 9, 12, 0)))
         assertFalse(needsCatchUp(fp1, f1.races, utc(2026, 10, 9, 4, 0)))
         assertFalse(needsCatchUp(fp1.copy(start = utc(2026, 10, 9, 6, 0)), f1.races, utc(2026, 10, 9, 12, 0)))
+    }
+
+    private fun finished(name: String, type: String, start: java.time.Instant) = LiveSession(
+        1, "Japanese GP", name, type, start, "Finalised", true,
+        listOf("PIA", "NOR", "VER", "RUS").mapIndexed { i, code -> LiveRow(i + 1, "${i + 1}", code, 0xFFFF8000, "", "") },
+    )
+
+    @Test
+    fun `a session's top 3 shows from its end until an hour before the next session`() {
+        val japan = f1.races[1]
+        // Second practice started a couple of minutes late; at noon on Friday the next is third practice, on Saturday.
+        val fp2 = finished("Practice 2", "Practice", utc(2026, 10, 9, 6, 2))
+        val friday = sessionTop(f1.races, fp2, utc(2026, 10, 9, 12, 0))!!
+        assertEquals("FP2", friday.session.kind)
+        assertEquals(listOf("PIA", "NOR", "VER"), friday.rows.map { it.code })
+        assertEquals(japan, friday.nextRace)
+        assertEquals("FP3", friday.next!!.kind)
+        // Third practice is at 02:30 on Saturday: still the top 3 at 01:25, the countdown from 01:30.
+        assertNotNull(sessionTop(f1.races, fp2, utc(2026, 10, 10, 1, 25)))
+        assertNull(sessionTop(f1.races, fp2, utc(2026, 10, 10, 1, 30)))
+        // And nothing while third practice runs.
+        assertNull(sessionTop(f1.races, fp2, utc(2026, 10, 10, 2, 45)))
+
+        val quali = finished("Qualifying", "Qualifying", utc(2026, 10, 10, 6, 0))
+        val saturday = sessionTop(f1.races, quali, utc(2026, 10, 10, 12, 0))!!
+        assertEquals("Qualifying", saturday.session.kind)
+        assertEquals("Race", saturday.next!!.kind)
+        assertNull(sessionTop(f1.races, quali, utc(2026, 10, 11, 4, 5)))
+    }
+
+    @Test
+    fun `a session's top 3 is never another session's`() {
+        // Second practice is over but the result in hand is still the first's: the countdown, until the newer one comes.
+        val fp1 = finished("Practice 1", "Practice", utc(2026, 10, 9, 2, 30))
+        assertNull(sessionTop(f1.races, fp1, utc(2026, 10, 9, 12, 0)))
+        // Last weekend's race, a week on.
+        val singapore = finished("Race", "Race", utc(2026, 10, 4, 12, 0))
+        assertNull(sessionTop(f1.races, singapore, utc(2026, 10, 9, 12, 0)))
+        // Unfinished, or with nobody classified.
+        val fp2 = finished("Practice 2", "Practice", utc(2026, 10, 9, 6, 0))
+        assertNull(sessionTop(f1.races, fp2.copy(finished = false), utc(2026, 10, 9, 12, 0)))
+        assertNull(sessionTop(f1.races, fp2.copy(rows = emptyList()), utc(2026, 10, 9, 12, 0)))
+        assertNull(sessionTop(f1.races, null, utc(2026, 10, 9, 12, 0)))
+    }
+
+    @Test
+    fun `a race's top 3 from timing lasts until a day before the next weekend, as the podium does`() {
+        val race = finished("Race", "Race", utc(2026, 10, 11, 5, 0))
+        val sunday = sessionTop(f1.races, race, utc(2026, 10, 11, 7, 30))!!
+        assertEquals("Race", sunday.session.kind)
+        assertEquals("Japanese GP", sunday.race.name)
+        assertEquals("United States GP", sunday.nextRace!!.name)
+        assertEquals("FP1", sunday.next!!.kind)
+        // Austin's first practice is at 17:30 on the 23rd.
+        assertNotNull(sessionTop(f1.races, race, utc(2026, 10, 22, 17, 25)))
+        assertNull(sessionTop(f1.races, race, utc(2026, 10, 22, 17, 30)))
     }
 
     @Test

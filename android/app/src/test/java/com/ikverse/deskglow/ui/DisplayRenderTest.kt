@@ -297,13 +297,37 @@ class DisplayRenderTest {
         feeds.second.value = local
     }
 
-    private fun weekend(layout: String, track: Boolean = true) =
+    private fun weekend(layout: String, track: Boolean = true, between: String = "countdown") =
         F1WeekendWidget.defaults.with(F1WeekendWidget.LAYOUT, layout).with(F1WeekendWidget.SHOW_TRACK, track).with(F1WeekendWidget.FAVOURITE, "VER")
+            .with(F1WeekendWidget.BETWEEN, between)
 
     private val weekendLayouts = listOf("classic", "hero", "countdown", "watermark", "minimal")
 
-    private fun weekendStack(height: Int = 120): Layout =
-        Layout(weekendLayouts.mapIndexed { i, layout -> WidgetItem("w$i", F1WeekendWidget.id, Box(8, 8 + i * (height + 8), 396, height), true, weekend(layout)) })
+    private fun weekendStack(height: Int = 120, between: String = "countdown"): Layout =
+        Layout(weekendLayouts.mapIndexed { i, layout -> WidgetItem("w$i", F1WeekendWidget.id, Box(8, 8 + i * (height + 8), 396, height), true, weekend(layout, between = between)) })
+
+    /** A finished Japanese session as the timing feed saves it, Piastri, Verstappen and Russell on top. */
+    private fun japanResult(name: String, type: String, startUtc: LocalDateTime) = LiveSession(
+        1, "Japanese GP", name, type, startUtc.toInstant(ZoneOffset.UTC), "Finalised", true,
+        listOf("PIA" to 0xFFFF8000, "VER" to 0xFF4781D7, "RUS" to 0xFF00D7B6, "NOR" to 0xFFFF8000).mapIndexed { i, (code, colour) ->
+            com.ikverse.deskglow.data.LiveRow(i + 1, "${i + 1}", code, colour, "", "")
+        },
+    )
+
+    @Test
+    fun `every race weekend layout with the last session's top 3, then a race's before its podium is in`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        // Saturday afternoon in Japan: qualifying is done and the race is tomorrow.
+        feeds.f1Live.value = F1LiveState.Result(japanResult("Qualifying", "Qualifying", LocalDateTime.of(2026, 10, 10, 6, 0)))
+        at(LocalDateTime.of(2026, 10, 10, 12, 0))
+        show(weekendStack(between = "top3"))
+        save("f1-weekend-layouts-session-top3")
+        // Sunday after the race, with the podium source still on Singapore's result.
+        feeds.f1Live.value = F1LiveState.Result(japanResult("Race", "Race", LocalDateTime.of(2026, 10, 11, 5, 0)))
+        at(LocalDateTime.of(2026, 10, 11, 8, 0))
+        compose.waitForIdle()
+        save("f1-weekend-layouts-race-top3")
+    }
 
     @Test
     fun `every race weekend layout counting down`() {
