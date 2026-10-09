@@ -595,6 +595,9 @@ private fun SelectBar(state: EditorState) {
         TextButton(onClick = state::snapAllToGrid, modifier = Modifier.testTag("snap all")) {
             Text("Snap all", color = Palette.Select, fontSize = 15.sp, maxLines = 1)
         }
+        TextButton(onClick = state::smartArrange, modifier = Modifier.testTag("auto arrange")) {
+            Text("Auto-arrange", color = Palette.Select, fontSize = 15.sp, maxLines = 1)
+        }
         if (state.selecting) {
             Text(
                 if (count == 0) "Tap widgets" else "$count selected", color = Palette.Muted, fontSize = 13.sp,

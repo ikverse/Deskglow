@@ -10,6 +10,7 @@ import com.ikverse.deskglow.layout.DragSession
 import com.ikverse.deskglow.layout.Packer
 import com.ikverse.deskglow.layout.Placed
 import com.ikverse.deskglow.layout.Retarget
+import com.ikverse.deskglow.layout.SmartLayout
 import com.ikverse.deskglow.layout.other
 import com.ikverse.deskglow.store.LayoutRepository
 import com.ikverse.deskglow.model.Key
@@ -211,6 +212,32 @@ class EditorState(
         commit(layout.withBoxes(boxes))
         val after = layout
         toast = Toast("Snapped ${moved.size} widgets to grid", undo = { if (layout == after) undo() else commit(layout.withBoxes(previous)) })
+    }
+
+    /** Which arrangement Auto-arrange shows next; every press moves on to a different one. */
+    private var arrangeRound = 0
+
+    /**
+     * Lays the visible widgets out afresh in a composition [SmartLayout] likes, and fits weather and
+     * clock styles to their new boxes. Another press gives another composition. Undo puts it all back.
+     */
+    fun smartArrange() {
+        if (layout.items.none { it.visible }) {
+            toast = Toast("Add some widgets first")
+            return
+        }
+        val before = layout
+        var result: SmartLayout.Result? = null
+        // A press that would change nothing moves on to the next composition instead.
+        repeat(SmartLayout.POOL) {
+            if (result == null || result.layout == before) result = SmartLayout.arrange(before, orientation, arrangeRound++)
+        }
+        val arranged = result ?: return
+        commit(arranged.layout)
+        val after = layout
+        val note = if (arranged.hidden > 0) " ${arranged.hidden} did not fit and ${if (arranged.hidden == 1) "was" else "were"} hidden." else ""
+        // Straight back through the history if nothing else has changed since; otherwise put the old layout back.
+        toast = Toast("Arranged: ${arranged.name}.$note", undo = { if (layout == after) undo() else commit(before) })
     }
 
     // ---- dragging: every step is worked out from where everything was when the drag began ----
