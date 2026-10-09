@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon to start the display without opening the app. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="start_display"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/start_display_short"
+        android:shortcutLongLabel="@string/start_display_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.ikverse.deskglow.display.DisplayActivity"
+            android:targetPackage="com.ikverse.deskglow" />
+    </shortcut>
+</shortcuts>

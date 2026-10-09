@@ -26,12 +26,41 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Long-press the icon to start the display. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <activity
             android:name=".display.DisplayActivity"
             android:exported="false"
             android:theme="@style/Theme.Deskglow.Display" />
+
+        <!-- Home-screen widget: one press starts the display. -->
+        <receiver
+            android:name=".display.StartWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/start_widget_info" />
+        </receiver>
+
+        <!-- Quick Settings tile: one tap in the shade starts the display. Added by the owner from the tile editor. -->
+        <service
+            android:name=".display.StartTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_start"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <!-- The screen saver. Android starts it while charging once the owner chooses it in the screen saver settings. -->
         <service

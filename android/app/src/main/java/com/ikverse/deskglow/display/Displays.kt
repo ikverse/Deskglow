@@ -15,10 +15,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,8 +26,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,23 +67,15 @@ import kotlin.math.abs
 
 /**
  * The display itself, as both the screen saver and "Start now" show it. It always opens on the first
- * screen; two fingers swiping sideways move between screens. A tap shows an Exit button for a few
- * seconds, and a swipe shows which screen is open for the same time, so neither stays lit.
+ * screen; two fingers swiping sideways move between screens, and a swipe shows which screen is open
+ * for a few seconds so the dots do not stay lit. Double-tapping closes it; a single tap does nothing.
  */
 @Composable
 internal fun LiveDisplay(onExit: () -> Unit) {
     val graph = androidx.compose.ui.platform.LocalContext.current.graph
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
-    var taps by remember { mutableIntStateOf(0) }
     var swipes by remember { mutableIntStateOf(0) }
-    var showExit by remember { mutableStateOf(false) }
     var showDots by remember { mutableStateOf(false) }
-    LaunchedEffect(taps) {
-        if (taps == 0) return@LaunchedEffect
-        showExit = true
-        delay(3_000)
-        showExit = false
-    }
     LaunchedEffect(swipes) {
         if (swipes == 0) return@LaunchedEffect
         showDots = true
@@ -108,7 +97,7 @@ internal fun LiveDisplay(onExit: () -> Unit) {
                         graph.prefs.setLastPage(orientation, page)
                         swipes++
                     }
-                    .clickable(remember { MutableInteractionSource() }, indication = null) { taps++ },
+                    .pointerInput(onExit) { detectTapGestures(onDoubleTap = { onExit() }) },
             ) {
                 AnimatedContent(
                     targetState = shown,
@@ -132,9 +121,6 @@ internal fun LiveDisplay(onExit: () -> Unit) {
                         }
                     }
                 }
-                AnimatedVisibility(showExit, Modifier.align(Alignment.TopEnd).padding(16.dp), enter = fadeIn(), exit = fadeOut()) {
-                    TextButton(onClick = onExit) { Text("Exit", color = Color(0xFF8C8C8C)) }
-                }
             }
         }
     }
@@ -145,7 +131,7 @@ private val SWIPE_DISTANCE = 64.dp
 
 /**
  * Calls [onSwipe] with +1 (towards the next screen) or -1 when two fingers move sideways together.
- * One finger is left alone, so taps and the Exit button work as usual; once a second finger lands
+ * One finger is left alone, so a double tap works as usual; once a second finger lands
  * the touch is taken from them so it cannot also count as a tap.
  */
 private fun Modifier.twoFingerSwipe(onSwipe: (direction: Int) -> Unit): Modifier = pointerInput(Unit) {
@@ -200,7 +186,7 @@ class DeskglowDream : DreamService() {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        // Interactive, so a touch reaches the display instead of ending it: it is ended by an Exit button,
+        // Interactive, so a touch reaches the display instead of ending it: it is ended by a double tap,
         // the charger coming out, or the power button.
         isInteractive = true
         isFullscreen = true
@@ -236,8 +222,8 @@ class DeskglowDream : DreamService() {
 }
 
 /**
- * "Start now": the display full screen without waiting for the charger, kept on until closed. A tap
- * shows an Exit button for a few seconds; Back also closes it.
+ * "Start now": the display full screen without waiting for the charger, kept on until closed. A double
+ * tap closes it; so does Back.
  */
 class DisplayActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

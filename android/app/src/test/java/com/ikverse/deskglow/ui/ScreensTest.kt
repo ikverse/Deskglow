@@ -4,7 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
@@ -149,11 +149,13 @@ class ScreensTest {
     }
 
     @Test
-    fun `a tap shows an Exit button that closes the display`() {
+    fun `a double tap closes the display, and a single tap does not`() {
         show()
-        compose.onNodeWithText("Exit").assertDoesNotExist()
         compose.onRoot().performClick()
-        compose.onNodeWithText("Exit").performClick()
+        compose.waitForIdle()
+        assertEquals(false, exited)
+        compose.onRoot().performTouchInput { doubleClick() }
+        compose.waitForIdle()
         assertEquals(true, exited)
     }
 }
