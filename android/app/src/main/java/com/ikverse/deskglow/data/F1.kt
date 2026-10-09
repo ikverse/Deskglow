@@ -12,7 +12,12 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
 
 /** One session of a race weekend: "FP1", "Sprint Quali", "Sprint", "Qualifying" or "Race". */
 data class F1Session(val kind: String, val start: Instant) {
@@ -42,7 +47,33 @@ data class F1Data(
     val previousConstructors: Map<String, Int>,
     /** The round the standings are after. */
     val round: Int,
+    /** The outline of the circuit for the weekend now or next, once fetched. */
+    val track: F1Track? = null,
 )
+
+/**
+ * A circuit's outline for one race: points in a box whose longer side is 1, turned the way the
+ * track is usually drawn, with y running down the screen. [aspect] is the box's width over its height.
+ */
+data class F1Track(val season: Int, val round: Int, val points: List<Pair<Float, Float>>, val aspect: Float) {
+    fun isFor(race: F1Race) = season == seasonOf(race) && round == race.round
+
+    fun toJson(): String = JSONObject()
+        .put("season", season).put("round", round).put("aspect", aspect.toDouble())
+        .put("points", JSONArray().apply { points.forEach { (x, y) -> put(x.toDouble()); put(y.toDouble()) } })
+        .toString()
+
+    companion object {
+        fun fromJson(text: String): F1Track {
+            val j = JSONObject(text)
+            val flat = j.getJSONArray("points")
+            val points = (0 until flat.length() / 2).map { flat.getDouble(it * 2).toFloat() to flat.getDouble(it * 2 + 1).toFloat() }
+            return F1Track(j.getInt("season"), j.getInt("round"), points, j.getDouble("aspect").toFloat())
+        }
+    }
+}
+
+private fun seasonOf(race: F1Race) = race.first.start.atZone(ZoneOffset.UTC).year
 
 sealed interface F1State {
     data object Loading : F1State
@@ -52,7 +83,8 @@ sealed interface F1State {
 }
 
 /**
- * Formula 1 from Jolpica (api.jolpi.ca), the free, keyless successor to the Ergast API. Fetched
+ * Formula 1 from Jolpica (api.jolpi.ca), the free, keyless successor to the Ergast API, and the
+ * outline of the next circuit from OpenF1 (which circuit) and MultiViewer (its shape). Fetched
  * only while an F1 widget is on screen. The calendar is fetched again weekly; results and standings
  * daily, every few hours over a race weekend, and soon after each race ends. The answers are kept
  * as they came, so the widgets show the last of them at once and survive a dropped connection.
@@ -65,7 +97,12 @@ class F1Repository(
     fun updates(): Flow<F1State> = flow {
         var raw = cached()
         var data = raw?.let { runCatching { parseF1(it) }.getOrNull() }
-        emit(data?.let { F1State.Ready(it) } ?: F1State.Loading)
+        var track = prefs.f1Track?.let { runCatching { F1Track.fromJson(it) }.getOrNull() }
+        fun withTrack(d: F1Data): F1Data {
+            val race = trackRace(d, Instant.ofEpochMilli(clock()))
+            return d.copy(track = track?.takeIf { race != null && it.isFor(race) })
+        }
+        emit(data?.let { F1State.Ready(withTrack(it)) } ?: F1State.Loading)
         while (true) {
             val now = clock()
             val needCalendar = raw == null || data == null || now - raw.calendarAt > CALENDAR_MS
@@ -82,8 +119,16 @@ class F1Repository(
                 data = parsed
                 prefs.f1Cache = fresh.toJson()
             }
-            F1Roster.update(data!!)
-            emit(F1State.Ready(data))
+            F1Roster.update(data)
+            // The outline is a nicety: when it cannot be had, the widget goes without and it is tried again next time round.
+            val race = trackRace(data, Instant.ofEpochMilli(clock()))
+            if (race != null && track?.isFor(race) != true) {
+                runCatching { fetchTrack(race) }.getOrNull()?.let {
+                    track = it
+                    prefs.f1Track = it.toJson()
+                }
+            }
+            emit(F1State.Ready(withTrack(data)))
             delay(CHECK_MS)
         }
     }.flowOn(Dispatchers.IO)
@@ -111,10 +156,19 @@ class F1Repository(
 
     private fun get(path: String) = String(http.get("$BASE/$path"))
 
+    /** OpenF1 knows which circuit each weekend is at; MultiViewer has that circuit's outline. */
+    private fun fetchTrack(race: F1Race): F1Track? {
+        val season = seasonOf(race)
+        val key = circuitKeyFor(String(http.get("$OPENF1/meetings?year=$season")), race) ?: return null
+        return parseTrack(String(http.get("$MULTIVIEWER/circuits/$key/$season")), season, race.round)
+    }
+
     private fun cached(): F1Raw? = prefs.f1Cache?.let { runCatching { F1Raw.fromJson(it) }.getOrNull() }
 
     companion object {
         const val BASE = "https://api.jolpi.ca/ergast/f1"
+        const val OPENF1 = "https://api.openf1.org/v1"
+        const val MULTIVIEWER = "https://api.multiviewer.app/api/v1"
         const val CHECK_MS = 30 * 60 * 1000L
         const val RETRY_MS = 10 * 60 * 1000L
         const val WEEKEND_MS = 6 * 60 * 60 * 1000L
@@ -227,6 +281,44 @@ private fun positionOf(row: JSONObject, index: Int) = row.optString("position").
 
 private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 
+/** The weekend whose circuit the race-weekend widget would draw: the one running, or the next. */
+fun trackRace(data: F1Data, now: Instant): F1Race? = data.races.firstOrNull { it.race.end.isAfter(now) }
+
+/** OpenF1's circuit key for [race]: the meeting (not a test) that starts within two days of the weekend's first session. */
+internal fun circuitKeyFor(meetings: String, race: F1Race): Int? =
+    JSONArray(meetings).objects().firstOrNull { m ->
+        !m.optString("meeting_name").contains("Testing", ignoreCase = true) &&
+            runCatching { Duration.between(OffsetDateTime.parse(m.getString("date_start")).toInstant(), race.first.start).abs() < Duration.ofDays(2) }.getOrDefault(false)
+    }?.optInt("circuit_key")?.takeIf { it > 0 }
+
+/**
+ * A MultiViewer circuit: its x and y turned by its rotation, y flipped to run down the screen,
+ * thinned to at most [TRACK_POINTS] points, and scaled into a box whose longer side is 1.
+ */
+internal fun parseTrack(body: String, season: Int, round: Int): F1Track? {
+    val j = JSONObject(body)
+    val xs = j.getJSONArray("x")
+    val ys = j.getJSONArray("y")
+    val count = min(xs.length(), ys.length())
+    if (count < 3) return null
+    val angle = Math.toRadians(j.optDouble("rotation", 0.0))
+    val stride = max(1, count / TRACK_POINTS)
+    val turned = (0 until count step stride).map { i ->
+        val x = xs.getDouble(i)
+        val y = ys.getDouble(i)
+        (x * cos(angle) - y * sin(angle)) to -(x * sin(angle) + y * cos(angle))
+    }
+    val left = turned.minOf { it.first }
+    val top = turned.minOf { it.second }
+    val width = turned.maxOf { it.first } - left
+    val height = turned.maxOf { it.second } - top
+    val side = max(width, height).takeIf { it > 0 } ?: return null
+    val points = turned.map { (x, y) -> ((x - left) / side).toFloat() to ((y - top) / side).toFloat() }
+    return F1Track(season, round, points, (width / max(height, side * 0.01)).toFloat())
+}
+
+private const val TRACK_POINTS = 240
+
 /** "Japanese Grand Prix" to "Japanese GP". */
 fun shortName(raceName: String) = raceName.replace("Grand Prix", "GP").trim()
 
@@ -234,16 +326,19 @@ fun shortName(raceName: String) = raceName.replace("Grand Prix", "GP").trim()
 sealed interface WeekendView {
     /** The weekend now or next: the session running (if any) and the next to start (if any). */
     data class Upcoming(val race: F1Race, val live: F1Session?, val next: F1Session?) : WeekendView
-    /** Between a race and the next weekend: the podium, and which race is next. */
+    /** From a race until a day before the next weekend: the podium, and which race is next. */
     data class AfterRace(val result: F1Result, val next: F1Race?) : WeekendView
     data object Empty : WeekendView
 }
+
+/** How long before a weekend's first session the widget turns from the last podium to that weekend. */
+val UPCOMING_LEAD: Duration = Duration.ofDays(1)
 
 fun weekendView(data: F1Data, now: Instant): WeekendView {
     val current = data.races.firstOrNull { it.race.end.isAfter(now) }
     val result = data.lastResult
     val previous = data.races.lastOrNull { !it.race.end.isAfter(now) }
-    if (result != null && previous != null && result.round == previous.round && (current == null || now.isBefore(current.first.start))) {
+    if (result != null && previous != null && result.round == previous.round && (current == null || now.isBefore(current.first.start.minus(UPCOMING_LEAD)))) {
         return WeekendView.AfterRace(result, current)
     }
     current ?: return WeekendView.Empty
@@ -273,6 +368,9 @@ fun standingRows(entries: List<F1Entry>, previous: Map<String, Int>, count: Int,
     val extra = entries.drop(count).firstOrNull { favourite.isNotEmpty() && it.id == favourite }?.let(::row)
     return top to extra
 }
+
+/** Rows split into two columns for a wide box: the first half (the larger, if odd) on the left. */
+fun <T> standingColumns(rows: List<T>): Pair<List<T>, List<T>> = rows.take((rows.size + 1) / 2) to rows.drop((rows.size + 1) / 2)
 
 /** Team colours, close to each team's own. A team not listed (a new one) shows grey until it is added. */
 fun teamColour(teamId: String): Long = when (teamId) {

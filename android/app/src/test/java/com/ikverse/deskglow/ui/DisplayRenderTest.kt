@@ -263,6 +263,26 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `the F1 track beside a wide weekend and below a tall one, and the standings in two columns`() {
+        fun at(utc: LocalDateTime) = LocalDateTime.ofInstant(utc.toInstant(ZoneOffset.UTC), ZoneId.systemDefault())
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        // Seven hours before Japan's first practice.
+        val now = at(LocalDateTime.of(2026, 10, 8, 19, 30))
+        feeds.minute.value = now
+        feeds.second.value = now
+        val withTrack = F1WeekendWidget.defaults.with(F1WeekendWidget.SHOW_TRACK, true)
+        show(
+            Layout(listOf(
+                WidgetItem("wide", F1WeekendWidget.id, Box(8, 8, 396, 120), true, withTrack),
+                WidgetItem("tall", F1WeekendWidget.id, Box(8, 144, 260, 340), true, withTrack),
+                WidgetItem("table", F1StandingsWidget.id, Box(8, 500, 396, 180), true,
+                    F1StandingsWidget.defaults.with(F1StandingsWidget.ROWS, 10).with(F1StandingsWidget.FAV_DRIVER, "HAM")),
+            )),
+        )
+        save("f1-track-and-two-columns")
+    }
+
+    @Test
     fun `the new widgets with nothing to show, in the editor where hints appear`() {
         show(newWidgets(), editing = true)
         save("new-widgets-empty")

@@ -28,6 +28,7 @@ import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.StandingRow
+import com.ikverse.deskglow.data.standingColumns
 import com.ikverse.deskglow.data.standingRows
 import com.ikverse.deskglow.data.teamColour
 import com.ikverse.deskglow.model.ColourKey
@@ -102,8 +103,13 @@ object F1StandingsWidget : WidgetType {
 
             val colour = Color(settings[Common.COLOUR])
             val accent = Color(settings[ACCENT])
-            val slots = top.size + 1.2f + (if (extra != null) 1.3f else 0f)
-            val row = min(h / slots, w * 0.16f)
+            // More than five rows in a box well wider than tall: two columns side by side, so ten stay readable.
+            val twoColumns = top.size > 5 && w >= h * 1.25f
+            val (left, right) = if (twoColumns) standingColumns(top) else top to emptyList()
+            val columnGap = w * 0.06f
+            val columnW = if (twoColumns) (w - columnGap) / 2 else w
+            val slots = left.size + 1.2f + (if (extra != null) 1.3f else 0f)
+            val row = min(h / slots, columnW * 0.16f)
             val text = row * 0.56f
             val leader = entries.first().points
             val gap = settings[VALUE] == "gap"
@@ -143,7 +149,15 @@ object F1StandingsWidget : WidgetType {
                     color = Muted, fontSize = pxToSp(text * 0.72f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false,
                     modifier = Modifier.height(pxToDp(row * 1.2f)).padding(top = pxToDp(row * 0.3f)),
                 )
-                top.forEach { Line(it) }
+                if (twoColumns) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) { left.forEach { Line(it) } }
+                        Spacer(Modifier.width(pxToDp(columnGap)))
+                        Column(Modifier.weight(1f)) { right.forEach { Line(it) } }
+                    }
+                } else {
+                    top.forEach { Line(it) }
+                }
                 if (extra != null) {
                     Box(Modifier.fillMaxWidth().height(pxToDp(row * 0.3f)), contentAlignment = Alignment.Center) {
                         Box(Modifier.fillMaxWidth().height(pxToDp((row * 0.02f).coerceAtLeast(1f))).background(Color(0xFF2A2A2A)))

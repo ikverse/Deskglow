@@ -126,6 +126,11 @@ class AppPrefs(context: Context) {
         get() = prefs.getString(KEY_F1_CACHE, null)
         set(value) = prefs.edit { putString(KEY_F1_CACHE, value) }
 
+    /** The outline of the last circuit fetched for the race-weekend widget. */
+    var f1Track: String?
+        get() = prefs.getString(KEY_F1_TRACK, null)
+        set(value) = prefs.edit { putString(KEY_F1_TRACK, value) }
+
     var pickedFonts: String?
         get() = prefs.getString(KEY_PICKED_FONTS, null)
         set(value) = prefs.edit { putString(KEY_PICKED_FONTS, value) }
@@ -140,6 +145,7 @@ class AppPrefs(context: Context) {
         const val KEY_WEATHER_CACHE = "weather_cache"
         const val KEY_PRAYER_CACHE = "prayer_cache"
         const val KEY_F1_CACHE = "f1_cache"
+        const val KEY_F1_TRACK = "f1_track"
         const val KEY_PICKED_FONTS = "picked_fonts"
         const val KEY_PAGE_COUNT = "page_count"
     }
