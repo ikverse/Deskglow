@@ -2,4 +2,10 @@
 <resources>
     <color name="page">#FF0B0B0B</color>
     <color name="launcher_background">#FF000000</color>
+    <color name="brand_green">#FF44B98A</color>
+    <color name="brand_surface">#FF111111</color>
+    <color name="brand_track">#FF262626</color>
+    <color name="brand_hairline">#3344B98A</color>
+    <color name="brand_text">#FFE6E6E6</color>
+    <color name="brand_on_green">#FF08130E</color>
 </resources>
