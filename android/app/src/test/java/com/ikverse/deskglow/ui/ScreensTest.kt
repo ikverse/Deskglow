@@ -1,9 +1,11 @@
 package com.ikverse.deskglow.ui
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.performClick
@@ -15,9 +17,14 @@ import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.FakeFeeds
 import com.ikverse.deskglow.FakeFontsHttp
 import com.ikverse.deskglow.display.LiveDisplay
+import com.ikverse.deskglow.graph
+import com.ikverse.deskglow.model.Box
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
+import com.ikverse.deskglow.model.WidgetItem
 import com.ikverse.deskglow.store.MAX_PAGES
+import com.ikverse.deskglow.widgets.EventWidget
+import com.ikverse.deskglow.widgets.LocalEditing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -119,16 +126,24 @@ class ScreensTest {
 
     @Test
     fun `the display opens on the screen it was left on`() {
-        graph.addPage(portrait)
-        graph.prefs.setLastPage(portrait, 1)
-        show()
-        compose.onRoot().performTouchInput {
-            down(0, Offset(600f, 600f)); down(1, Offset(700f, 600f))
-            moveTo(0, Offset(200f, 600f)); moveTo(1, Offset(300f, 600f))
-            up(0); up(1)
+        // The first screen is empty and the second holds the only widget, an event one, which under test
+        // (calendar not allowed) draws a hint while editing. The hint being drawn with no swipe at all means
+        // the display opened on the second. The display reads the app's own graph, not the test's `graph`
+        // (which only supplies the feeds), so the screens are set up there.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>().graph
+        app.addPage(portrait)
+        app.layouts.update(Layout(emptyList()))
+        app.layoutsFor(portrait, 1).update(Layout(listOf(WidgetItem("e", EventWidget.id, Box(8, 8, 396, 120), true, EventWidget.defaults))))
+        app.prefs.setLastPage(portrait, 1)
+        compose.setContent {
+            DeskglowTheme {
+                CompositionLocalProvider(LocalEditing provides true) {
+                    com.ikverse.deskglow.display.WidgetHost(graph) { LiveDisplay(onExit = {}, onOpenApp = {}) }
+                }
+            }
         }
-        // Already on the last screen, so a swipe forward stays there, and that is what is remembered.
-        assertEquals(1, graph.prefs.lastPage(portrait))
+        compose.waitForIdle()
+        compose.onNodeWithText("Allow calendar access", useUnmergedTree = true).assertExists()
     }
 
     @Test
