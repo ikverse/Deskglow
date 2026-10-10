@@ -353,4 +353,30 @@ class WidgetSettingsTest {
         // One detail is always kept.
         assertEquals(1, fitDetails(listOf("14 km/h"), 20f, 1f).lines.sumOf { it.size })
     }
+
+    @Test
+    fun `the graph switch is offered for the numbers that move, and for no others`() {
+        for (metric in listOf("temp", "voltage", "power", "current", "level")) {
+            val fields = StatWidget.fields(StatWidget.defaults.with(StatWidget.METRIC, metric))
+            assertEquals("$metric offers the graph", true, fields.any { it is ToggleField && it.key == StatWidget.SPARK })
+        }
+        for (metric in listOf("time", "charger", "health", "cycles")) {
+            val fields = StatWidget.fields(StatWidget.defaults.with(StatWidget.METRIC, metric))
+            assertEquals("$metric does not", false, fields.any { it is ToggleField && it.key == StatWidget.SPARK })
+        }
+        assertEquals(false, StatWidget.resolve(Settings())[StatWidget.SPARK])
+    }
+
+    @Test
+    fun `a reading is a number to graph where it is one`() {
+        val battery = BatteryState(80, ChargeStatus.Charging, true, 4100, 335, 500, 5_400_000L)
+        assertEquals(33.5, StatWidget.numeric("temp", battery)!!, 0.001)
+        assertEquals(4.1, StatWidget.numeric("voltage", battery)!!, 0.001)
+        assertEquals(2.05, StatWidget.numeric("power", battery)!!, 0.001)
+        assertEquals(500.0, StatWidget.numeric("current", battery)!!, 0.001)
+        assertEquals(80.0, StatWidget.numeric("level", battery)!!, 0.001)
+        assertNull(StatWidget.numeric("power", battery.copy(currentMa = null)))
+        assertNull(StatWidget.numeric("charger", battery))
+        assertNull(StatWidget.numeric("time", battery))
+    }
 }

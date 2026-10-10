@@ -750,6 +750,28 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `the stat with the graph of the last ten minutes`() {
+        com.ikverse.deskglow.widgets.StatHistory.clear()
+        feeds.battery.value = com.ikverse.deskglow.data.BatteryState(80, com.ikverse.deskglow.data.ChargeStatus.Charging, true, 4100, 338, 500, 5_400_000L)
+        val base = android.os.SystemClock.elapsedRealtime()
+        // Ten minutes of a temperature that climbs, dips and climbs again.
+        listOf(33.0, 33.2, 33.1, 33.5, 33.9, 34.0, 33.8, 33.6, 33.7, 33.8).forEachIndexed { i, t ->
+            com.ikverse.deskglow.widgets.StatHistory.add("temp", t, base - (10 - i) * 60_000L + 30_000L)
+        }
+        val stat = com.ikverse.deskglow.widgets.StatWidget
+        val items = listOf(
+            WidgetItem("g1", stat.id, Box(8, 8, 120, 80), true, stat.defaults.with(stat.SPARK, true)),
+            WidgetItem("g2", stat.id, Box(140, 8, 120, 80), true, stat.defaults.with(stat.SPARK, true).with(stat.LABEL_MODE, "none")),
+            WidgetItem("g3", stat.id, Box(272, 8, 130, 80), true, stat.defaults.with(stat.SPARK, true).with(stat.LABEL_MODE, "beside")),
+            WidgetItem("g4", stat.id, Box(8, 100, 120, 56), true, stat.defaults.with(stat.SPARK, true)),
+            WidgetItem("g5", stat.id, Box(140, 100, 120, 80), true, stat.defaults.with(stat.SPARK, true).with(stat.METRIC, "level")),
+            WidgetItem("g6", stat.id, Box(272, 100, 130, 80), true, stat.defaults),
+        )
+        show(Layout(items))
+        save("stat-graph")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)
