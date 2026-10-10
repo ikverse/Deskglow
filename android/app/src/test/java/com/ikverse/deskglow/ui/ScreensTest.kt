@@ -241,6 +241,33 @@ class ScreensTest {
     }
 
     @Test
+    fun `swiping on step by step visits every screen in turn, none skipped`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>().graph
+        app.prefs.setLastPage(portrait, 0)
+        app.addPage(portrait)
+        app.addPage(portrait)
+        show()
+        compose.waitForIdle()
+        fun twoFingerSwipe(from: Float, to: Float) {
+            compose.onRoot().performTouchInput {
+                down(0, Offset(from, 600f))
+                down(1, Offset(from + 100f, 600f))
+                moveTo(0, Offset(to, 600f))
+                moveTo(1, Offset(to + 100f, 600f))
+                up(0)
+                up(1)
+            }
+            compose.waitForIdle()
+        }
+        twoFingerSwipe(600f, 200f)
+        assertEquals(1, app.prefs.lastPage(portrait))
+        twoFingerSwipe(600f, 200f)
+        assertEquals(2, app.prefs.lastPage(portrait))
+        twoFingerSwipe(200f, 600f)
+        assertEquals(1, app.prefs.lastPage(portrait))
+    }
+
+    @Test
     fun `a double tap closes the display, and a single tap does not`() {
         show()
         compose.onRoot().performClick()

@@ -10,6 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 
+/** The file the settings live in, and the key of "always on", which the service and the boot receiver read without building the whole app. */
+private const val PREFS_FILE = "deskglow"
+private const val KEY_ALWAYS_ON = "always_on"
+
+/** Whether the always-on display is switched on. */
+fun Context.alwaysOnEnabled(): Boolean = getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE).getBoolean(KEY_ALWAYS_ON, false)
+
 /** The most screens the display can have. */
 const val MAX_PAGES = 5
 
@@ -36,7 +43,7 @@ data class City(val name: String, val region: String, val latitude: Double, val 
 
 /** App-wide settings (everything that is not part of a widget), with a live view of each. */
 class AppPrefs(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("deskglow", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
 
     private val brightnessState = MutableStateFlow(
         Brightness(
@@ -56,6 +63,10 @@ class AppPrefs(context: Context) {
     /** With Auto brightness, fade to black after a while in a dark room with no touch. Off unless chosen: some want a bedside clock all night. */
     private val blankInDarkState = MutableStateFlow(prefs.getBoolean(KEY_BLANK_IN_DARK, false))
     val blankInDark: StateFlow<Boolean> = blankInDarkState.asStateFlow()
+
+    /** Show the display whenever the screen turns off, like an always-on display. Off unless chosen: it uses more battery than the system's own. */
+    private val alwaysOnState = MutableStateFlow(context.alwaysOnEnabled())
+    val alwaysOn: StateFlow<Boolean> = alwaysOnState.asStateFlow()
 
     private val cityState = MutableStateFlow(prefs.getString(KEY_CITY, null)?.let(City::fromJson))
     val city: StateFlow<City?> = cityState.asStateFlow()
@@ -120,6 +131,11 @@ class AppPrefs(context: Context) {
     fun setCoverOff(on: Boolean) {
         prefs.edit { putBoolean(KEY_COVER_OFF, on) }
         coverOffState.value = on
+    }
+
+    fun setAlwaysOn(on: Boolean) {
+        prefs.edit { putBoolean(KEY_ALWAYS_ON, on) }
+        alwaysOnState.value = on
     }
 
     fun setBlankInDark(on: Boolean) {
