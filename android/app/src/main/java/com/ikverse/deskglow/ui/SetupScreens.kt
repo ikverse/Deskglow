@@ -44,6 +44,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.BuildConfig
 import com.ikverse.deskglow.data.F1Roster
+import com.ikverse.deskglow.display.alwaysOnMissing
+import com.ikverse.deskglow.display.startAlwaysOn
+import com.ikverse.deskglow.display.stopAlwaysOn
 import com.ikverse.deskglow.data.hasCalendarAccess
 import com.ikverse.deskglow.data.hasLocationAccess
 import com.ikverse.deskglow.data.hasNotificationAccess
@@ -90,6 +93,69 @@ fun AutoStartScreen(onBack: () -> Unit) {
             Body("1. Tap Open screen saver settings.\n2. Choose Deskglow, set When to start to While charging, and switch it on.")
         }
         AppButton("Open screen saver settings", { context.open(Intent(Settings.ACTION_DREAM_SETTINGS)) }, Modifier.fillMaxWidth(), kind = ButtonKind.Primary)
+    }
+}
+
+@Composable
+fun AlwaysOnScreen(graph: AppGraph, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val on by graph.prefs.alwaysOn.collectAsStateWithLifecycle()
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        resumes++
+        if (graph.prefs.alwaysOn.value) startAlwaysOn(context)
+        onPauseOrDispose { }
+    }
+    val missing = remember(resumes) { alwaysOnMissing(context) }
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resumes++ }
+    val thisApp = Uri.parse("package:${context.packageName}")
+    ScreenFrame("Always on", onBack) {
+        Section {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Body("Show the display whenever the screen turns off")
+                    Small("Like an always-on display: when the screen times out, Deskglow comes up over the lock screen. The phone stays locked.")
+                }
+                Switch(checked = on, onCheckedChange = {
+                    graph.prefs.setAlwaysOn(it)
+                    if (it) startAlwaysOn(context) else stopAlwaysOn(context)
+                })
+            }
+        }
+        if (on) {
+            Text(
+                if (missing.isEmpty()) "On" else "Needs: " + missing.joinToString(", "),
+                fontSize = Type.Body, fontWeight = FontWeight.Medium,
+                color = if (missing.isEmpty()) Palette.Select else Palette.Ink,
+            )
+        }
+        Section {
+            Body("Display over other apps")
+            Small("Android only lets an app open a screen from the background with this. Deskglow uses it for nothing else.")
+            AppButton(
+                if ("Display over other apps" in missing) "Allow in settings" else "Allowed",
+                { context.open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, thisApp)) }, Modifier.fillMaxWidth(),
+            )
+        }
+        Section {
+            Body("Unrestricted battery use")
+            Small("Without it, Samsung stops the service after a while and the display stops coming back.")
+            AppButton(
+                if ("Unrestricted battery use" in missing) "Allow" else "Allowed",
+                { context.open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, thisApp)) }, Modifier.fillMaxWidth(),
+            )
+        }
+        if ("Notifications" in missing) {
+            Section {
+                Body("Notifications")
+                Small("Android shows a quiet notification while a service runs. Without this permission it still runs, but you cannot see it.")
+                AppButton("Allow", { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }, Modifier.fillMaxWidth())
+            }
+        }
+        Section {
+            Body("Battery")
+            Small("The screen is really on, so this uses more battery than the system's own always-on display, and the phone does not go into deep sleep while it shows. Press the power button on the display to reach the lock screen. With Turn off when covered on (Brightness and burn-in), the screen goes off after the phone has been covered for a few seconds.")
+        }
     }
 }
 

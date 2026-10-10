@@ -48,6 +48,7 @@ import com.ikverse.deskglow.data.hasLocationAccess
 import com.ikverse.deskglow.data.hasNotificationAccess
 import com.ikverse.deskglow.display.DeskglowDream
 import com.ikverse.deskglow.display.DisplayActivity
+import com.ikverse.deskglow.display.startAlwaysOn
 import com.ikverse.deskglow.display.DisplayContent
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.store.BrightnessMode
@@ -72,11 +73,13 @@ fun HomeScreen(
     val detected by graph.prefs.detectedCity.collectAsStateWithLifecycle()
     val brightness by graph.prefs.brightness.collectAsStateWithLifecycle()
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
+    val alwaysOn by graph.prefs.alwaysOn.collectAsStateWithLifecycle()
     val saved by graph.snapshots.snapshots.collectAsStateWithLifecycle()
     // Permissions and the screen saver are changed in Android's settings, so look again on every return.
     var resumes by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(Unit) {
         resumes++
+        if (graph.prefs.alwaysOn.value) startAlwaysOn(context) // keeps the service alive if Android stopped it
         onPauseOrDispose { }
     }
     val autoStart = remember(resumes) { screenSaverStatus(context) }
@@ -115,6 +118,7 @@ fun HomeScreen(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val charging = autoStart.startsWith("On")
             Chip(if (charging) "Starts when charging" else "Auto-start off", { go(Screen.AutoStart) }, dot = charging)
+            Chip(if (alwaysOn) "Always on" else "Always on off", { go(Screen.AlwaysOn) }, dot = alwaysOn)
             Chip(
                 "Brightness " + when (brightness.mode) {
                     BrightnessMode.System -> "follows phone"

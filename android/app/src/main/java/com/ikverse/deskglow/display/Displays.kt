@@ -1,5 +1,6 @@
 package com.ikverse.deskglow.display
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -34,10 +35,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -147,11 +150,11 @@ internal fun LiveDisplay(
                             touches++
                         }
                     }
-                    .twoFingerSwipe { direction ->
+                    .twoFingerSwipe(rememberUpdatedState { direction: Int ->
                         page = (shown + direction).coerceIn(0, pageCount - 1)
                         graph.prefs.setLastPage(orientation, page)
                         swipes++
-                    }
+                    })
                     .doubleOrTripleTap(onDouble = onExit, onTriple = onOpenApp),
             ) {
                 AnimatedContent(
@@ -200,7 +203,7 @@ private val SWIPE_DISTANCE = 64.dp
  * One finger is left alone, so a double tap works as usual; once a second finger lands
  * the touch is taken from them so it cannot also count as a tap.
  */
-private fun Modifier.twoFingerSwipe(onSwipe: (direction: Int) -> Unit): Modifier = pointerInput(Unit) {
+private fun Modifier.twoFingerSwipe(onSwipeState: State<(direction: Int) -> Unit>): Modifier = pointerInput(Unit) {
     val distance = SWIPE_DISTANCE.toPx()
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -216,7 +219,7 @@ private fun Modifier.twoFingerSwipe(onSwipe: (direction: Int) -> Unit): Modifier
                 if (start == null) startX = x
                 else if (!swiped && abs(x - start) > distance) {
                     swiped = true
-                    onSwipe(if (x < start) 1 else -1)
+                    onSwipeState.value(if (x < start) 1 else -1)
                 }
             }
         } while (event.changes.any { it.pressed })
@@ -261,7 +264,7 @@ private fun Modifier.doubleOrTripleTap(onDouble: () -> Unit, onTriple: () -> Uni
  * Hides the status and navigation bars, and with them Samsung's gesture hint: a white bar that would
  * sit in one place for hours on a screen that stays lit, which is how an AMOLED panel gets marked.
  */
-private fun hideSystemBars(window: Window) {
+internal fun hideSystemBars(window: Window) {
     WindowCompat.setDecorFitsSystemWindows(window, false)
     WindowInsetsControllerCompat(window, window.decorView).apply {
         hide(WindowInsetsCompat.Type.systemBars())
@@ -277,12 +280,12 @@ internal fun windowBrightness(brightness: Brightness): Float? = when (brightness
 }
 
 /** Brings the Deskglow app to the front, reusing it if it is already open. */
-private fun Context.openApp() {
+internal fun Context.openApp() {
     startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
 }
 
 /** The brightness setting, except that Auto on a phone with no light sensor is Dim. */
-private fun Context.chosenBrightness(): Brightness {
+internal fun Context.chosenBrightness(): Brightness {
     val brightness = graph.prefs.brightness.value
     return if (brightness.mode == BrightnessMode.Auto && !hasLightSensor(this)) brightness.copy(mode = BrightnessMode.Dim) else brightness
 }
@@ -294,7 +297,7 @@ private const val DARK_LEVEL = 0.05f
  * Keeps [window]'s brightness matched to the room's light for as long as this is running, and tells
  * [onDark] whether the room is dark (false again once this stops). The same sensor reading serves both.
  */
-private suspend fun followRoomLight(context: Context, window: Window, onDark: (Boolean) -> Unit = {}) {
+internal suspend fun followRoomLight(context: Context, window: Window, onDark: (Boolean) -> Unit = {}) {
     try {
         lightLevels(context).collect { level ->
             window.attributes = window.attributes.apply { screenBrightness = level }
@@ -310,7 +313,7 @@ private suspend fun followRoomLight(context: Context, window: Window, onDark: (B
  * down and comes back when it is clear. Null if the owner has switched it off or the phone has no
  * proximity sensor. The timeout is only a backstop for a lock that is somehow never released.
  */
-private fun Context.holdCoverOff(): PowerManager.WakeLock? {
+internal fun Context.holdCoverOff(): PowerManager.WakeLock? {
     if (!graph.prefs.coverOff.value) return null
     val power = getSystemService(PowerManager::class.java) ?: return null
     if (!power.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) return null
@@ -320,7 +323,7 @@ private fun Context.holdCoverOff(): PowerManager.WakeLock? {
     }
 }
 
-private fun PowerManager.WakeLock?.letGo() {
+internal fun PowerManager.WakeLock?.letGo() {
     if (this?.isHeld == true) release()
 }
 
@@ -371,6 +374,7 @@ class DeskglowDream : DreamService() {
         window?.let(::hideSystemBars) // again now the window is on screen: some phones only honour it then
         window?.setRefreshRate(this, fast = false)
         owner.resume()
+        DeskglowPresence.started(this)
         coverLock.letGo()
         coverLock = holdCoverOff()
         val window = window
@@ -380,6 +384,7 @@ class DeskglowDream : DreamService() {
     }
 
     override fun onDreamingStopped() {
+        DeskglowPresence.stopped(this)
         lightJob?.cancel()
         coverLock.letGo()
         coverLock = null
@@ -388,6 +393,7 @@ class DeskglowDream : DreamService() {
     }
 
     override fun onDetachedFromWindow() {
+        DeskglowPresence.stopped(this)
         coverLock.letGo()
         scope.cancel()
         owner.destroy()
@@ -432,14 +438,106 @@ class DisplayActivity : ComponentActivity() {
     // Held only while this is the screen being shown, so covering the phone in another app is never affected.
     override fun onResume() {
         super.onResume()
+        DeskglowPresence.started(this)
         coverLock.letGo()
         coverLock = holdCoverOff()
     }
 
     override fun onPause() {
+        DeskglowPresence.stopped(this)
         coverLock.letGo()
         coverLock = null
         super.onPause()
+    }
+}
+
+/**
+ * The always-on display: [AlwaysOnService] starts this over the lock screen whenever the screen turns
+ * off, and it is gone again when the phone is unlocked, a screen saver starts, or it is double-tapped (which
+ * leaves the lock screen). A triple tap asks for the unlock and opens the app. Back does nothing.
+ *
+ * With "Turn off when covered" on, the screen goes off after the phone has stayed covered for a few
+ * seconds (at once if it was already covered when this started, as in a pocket) and back on the
+ * moment it is clear.
+ */
+class AlwaysOnActivity : ComponentActivity() {
+    private var roomDark by mutableStateOf(false)
+    private var coverLock: PowerManager.WakeLock? = null
+    private var coverJob: Job? = null
+    private var fromOff = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
+        fromOff = intent.getBooleanExtra(EXTRA_FROM_OFF, false)
+        DeskglowPresence.registerAlwaysOn(this)
+        onBackPressedDispatcher.addCallback(this) {}
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val brightness = chosenBrightness()
+        windowBrightness(brightness)?.let { level ->
+            window.attributes = window.attributes.apply { screenBrightness = level }
+        }
+        if (brightness.mode == BrightnessMode.Auto) {
+            lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { followRoomLight(this@AlwaysOnActivity, window) { roomDark = it } } }
+        }
+        hideSystemBars(window)
+        window.setRefreshRate(this, fast = false)
+        setContent {
+            DeskglowTheme {
+                LiveDisplay(
+                    onExit = ::finish,
+                    onOpenApp = ::unlockAndOpenApp,
+                    dark = roomDark,
+                    onSwiping = { fast -> window.setRefreshRate(this, fast) },
+                )
+            }
+        }
+    }
+
+    private fun unlockAndOpenApp() {
+        getSystemService(KeyguardManager::class.java).requestDismissKeyguard(
+            this,
+            object : KeyguardManager.KeyguardDismissCallback() {
+                override fun onDismissSucceeded() {
+                    openApp()
+                    finish()
+                }
+            },
+        )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!graph.prefs.coverOff.value) return
+        val first = if (fromOff) 0L else COVER_DELAY_MS
+        fromOff = false
+        coverJob = lifecycleScope.launch {
+            applyCoverDelay(proximityCovered(this@AlwaysOnActivity), COVER_DELAY_MS, first) { off ->
+                coverLock.letGo()
+                coverLock = if (off) holdCoverOff() else null
+                DeskglowPresence.coverHeld = coverLock != null
+            }
+        }
+    }
+
+    override fun onPause() {
+        coverJob?.cancel()
+        coverLock.letGo()
+        coverLock = null
+        DeskglowPresence.coverHeld = false
+        super.onPause()
+    }
+
+    // Stopped while the screen is still on means the owner went elsewhere: do not linger behind it.
+    override fun onStop() {
+        if (!isFinishing && getSystemService(PowerManager::class.java).isInteractive) finish()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        DeskglowPresence.unregisterAlwaysOn(this)
+        super.onDestroy()
     }
 }
 
