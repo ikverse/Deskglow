@@ -13,6 +13,7 @@ import com.ikverse.deskglow.data.NotificationState
 import com.ikverse.deskglow.data.PrayerState
 import com.ikverse.deskglow.data.WeatherState
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.IOException
 import java.time.LocalDateTime
@@ -30,6 +31,7 @@ class FakeFeeds : Feeds {
     override val alarm = MutableStateFlow(AlarmState(null))
     override val f1 = MutableStateFlow<F1State>(F1State.Loading)
     override val f1Live = MutableStateFlow<F1LiveState>(F1LiveState.Waiting)
+    override val f1Pulse: StateFlow<F1LiveState> get() = f1Live
     /** One prayer feed for every method, set directly by tests. */
     val prayers = MutableStateFlow<PrayerState>(PrayerState.NoLocation)
     override fun prayer(method: Int, school: Int) = prayers

@@ -29,8 +29,14 @@ interface Feeds {
     val weather: StateFlow<WeatherState>
     val alarm: StateFlow<AlarmState>
     val f1: StateFlow<F1State>
-    /** The F1 session on now, live, or the last one's result; connects to live timing only while a session runs. */
+    /** The F1 session on now, live, or the last one's result; connects to live timing only while a session runs. Reading this asks for the whole timing. */
     val f1Live: StateFlow<F1LiveState>
+    /**
+     * The same, for widgets that only need to know whether the session is on, delayed or stopped:
+     * the feed is then asked for a handful of topics, and the live session has no classification.
+     * It shares [f1Live]'s connection when both are being read.
+     */
+    val f1Pulse: StateFlow<F1LiveState>
     /** Prayer times by Aladhan [method] and Asr [school]; widgets with the same choices share one feed. */
     fun prayer(method: Int, school: Int): StateFlow<PrayerState>
 }

@@ -39,6 +39,7 @@ import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.F1Session
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.F1Track
+import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.SessionTop
@@ -47,6 +48,8 @@ import com.ikverse.deskglow.data.countdownText
 import com.ikverse.deskglow.data.effectiveFavourite
 import com.ikverse.deskglow.data.favouriteColour
 import com.ikverse.deskglow.data.sessionTop
+import com.ikverse.deskglow.data.weekendViewWithFeed
+import com.ikverse.deskglow.data.feedStatus
 import com.ikverse.deskglow.data.teamColour
 import com.ikverse.deskglow.data.weekendView
 import com.ikverse.deskglow.model.ColourKey
@@ -129,14 +132,13 @@ object F1WeekendWidget : WidgetType {
                 val second by feeds.second.collectAsStateWithLifecycle()
                 second.atZone(ZoneId.systemDefault()).toInstant()
             } else roughNow
-            // Session results come from the live-timing feed, which is only woken when they are wanted.
-            val latest = if (settings[BETWEEN] == "top3") {
-                val live by feeds.f1Live.collectAsStateWithLifecycle()
-                (live as? F1LiveState.Result)?.session
-            } else null
-            val shown = weekendView(data, now).let { v ->
+            // The live-timing feed says whether a session is on, delayed or stopped, and has the results; it is asked for only a few topics, and only while a session runs.
+            val pulse by feeds.f1Pulse.collectAsStateWithLifecycle()
+            val latest = if (settings[BETWEEN] == "top3") (pulse as? F1LiveState.Result)?.session else null
+            val counted = weekendView(data, now).let { v ->
                 if (settings[COUNT_TO] == "race" && v is WeekendView.Upcoming) v.copy(next = v.race.race.takeIf { it.start.isAfter(now) }) else v
             }
+            val shown = weekendViewWithFeed(counted, data.races, feedStatus(data.races, pulse, now))
             val favourite = effectiveFavourite(settings[FAVOURITE], app.driver)
             val styled = settings.with(FAVOURITE, favourite).let { s ->
                 if (settings[TEAM_ACCENT]) favouriteColour(data, favourite, "")?.let { s.with(ACCENT, it) } ?: s else s
@@ -147,7 +149,16 @@ object F1WeekendWidget : WidgetType {
 }
 
 /** The widget's colours and the favourite driver, passed down together. */
-private class Look(val colour: Color, val accent: Color, val favourite: String, val start: ((F1Session) -> String)? = null)
+private class Look(val colour: Color, val accent: Color, val favourite: String, val start: ((F1Session) -> String)? = null, val note: String? = null)
+
+/** The badge for a session on: "LIVE", or what the feed says it is. */
+private fun badgeOf(view: WeekendView.Upcoming, look: Look): Pair<String, Color> = when (view.feed?.phase) {
+    LivePhase.Delayed -> "DELAYED" to Amber
+    LivePhase.Red -> "RED FLAG" to FlagRed
+    LivePhase.SafetyCar -> "SAFETY CAR" to Amber
+    LivePhase.VirtualSafetyCar -> "VSC" to Amber
+    else -> "LIVE" to look.accent
+}
 
 /** "Sat 16:00": when [session] starts, in the phone's time zone. */
 private fun startLabel(session: F1Session, h24: Boolean): String =
@@ -187,7 +198,11 @@ private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, ses
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val h = constraints.maxHeight.toFloat()
         val w = constraints.maxWidth.toFloat()
-        val look = Look(Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE], startText)
+        // A delayed session says when it is to start, as race control has announced it.
+        val note = (view as? WeekendView.Upcoming)?.feed?.takeIf { it.phase == LivePhase.Delayed }?.live?.let { l ->
+            l.restart?.let { "${l.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }
+        }
+        val look = Look(Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE], startText, note)
         // A race's podium, once it has arrived, wins over its top 3 from timing.
         val top = sessionTop?.takeIf { view !is WeekendView.AfterRace }
         if (view == WeekendView.Empty && top == null) {
@@ -292,9 +307,14 @@ private fun SessionLine(view: WeekendView.Upcoming, now: Instant, look: Look, sm
     val next = view.next
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (live != null) {
-            LiveBadge(look.accent, small)
+            val (badge, shade) = badgeOf(view, look)
+            LiveBadge(shade, small, badge)
             Spacer(Modifier.width(pxToDp(small * 0.6f)))
             Text(live.kind, color = look.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+            look.note?.let {
+                Spacer(Modifier.width(pxToDp(small * 0.6f)))
+                Text(it, color = Muted, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+            }
         } else if (next != null) {
             Text(next.kind, color = Muted, fontSize = pxToSp(big * 0.62f), maxLines = 1, softWrap = false)
             Spacer(Modifier.width(pxToDp(big * 0.3f)))
@@ -339,8 +359,10 @@ private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look:
                 val live = view.live
                 val next = view.next
                 if (live != null) {
-                    LiveBadge(look.accent, small)
+                    val (badge, shade) = badgeOf(view, look)
+                    LiveBadge(shade, small, badge)
                     Text(live.kind, color = look.colour, fontSize = pxToSp(big * 0.8f), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                    look.note?.let { Text(it, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 } else if (next != null) {
                     Text((next.kind + startPart(look, next)).uppercase(), color = look.accent, fontSize = pxToSp(small * 0.9f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
                     Text(countdownText(now, next.start), color = look.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
@@ -475,9 +497,11 @@ private fun MinimalContent(view: WeekendView, top: SessionTop?, now: Instant, lo
                     val live = view.live
                     val next = view.next
                     if (live != null) {
-                        LiveBadge(look.accent, px * 0.75f)
+                        val (badge, shade) = badgeOf(view, look)
+                        LiveBadge(shade, px * 0.75f, badge)
                         Spacer(Modifier.width(pxToDp(px * 0.45f)))
                         Part(shortKind(live.kind), look.colour, FontWeight.Medium)
+                        look.note?.let { Part("  ·  $it", Muted) }
                         Part("  ·  ${view.race.name}", Muted, modifier = yields)
                     } else if (next != null) {
                         Part(view.race.name, look.colour, FontWeight.SemiBold, yields)
@@ -535,14 +559,14 @@ internal fun Header(race: String, place: String, accent: Color, colour: Color, p
 }
 
 @Composable
-internal fun LiveBadge(accent: Color, px: Float) {
+internal fun LiveBadge(accent: Color, px: Float, label: String = "LIVE") {
     Row(
         Modifier.background(accent, RoundedCornerShape(pxToDp(px * 0.3f))).padding(horizontal = pxToDp(px * 0.55f), vertical = pxToDp(px * 0.2f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(pxToDp(px * 0.5f)).background(Color.White, CircleShape))
         Spacer(Modifier.width(pxToDp(px * 0.35f)))
-        Text("LIVE", color = Color.White, fontSize = pxToSp(px * 1.05f), fontWeight = FontWeight.Bold, letterSpacing = 0.08.em, maxLines = 1, softWrap = false)
+        Text(label, color = Color.White, fontSize = pxToSp(px * 1.05f), fontWeight = FontWeight.Bold, letterSpacing = 0.08.em, maxLines = 1, softWrap = false)
     }
 }
 

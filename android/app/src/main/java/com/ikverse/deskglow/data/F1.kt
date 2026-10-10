@@ -325,7 +325,7 @@ fun shortName(raceName: String) = raceName.replace("Grand Prix", "GP").trim()
 /** What the race-weekend widget shows. */
 sealed interface WeekendView {
     /** The weekend now or next: the session running (if any) and the next to start (if any). */
-    data class Upcoming(val race: F1Race, val live: F1Session?, val next: F1Session?) : WeekendView
+    data class Upcoming(val race: F1Race, val live: F1Session?, val next: F1Session?, val feed: FeedStatus? = null) : WeekendView
     /** From a race until a day before the next weekend: the podium, and which race is next. */
     data class AfterRace(val result: F1Result, val next: F1Race?) : WeekendView
     data object Empty : WeekendView
