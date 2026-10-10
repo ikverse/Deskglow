@@ -73,6 +73,7 @@ import com.ikverse.deskglow.model.WidgetItem
 import com.ikverse.deskglow.ui.AppButton
 import com.ikverse.deskglow.ui.ButtonKind
 import com.ikverse.deskglow.ui.Card
+import com.ikverse.deskglow.ui.Chip
 import com.ikverse.deskglow.ui.Glyph
 import com.ikverse.deskglow.ui.GlyphIcon
 import com.ikverse.deskglow.ui.IconAction
@@ -86,6 +87,7 @@ import com.ikverse.deskglow.widgets.ChoiceField
 import com.ikverse.deskglow.widgets.ColourField
 import com.ikverse.deskglow.widgets.Field
 import com.ikverse.deskglow.widgets.LayoutField
+import com.ikverse.deskglow.widgets.ShowField
 import com.ikverse.deskglow.widgets.SliderField
 import com.ikverse.deskglow.widgets.StyleField
 import com.ikverse.deskglow.widgets.ToggleField
@@ -290,7 +292,7 @@ private fun sectionOf(field: Field): Section = when (field) {
     is ColourField -> Section.Look
     is SliderField -> if (field.label in LOOK_LABELS) Section.Look else Section.Content
     is ChoiceField -> if (field.label in LOOK_LABELS) Section.Look else Section.Content
-    is ToggleField -> Section.Content
+    is ToggleField, is ShowField -> Section.Content
 }
 
 private val LOOK_LABELS = setOf("Brightness", "Ring thickness", "Temperature size", "Alignment", "Icon style")
@@ -342,6 +344,7 @@ private fun FieldRow(field: Field, item: WidgetItem, settings: Settings, state: 
                 Switch(checked = on, onCheckedChange = null)
             }
         }
+        is ShowField -> ShowRow(field, settings, state)
         is ChoiceField -> {
             val current = settings[field.key]
             if (field.options.size <= SEGMENTED_MAX_OPTIONS && field.options.sumOf { it.second.length } <= SEGMENTED_MAX_CHARS) {
@@ -389,6 +392,21 @@ private fun FieldRow(field: Field, item: WidgetItem, settings: Settings, state: 
         }
         is ColourField -> ColourRow(field, settings, state)
         is StyleField -> StyleStrip(field, settings, state, graph)
+    }
+}
+
+/** Several on/off settings as chips side by side, each lit while its setting is on. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ShowRow(field: ShowField, settings: Settings, state: EditorState) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Text(field.label, fontSize = Type.Body)
+        FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((key, label) in field.items) {
+                val on = settings[key]
+                Chip(label, { state.set(key, !on) }, selected = on)
+            }
+        }
     }
 }
 

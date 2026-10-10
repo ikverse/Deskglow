@@ -1,6 +1,5 @@
 package com.ikverse.deskglow.widgets
 
-import android.text.format.DateFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -17,7 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
@@ -57,8 +55,9 @@ object PrayerWidget : WidgetType {
         add(ChoiceField("Asr", SCHOOL, listOf("0" to "Standard", "1" to "Hanafi")))
         add(ToggleField("Show all five times", SHOW_ALL))
         addAll(Common.arabicFields(settings))
+        add(Common.timeFormatField())
         add(Common.alignField)
-        add(ColourField("Highlight colour", ACCENT))
+        add(ColourField("Accent colour", ACCENT))
         add(Common.colourField)
         add(Common.brightnessField)
     }
@@ -71,7 +70,7 @@ object PrayerWidget : WidgetType {
         val feeds = LocalFeeds.current
         val state by feeds.prayer(settings[METHOD].toIntOrNull() ?: 5, settings[SCHOOL].toIntOrNull() ?: 0).collectAsStateWithLifecycle()
         val minute by feeds.minute.collectAsStateWithLifecycle()
-        val h24 = DateFormat.is24HourFormat(LocalContext.current)
+        val h24 = Common.use24Hour(settings)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val days = when (val s = state) {

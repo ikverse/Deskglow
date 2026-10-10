@@ -469,6 +469,23 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `the clock, date and notifications set against either edge`() {
+        val w = com.ikverse.deskglow.widgets.Common.ALIGN
+        feeds.notifications.value = com.ikverse.deskglow.data.NotificationState.Apps(
+            listOf(com.ikverse.deskglow.data.NotifiedApp("a", null), com.ikverse.deskglow.data.NotifiedApp("b", null)),
+        )
+        val items = listOf("left", "center", "right").flatMapIndexed { i, align ->
+            listOf(
+                WidgetItem("c$i", com.ikverse.deskglow.widgets.ClockWidget.id, Box(8, 8 + i * 130, 396, 64), true, com.ikverse.deskglow.widgets.ClockWidget.defaults.with(w, align)),
+                WidgetItem("d$i", com.ikverse.deskglow.widgets.DateWidget.id, Box(8, 80 + i * 130, 396, 24), true, com.ikverse.deskglow.widgets.DateWidget.defaults.with(w, align)),
+                WidgetItem("n$i", com.ikverse.deskglow.widgets.NotificationsWidget.id, Box(8, 108 + i * 130, 396, 28), true, com.ikverse.deskglow.widgets.NotificationsWidget.defaults.with(w, align)),
+            )
+        }
+        show(Layout(items))
+        save("alignment")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)

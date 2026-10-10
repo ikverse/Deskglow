@@ -94,7 +94,7 @@ fun WidgetBody(item: WidgetItem, modifier: Modifier) {
     val type = Widgets.find(item.type) ?: return // a widget from a newer version: kept in the layout, not drawn
     // The same settings object for as long as the settings are equal, so an unchanged widget is skipped
     // while its neighbours are dragged about.
-    val settings = remember(item.settings, type) { item.settings.withDefaults(type.defaults) }
+    val settings = remember(item.settings, type) { type.resolve(item.settings) }
     Box(modifier.graphicsLayer { alpha = settings[Common.OPACITY] / 100f }) {
         CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle) { type.Content(settings) }
     }

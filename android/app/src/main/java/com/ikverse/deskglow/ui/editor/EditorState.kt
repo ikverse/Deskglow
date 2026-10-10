@@ -140,7 +140,7 @@ class EditorState(
 
     fun typeOf(item: WidgetItem): WidgetType? = Widgets.find(item.type)
 
-    fun settingsOf(item: WidgetItem): Settings = typeOf(item)?.let { item.settings.withDefaults(it.defaults) } ?: item.settings
+    fun settingsOf(item: WidgetItem): Settings = typeOf(item)?.resolve(item.settings) ?: item.settings
 
     fun titleOf(item: WidgetItem): String = typeOf(item)?.title(settingsOf(item)) ?: item.type
 

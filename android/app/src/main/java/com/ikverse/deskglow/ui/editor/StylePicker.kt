@@ -175,9 +175,9 @@ private fun Preview(kind: StyleKind, settings: Settings, id: String) {
     when (kind) {
         StyleKind.Clock -> {
             val arabic = Common.arabicDigits(settings)
-            ClockFace(id, TimeText.parts(now, settings[ClockWidget.H24], settings[ClockWidget.SECONDS], arabic), colour, arabic)
+            ClockFace(id, TimeText.parts(now, Common.use24Hour(settings), settings[ClockWidget.SECONDS], arabic), colour, arabic)
         }
-        StyleKind.Date -> DateFace(settings, id, now.toLocalDate(), Modifier.fillMaxSize())
+        StyleKind.Date -> DateFace(settings.with(Common.ALIGN, "center"), id, now.toLocalDate(), Modifier.fillMaxSize())
         StyleKind.Weather -> {
             // The widget's own layout with the owner's current settings, on today's weather (or a sample before there is any).
             val state by LocalFeeds.current.weather.collectAsStateWithLifecycle()

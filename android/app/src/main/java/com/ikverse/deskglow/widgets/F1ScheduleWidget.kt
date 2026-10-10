@@ -67,10 +67,8 @@ object F1ScheduleWidget : WidgetType {
 
     override fun fields(settings: Settings) = listOf(
         LayoutField("Layout", LAYOUT, listOf("list" to "List", "days" to "Days", "timeline" to "Timeline", "strip" to "Strip")),
-        ChoiceField("Times", CLOCK, listOf("phone" to "Phone setting", "12" to "12-hour", "24" to "24-hour")),
-        ToggleField("Show dates", SHOW_DATES),
-        ToggleField("Show the countdown", SHOW_COUNTDOWN),
-        ToggleField("Dim finished sessions", DIM_PAST),
+        Common.timeFormatField(CLOCK),
+        ShowField("Show", listOf(SHOW_DATES to "Dates", SHOW_COUNTDOWN to "Countdown", DIM_PAST to "Dim finished sessions")),
         ColourField("Accent colour", ACCENT),
         Common.colourField,
         Common.brightnessField,
