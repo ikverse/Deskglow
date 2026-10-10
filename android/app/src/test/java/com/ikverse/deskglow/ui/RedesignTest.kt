@@ -119,10 +119,33 @@ class RedesignTest {
         compose.onNodeWithText("Portrait · screen 2 of 2").assertIsDisplayed()
         compose.onNodeWithText("Edit layout").performClick()
         assertEquals(Orientation.Portrait to 1, opened)
-        compose.onNodeWithTag("preview pager").performTouchInput { swipeLeft() }
+        compose.onNodeWithText("Landscape").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Landscape · screen 1 of 1").assertIsDisplayed()
         save("home-landscape-page")
+    }
+
+    @Test
+    fun `the tabs under the preview switch between the portrait and landscape layouts`() {
+        graph.addPage(Orientation.Portrait)
+        var opened: Pair<Orientation, Int>? = null
+        home { orientation, page -> opened = orientation to page }
+        compose.onNodeWithText("Portrait · screen 1 of 2").assertIsDisplayed()
+        // Swiping stays inside the layout: past the last portrait screen there is nothing more.
+        compose.onNodeWithTag("preview pager").performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("preview pager").performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        compose.onNodeWithText("Portrait · screen 2 of 2").assertIsDisplayed()
+        compose.onNodeWithText("Landscape").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Landscape · screen 1 of 1").assertIsDisplayed()
+        compose.onNodeWithText("Edit layout").performClick()
+        assertEquals(Orientation.Landscape to 0, opened)
+        // Back on Portrait it is still on the screen it was left on.
+        compose.onNodeWithText("Portrait").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Portrait · screen 2 of 2").assertIsDisplayed()
     }
 
     @Test
