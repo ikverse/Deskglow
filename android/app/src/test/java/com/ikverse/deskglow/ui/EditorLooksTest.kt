@@ -54,7 +54,7 @@ class EditorLooksTest {
 
     private fun selectClock() {
         val clock = graph.layouts.layout.value.items.first { it.type == "clock" }.id
-        compose.onNodeWithTag("widget $clock").performClick()
+        compose.onNodeWithTag("widget $clock").performClick().performClick()
     }
 
     private fun save(name: String) {
