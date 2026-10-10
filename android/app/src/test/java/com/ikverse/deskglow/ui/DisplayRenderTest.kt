@@ -722,6 +722,34 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `the weather with every detail on, in the layouts that wrap them`() {
+        val noon = LocalDateTime.of(2026, 10, 10, 14, 5)
+        feeds.minute.value = noon
+        feeds.weather.value = WeatherState.Ready(
+            cairo,
+            Weather(
+                25.0, 2, true, 30.1, 18.0, 0, feelsLikeC = 26.0, humidityPercent = 48, windKmh = 14.0, rainChancePercent = 10,
+                sunrise = LocalDateTime.of(2026, 10, 10, 5, 42), sunset = LocalDateTime.of(2026, 10, 10, 17, 30), uvIndex = 6.4,
+            ),
+        )
+        val every = WeatherWidget.defaults
+            .with(WeatherWidget.SHOW_FEELS, true).with(WeatherWidget.SHOW_HUMIDITY, true).with(WeatherWidget.SHOW_WIND, true).with(WeatherWidget.SHOW_RAIN, true)
+            .with(WeatherWidget.SHOW_SUNRISE, true).with(WeatherWidget.SHOW_SUNSET, true).with(WeatherWidget.SHOW_UV, true)
+        val items = listOf(
+            WidgetItem("c1", WeatherWidget.id, Box(8, 8, 396, 80), true, every.with(WeatherWidget.LAYOUT, "side")),
+            WidgetItem("c2", WeatherWidget.id, Box(8, 100, 260, 90), true, every.with(WeatherWidget.LAYOUT, "side")),
+            WidgetItem("c3", WeatherWidget.id, Box(8, 202, 196, 64), true, every.with(WeatherWidget.LAYOUT, "side")),
+            WidgetItem("d1", WeatherWidget.id, Box(212, 202, 196, 170), true, every.with(WeatherWidget.LAYOUT, "stacked")),
+            WidgetItem("d2", WeatherWidget.id, Box(8, 284, 196, 170), true, every.with(WeatherWidget.LAYOUT, "stacked").with(WeatherWidget.ICON_STYLE, "none")),
+            WidgetItem("p1", WeatherWidget.id, Box(8, 466, 396, 150), true, every.with(WeatherWidget.LAYOUT, "big")),
+            WidgetItem("p2", WeatherWidget.id, Box(8, 628, 220, 150), true, every.with(WeatherWidget.LAYOUT, "big").with(Common.ALIGN, "right")),
+            WidgetItem("t1", WeatherWidget.id, Box(8, 790, 396, 40), true, every.with(WeatherWidget.LAYOUT, "compact")),
+        )
+        show(Layout(items))
+        save("weather-details-wrapped")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)

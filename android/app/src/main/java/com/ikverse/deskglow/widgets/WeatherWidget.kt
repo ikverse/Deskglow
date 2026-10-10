@@ -46,6 +46,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.min
 
 object WeatherWidget : WidgetType {
@@ -191,6 +192,81 @@ fun tintFor(celsius: Double, base: Color): Color {
     }
 }
 
+/** How wide one detail (its symbol, a gap and its text) sets, in units of the text size. */
+private fun detailUnits(value: String) = 1.17f + value.length * 0.56f
+
+/** How wide a line of details sets, in units of the text size, gaps between them included. */
+internal fun detailLineUnits(values: List<String>): Float =
+    values.sumOf { detailUnits(it).toDouble() }.toFloat() + (values.size - 1).coerceAtLeast(0) * 0.7f
+
+/** Shrinking the details by more than this to keep them on one line is not worth it: they go onto a second line. */
+private const val DETAILS_MIN_SCALE = 0.8f
+
+/** The most lines the details may take. */
+private const val DETAILS_MAX_LINES = 3
+
+/**
+ * The details split for [room] at text size [px], as lists of indexes into [values]: on one line when it fits,
+ * or shrinks by no more than a fifth to fit; otherwise on as few lines (up to three) as let each fit like that,
+ * the lines about equal in width.
+ */
+internal fun splitDetails(values: List<String>, px: Float, room: Float): List<List<Int>> {
+    if (values.size < 2) return listOf(values.indices.toList())
+    for (count in 1 until DETAILS_MAX_LINES) {
+        val lines = balancedLines(values, count)
+        val widest = lines.maxOf { detailLineUnits(it.map { i -> values[i] }) } * px
+        if (widest <= room || room / widest >= DETAILS_MIN_SCALE) return lines
+    }
+    return balancedLines(values, DETAILS_MAX_LINES)
+}
+
+/** [values] cut into [count] runs, in order, so that the widest run is as narrow as it can be. */
+private fun balancedLines(values: List<String>, count: Int): List<List<Int>> {
+    val n = minOf(count, values.size)
+    fun width(from: Int, to: Int) = detailLineUnits(values.subList(from, to))
+    var best = listOf(0, values.size)
+    var narrowest = Float.MAX_VALUE
+    fun search(cuts: List<Int>) {
+        if (cuts.size == n - 1) {
+            val edges = listOf(0) + cuts + values.size
+            val widest = (0 until n).maxOf { width(edges[it], edges[it + 1]) }
+            if (widest < narrowest) {
+                narrowest = widest
+                best = edges
+            }
+            return
+        }
+        val remaining = n - 2 - cuts.size
+        for (cut in (cuts.lastOrNull() ?: 0) + 1..values.size - 1 - remaining) search(cuts + cut)
+    }
+    search(emptyList())
+    return (0 until n).map { (best[it] until best[it + 1]).toList() }
+}
+
+/** The text size at which the widest of [lines] fits [room]: [px] if it already does, never less than half of it. */
+internal fun detailsSize(values: List<String>, lines: List<List<Int>>, px: Float, room: Float): Float {
+    val widest = lines.maxOf { line -> detailLineUnits(line.map { values[it] }) } * px
+    return if (widest <= room) px else (px * room / widest).coerceAtLeast(px * 0.5f)
+}
+
+/** The lines the details are set on and the text size they are set at. */
+internal class DetailsFit(val lines: List<List<Int>>, val px: Float)
+
+/**
+ * The details for [room] at about [px], with none cut in half: wrapped, then shrunk, and if even half size does
+ * not hold them, the last ones left off.
+ */
+internal fun fitDetails(values: List<String>, px: Float, room: Float): DetailsFit {
+    var lines = splitDetails(values, px, room)
+    var size = detailsSize(values, lines, px, room)
+    fun widest() = lines.maxOf { line -> detailLineUnits(line.map { values[it] }) } * size
+    while (lines.sumOf { it.size } > 1 && widest() > room + 0.01f) {
+        lines = (lines.dropLast(1) + listOf(lines.last().dropLast(1))).filter { it.isNotEmpty() }
+        size = detailsSize(values, lines, px, room)
+    }
+    return DetailsFit(lines, size)
+}
+
 /** "5:42", or "5:42 AM" on a 12-hour clock: when the sun rises or sets. */
 fun sunTime(time: LocalDateTime, h24: Boolean): String =
     time.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US))
@@ -248,16 +324,36 @@ private class WeatherLook(
     /** "↑26°  ↓17°". */
     val rangeText get() = "↑${formatTemperature(weather.highC, f)}  ↓${formatTemperature(weather.lowC, f)}"
 
-    /** The details as symbol-and-value pairs on one line. */
+    /** How the details sit: on one line or two, and at what text size. */
+    class DetailsPlan(val lines: List<List<Int>>, val px: Float)
+
+    /** The details for [room] wide at about [px]: wrapped onto a second line, or shrunk a little, so none is cut off. */
+    fun planDetails(px: Float, room: Float): DetailsPlan {
+        val fit = fitDetails(details.map { it.second }, px, room)
+        return DetailsPlan(fit.lines, fit.px)
+    }
+
+    /** All the details on one line at [px]: the ticker's, a strip that clips by design. */
+    fun oneLine(px: Float) = DetailsPlan(listOf(details.indices.toList()), px)
+
+    /** The details as symbol-and-value pairs, on the lines [plan] gives them. */
     @Composable
-    fun Details(px: Float) = Row(verticalAlignment = Alignment.CenterVertically) {
-        details.forEachIndexed { i, (glyph, value) ->
-            if (i > 0) Spacer(Modifier.width(pxToDp(px * 0.7f)))
-            DetailGlyph(glyph, Muted, Modifier.size(pxToDp(px * 0.95f)))
-            Spacer(Modifier.width(pxToDp(px * 0.22f)))
-            Text(value, color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+    fun Details(plan: DetailsPlan, alignment: Alignment.Horizontal = Alignment.Start) = Column(horizontalAlignment = alignment) {
+        plan.lines.forEach { line ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                line.forEachIndexed { i, index ->
+                    val (glyph, value) = details[index]
+                    if (i > 0) Spacer(Modifier.width(pxToDp(plan.px * 0.7f)))
+                    DetailGlyph(glyph, Muted, Modifier.size(pxToDp(plan.px * 0.95f)))
+                    Spacer(Modifier.width(pxToDp(plan.px * 0.22f)))
+                    Text(value, color = Muted, fontSize = pxToSp(plan.px), maxLines = 1, softWrap = false)
+                }
+            }
         }
     }
+
+    /** How many characters the temperature is, for reckoning how much room it leaves. */
+    private val numberLength get() = Math.round(if (f) weather.temperatureC * 9 / 5 + 32 else weather.temperatureC).toString().length
 
     /** How much to shrink by so lines of these heights (in pixels) fit the box. */
     fun fit(vararg heights: Float) = min(1f, h * 0.96f / heights.sum())
@@ -267,8 +363,12 @@ private class WeatherLook(
     /** Icon, big temperature, a hairline, then the words and details stacked beside it. */
     @Composable
     fun Classic() {
-        val lines = listOf(place.isNotEmpty(), showRange, details.isNotEmpty()).count { it }
         val small = min(h * 0.19f, w * 0.065f)
+        // What the icon, the temperature and the hairline leave for the words beside them.
+        val tempPx = min(h * 0.62f, w * 0.2f) * scale
+        val room = w - (if (showIcon) h * 0.66f + h * 0.08f else 0f) - tempPx * (0.56f * numberLength + 0.3f) - h * 0.24f - (h * 0.012f).coerceAtLeast(1f)
+        val detailLines = if (details.isEmpty()) 0 else planDetails(small * 0.92f, room).lines.size
+        val lines = listOf(place.isNotEmpty(), showRange).count { it } + detailLines
         val k = fit(small * 1.3f * lines)
         Row(Modifier.fillMaxSize(), horizontalArrangement = arrangement, verticalAlignment = Alignment.CenterVertically) {
             if (showIcon) {
@@ -283,7 +383,7 @@ private class WeatherLook(
                 Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.Center) {
                     if (place.isNotEmpty()) Small(place, small * k)
                     if (showRange) Small(rangeText, small * k)
-                    if (details.isNotEmpty()) Details(small * k * 0.92f)
+                    if (details.isNotEmpty()) Details(planDetails(small * k * 0.92f, room))
                 }
             }
         }
@@ -295,16 +395,18 @@ private class WeatherLook(
         val icon = h * 0.3f
         val temp = min(h * 0.3f, w * 0.14f) * scale
         val small = min(h * 0.12f, w * 0.06f)
+        val room = w * 0.92f
+        val detailLines = if (details.isEmpty()) 0 else planDetails(small * 0.95f, room).lines.size
         val k = fit(
             if (showIcon) icon else 0f, temp * 1.15f,
-            if (place.isNotEmpty()) small * 1.3f else 0f, if (showRange) small * 1.6f else 0f, if (details.isNotEmpty()) small * 1.3f else 0f,
+            if (place.isNotEmpty()) small * 1.3f else 0f, if (showRange) small * 1.6f else 0f, small * 1.3f * detailLines,
         )
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
             if (showIcon) Icon(icon * k)
             Temperature(temp * k)
             if (place.isNotEmpty()) Small(place, small * k)
             if (showRange) RangeBar(small * k, Modifier.width(pxToDp(min(w * 0.9f, h * 2.6f))).padding(vertical = pxToDp(small * k * 0.2f)))
-            if (details.isNotEmpty()) Details(small * k * 0.95f)
+            if (details.isNotEmpty()) Details(planDetails(small * k * 0.95f, room), horizontal(align))
         }
     }
 
@@ -343,7 +445,7 @@ private class WeatherLook(
             }
             if (details.isNotEmpty()) {
                 Dot(small)
-                Details(small)
+                Details(oneLine(small))
             }
         }
     }
@@ -387,7 +489,10 @@ private class WeatherLook(
         val small = min(h * 0.14f, w * 0.055f)
         val lines = listOf(place.isNotEmpty(), showRange || details.isNotEmpty()).count { it }
         val temp = min(h * 0.66f, w * 0.34f) * scale
-        val k = fit(temp * 1.2f, small * 1.45f * lines)
+        // The range and the details share a row; what the range takes is not the details' to use.
+        val room = w * 0.9f - if (showRange) (rangeText.length * 0.5f + 0.8f) * small else 0f
+        val detailLines = if (details.isEmpty()) 0 else planDetails(small, room).lines.size
+        val k = fit(temp * 1.2f, small * 1.45f * (lines + max(0, detailLines - 1)))
         Box(Modifier.fillMaxSize()) {
             if (showIcon) {
                 // Faint, so it reads as a backdrop and does not wear one spot of the screen.
@@ -400,7 +505,7 @@ private class WeatherLook(
                 if (showRange || details.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
                     if (showRange) Text(rangeText, color = Muted, fontSize = pxToSp(small * k), maxLines = 1, softWrap = false)
                     if (showRange && details.isNotEmpty()) Spacer(Modifier.width(pxToDp(small * k * 0.8f)))
-                    if (details.isNotEmpty()) Details(small * k)
+                    if (details.isNotEmpty()) Details(planDetails(small * k, room), horizontal(align))
                 }
             }
         }
