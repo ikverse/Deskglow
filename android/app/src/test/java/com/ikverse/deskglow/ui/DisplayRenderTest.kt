@@ -85,12 +85,13 @@ class DisplayRenderTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val feeds = FakeFeeds()
+    private val favourite = kotlinx.coroutines.flow.MutableStateFlow(com.ikverse.deskglow.data.F1Favourite())
     private val cairo = City("Cairo", "Cairo Governorate, Egypt", 30.06, 31.25)
 
     private fun show(layout: Layout, editing: Boolean = false, orientation: Orientation = Orientation.Portrait) {
         val context = ApplicationProvider.getApplicationContext<android.app.Application>()
         compose.setContent {
-            CompositionLocalProvider(LocalFeeds provides feeds, LocalFonts provides FontResolver(context, null), LocalEditing provides editing) {
+            CompositionLocalProvider(LocalFeeds provides feeds, LocalFonts provides FontResolver(context, null), LocalEditing provides editing, com.ikverse.deskglow.data.LocalF1Favourite provides favourite) {
                 DeskglowTheme { DisplayContent(layout, burnIn = true, orientation = orientation) }
             }
         }
@@ -701,6 +702,23 @@ class DisplayRenderTest {
         feeds.media.value = track.copy(art = null)
         compose.waitForIdle()
         save("now-playing-no-art")
+    }
+
+    @Test
+    fun `the F1 widgets follow the driver and team set on Home, in their team colour when asked`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        at(LocalDateTime.of(2026, 10, 6, 12, 0))
+        favourite.value = com.ikverse.deskglow.data.F1Favourite(driver = "LEC", team = "ferrari")
+        val items = listOf(
+            WidgetItem("a", F1WeekendWidget.id, Box(8, 8, 396, 100), true, F1WeekendWidget.defaults.with(F1WeekendWidget.LAYOUT, "classic")),
+            WidgetItem("b", F1WeekendWidget.id, Box(8, 120, 396, 100), true, F1WeekendWidget.defaults.with(F1WeekendWidget.TEAM_ACCENT, true)),
+            WidgetItem("c", F1WeekendWidget.id, Box(8, 232, 396, 100), true, F1WeekendWidget.defaults.with(F1WeekendWidget.FAVOURITE, "none")),
+            WidgetItem("d", F1StandingsWidget.id, Box(8, 344, 196, 170), true, F1StandingsWidget.defaults.with(F1StandingsWidget.ROWS, 6)),
+            WidgetItem("e", F1StandingsWidget.id, Box(212, 344, 196, 170), true,
+                F1StandingsWidget.defaults.with(F1StandingsWidget.TABLE, "constructors").with(F1StandingsWidget.TEAM_ACCENT, true)),
+        )
+        show(Layout(items))
+        save("f1-home-favourite")
     }
 
     @Test

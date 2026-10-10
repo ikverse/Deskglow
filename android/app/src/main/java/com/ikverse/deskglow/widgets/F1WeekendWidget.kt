@@ -39,10 +39,13 @@ import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.F1Session
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.F1Track
+import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.SessionTop
 import com.ikverse.deskglow.data.WeekendView
 import com.ikverse.deskglow.data.countdownText
+import com.ikverse.deskglow.data.effectiveFavourite
+import com.ikverse.deskglow.data.favouriteColour
 import com.ikverse.deskglow.data.sessionTop
 import com.ikverse.deskglow.data.teamColour
 import com.ikverse.deskglow.data.weekendView
@@ -70,6 +73,8 @@ object F1WeekendWidget : WidgetType {
     val COUNT_TO = TextKey("countTo", "next")
     /** The session's start time, in the phone's zone, beside its countdown. */
     val SHOW_START = FlagKey("showStart", false)
+    /** The followed team's colour in place of the accent colour. */
+    val TEAM_ACCENT = FlagKey("teamAccent", false)
 
     private val LAYOUTS = listOf(
         "classic" to "Classic", "hero" to "Hero · big track", "countdown" to "Countdown blocks",
@@ -91,7 +96,8 @@ object F1WeekendWidget : WidgetType {
         add(ChoiceField("Count down to", COUNT_TO, listOf("next" to "Next session", "race" to "Race only")))
         add(ToggleField("Show the start time", SHOW_START))
         if (settings[SHOW_START]) add(Common.timeFormatField())
-        add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
+        add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "My driver (from Home)", "none" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
+        add(ToggleField("Team colour as accent", TEAM_ACCENT))
         add(ColourField("Accent colour", ACCENT))
         add(Common.colourField)
         add(Common.brightnessField)
@@ -107,6 +113,7 @@ object F1WeekendWidget : WidgetType {
         val feeds = LocalFeeds.current
         val state by feeds.f1.collectAsStateWithLifecycle()
         val minute by feeds.minute.collectAsStateWithLifecycle()
+        val app by LocalF1Favourite.current.collectAsStateWithLifecycle()
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val data = when (val s = state) {
@@ -130,7 +137,11 @@ object F1WeekendWidget : WidgetType {
             val shown = weekendView(data, now).let { v ->
                 if (settings[COUNT_TO] == "race" && v is WeekendView.Upcoming) v.copy(next = v.race.race.takeIf { it.start.isAfter(now) }) else v
             }
-            WeekendFace(settings, data, shown, sessionTop(data.races, latest, now), now)
+            val favourite = effectiveFavourite(settings[FAVOURITE], app.driver)
+            val styled = settings.with(FAVOURITE, favourite).let { s ->
+                if (settings[TEAM_ACCENT]) favouriteColour(data, favourite, "")?.let { s.with(ACCENT, it) } ?: s else s
+            }
+            WeekendFace(styled, data, shown, sessionTop(data.races, latest, now), now)
         }
     }
 }

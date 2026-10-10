@@ -30,8 +30,11 @@ import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.F1State
+import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.StandingRow
+import com.ikverse.deskglow.data.effectiveFavourite
+import com.ikverse.deskglow.data.favouriteColour
 import com.ikverse.deskglow.data.standingColumns
 import com.ikverse.deskglow.data.standingRows
 import com.ikverse.deskglow.data.teamColour
@@ -52,6 +55,8 @@ object F1StandingsWidget : WidgetType {
     val SHOW_MOVES = FlagKey("showMoves", true)
     val FAV_DRIVER = TextKey("favDriver", "")
     val FAV_TEAM = TextKey("favTeam", "")
+    /** The followed team's colour in place of the accent colour. */
+    val TEAM_ACCENT = FlagKey("teamAccent", false)
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
 
     override val id = "f1standings"
@@ -72,10 +77,11 @@ object F1StandingsWidget : WidgetType {
         ChoiceField("Numbers", VALUE, listOf("points" to "Points", "gap" to "Gap to the leader", "ahead" to "Gap to the one ahead")),
         ToggleField("Show ▲▼ since the last round", SHOW_MOVES),
         if (teams(settings)) {
-            ChoiceField("Favourite team", FAV_TEAM, listOf("" to "None") + F1Roster.teams)
+            ChoiceField("Favourite team", FAV_TEAM, listOf("" to "My team (from Home)", "none" to "None") + F1Roster.teams)
         } else {
-            ChoiceField("Favourite driver", FAV_DRIVER, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" })
+            ChoiceField("Favourite driver", FAV_DRIVER, listOf("" to "My driver (from Home)", "none" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" })
         },
+        ToggleField("Team colour as accent", TEAM_ACCENT),
         ColourField("Accent colour", ACCENT),
         Common.colourField,
         Common.brightnessField,
@@ -94,6 +100,7 @@ object F1StandingsWidget : WidgetType {
     @Composable
     override fun Content(settings: Settings) {
         val state by LocalFeeds.current.f1.collectAsStateWithLifecycle()
+        val app by LocalF1Favourite.current.collectAsStateWithLifecycle()
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val w = constraints.maxWidth.toFloat()
@@ -105,11 +112,11 @@ object F1StandingsWidget : WidgetType {
             val teams = teams(settings)
             val entries = if (teams) data.constructors else data.drivers
             if (entries.isEmpty()) return@BoxWithConstraints EditorHint("Standings start after the first race", min(h * 0.1f, w * 0.08f))
-            val favourite = settings[if (teams) FAV_TEAM else FAV_DRIVER]
+            val favourite = effectiveFavourite(settings[if (teams) FAV_TEAM else FAV_DRIVER], if (teams) app.team else app.driver)
             val (top, extra) = standingRows(entries, if (teams) data.previousConstructors else data.previousDrivers, settings[ROWS], favourite)
 
             val colour = Color(settings[Common.COLOUR])
-            val accent = Color(settings[ACCENT])
+            val accent = Color((if (settings[TEAM_ACCENT]) (if (teams) favouriteColour(data, "", favourite) else favouriteColour(data, favourite, "")) else null) ?: settings[ACCENT])
             // More than five rows in a box well wider than tall: two columns side by side, so ten stay readable.
             val twoColumns = top.size > 5 && w >= h * 1.25f
             val (left, right) = if (twoColumns) standingColumns(top) else top to emptyList()

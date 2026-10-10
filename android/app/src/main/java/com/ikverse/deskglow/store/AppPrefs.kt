@@ -3,6 +3,7 @@ package com.ikverse.deskglow.store
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.ikverse.deskglow.data.F1Favourite
 import com.ikverse.deskglow.model.Orientation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +59,10 @@ class AppPrefs(context: Context) {
 
     private val cityState = MutableStateFlow(prefs.getString(KEY_CITY, null)?.let(City::fromJson))
     val city: StateFlow<City?> = cityState.asStateFlow()
+
+    private val f1FavouriteState = MutableStateFlow(F1Favourite(prefs.getString(KEY_F1_DRIVER, "").orEmpty(), prefs.getString(KEY_F1_TEAM, "").orEmpty()))
+    /** The F1 driver and team followed in every F1 widget that has no choice of its own. */
+    val f1Favourite: StateFlow<F1Favourite> = f1FavouriteState.asStateFlow()
 
     private val autoLocationState = MutableStateFlow(prefs.getBoolean(KEY_AUTO_LOCATION, true))
     val autoLocation: StateFlow<Boolean> = autoLocationState.asStateFlow()
@@ -122,6 +127,18 @@ class AppPrefs(context: Context) {
         blankInDarkState.value = on
     }
 
+    /** The followed driver by three-letter code; "" for nobody. */
+    fun setF1Driver(code: String) {
+        prefs.edit { putString(KEY_F1_DRIVER, code) }
+        f1FavouriteState.value = f1FavouriteState.value.copy(driver = code)
+    }
+
+    /** The followed team by id; "" for none. */
+    fun setF1Team(id: String) {
+        prefs.edit { putString(KEY_F1_TEAM, id) }
+        f1FavouriteState.value = f1FavouriteState.value.copy(team = id)
+    }
+
     fun setCity(city: City?) {
         prefs.edit {
             if (city == null) remove(KEY_CITY) else putString(KEY_CITY, city.toJson())
@@ -165,6 +182,8 @@ class AppPrefs(context: Context) {
         const val KEY_COVER_OFF = "cover_off"
         const val KEY_BLANK_IN_DARK = "blank_in_dark"
         const val KEY_CITY = "city"
+        const val KEY_F1_DRIVER = "f1_driver"
+        const val KEY_F1_TEAM = "f1_team"
         const val KEY_AUTO_LOCATION = "auto_location"
         const val KEY_DETECTED_CITY = "detected_city"
         const val KEY_WEATHER_CACHE = "weather_cache"

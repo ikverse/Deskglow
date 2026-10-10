@@ -29,8 +29,10 @@ import com.ikverse.deskglow.data.F1LiveState
 import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.LiveRow
 import com.ikverse.deskglow.data.LiveSession
+import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.TrackFlag
+import com.ikverse.deskglow.data.effectiveFavourite
 import com.ikverse.deskglow.data.standingColumns
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
@@ -51,6 +53,8 @@ object F1LiveWidget : WidgetType {
     val SHOW_FLAG = FlagKey("showFlag", true)
     /** A thin border in the flag's colour round the widget while a flag is out. */
     val BORDER = FlagKey("border", false)
+    /** The followed team's colour in place of the accent colour. */
+    val TEAM_ACCENT = FlagKey("teamAccent", false)
     /** "code" (VER), "number" (1) or "surname" (VERSTAPPEN). */
     val NAMES = TextKey("names", "code")
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
@@ -65,7 +69,8 @@ object F1LiveWidget : WidgetType {
     override fun fields(settings: Settings) = listOf(
         SliderField("Rows", ROWS, 3..20),
         ChoiceField("Gap", GAP, listOf("leader" to "To the leader", "ahead" to "To the car ahead")),
-        ChoiceField("Favourite driver", FAVOURITE, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }),
+        ChoiceField("Favourite driver", FAVOURITE, listOf("" to "My driver (from Home)", "none" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }),
+        ToggleField("Team colour as accent", TEAM_ACCENT),
         ChoiceField("Names", NAMES, listOf("code" to "Codes", "number" to "Numbers", "surname" to "Surnames")),
         ShowField("Show", listOf(SHOW_FLAG to "Flag and clock", BORDER to "Flag border")),
         ColourField("Accent colour", ACCENT),
@@ -81,17 +86,25 @@ object F1LiveWidget : WidgetType {
     override fun Content(settings: Settings) {
         val feeds = LocalFeeds.current
         val state by feeds.f1Live.collectAsStateWithLifecycle()
+        val app by LocalF1Favourite.current.collectAsStateWithLifecycle()
+        /** The settings with the followed driver filled in, and the accent taken from their car when asked. */
+        fun styled(session: LiveSession): Settings {
+            val favourite = effectiveFavourite(settings[FAVOURITE], app.driver)
+            val base = settings.with(FAVOURITE, favourite)
+            val colour = if (settings[TEAM_ACCENT]) session.rows.firstOrNull { it.code == favourite }?.teamColour else null
+            return if (colour != null) base.with(ACCENT, colour.toInt()) else base
+        }
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val w = constraints.maxWidth.toFloat()
             val hint = min(h * 0.1f, w * 0.08f)
             when (val s = state) {
                 F1LiveState.Waiting -> EditorHint("Shows the next F1 session live", hint)
-                is F1LiveState.Result -> LiveFace(settings, s.session, live = false, now = Instant.EPOCH, w, h)
+                is F1LiveState.Result -> LiveFace(styled(s.session), s.session, live = false, now = Instant.EPOCH, w, h)
                 is F1LiveState.Live -> {
                     // The session clock is counted down here between the feed's updates, so it reads the second tick.
                     val second by feeds.second.collectAsStateWithLifecycle()
-                    LiveFace(settings, s.session, live = true, now = second.atZone(ZoneId.systemDefault()).toInstant(), w, h)
+                    LiveFace(styled(s.session), s.session, live = true, now = second.atZone(ZoneId.systemDefault()).toInstant(), w, h)
                 }
             }
         }

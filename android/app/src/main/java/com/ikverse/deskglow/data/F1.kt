@@ -418,3 +418,16 @@ object F1Roster {
         if (data.constructors.isNotEmpty()) teams = data.constructors.map { it.id to it.name }
     }
 }
+
+/** A widget's own favourite wins; "" follows the one set on the Home screen; "none" follows nobody. */
+fun effectiveFavourite(own: String, app: String): String = when (own) {
+    "none" -> ""
+    "" -> app
+    else -> own
+}
+
+/** The colour of the followed team: [team]'s own, else the team [driver] drives for. Null when neither is known. */
+fun favouriteColour(data: F1Data, driver: String, team: String): Int? {
+    val teamId = team.ifEmpty { data.drivers.firstOrNull { it.id == driver }?.teamId.orEmpty() }
+    return teamId.takeIf { it.isNotEmpty() }?.let { teamColour(it).toInt() }
+}
