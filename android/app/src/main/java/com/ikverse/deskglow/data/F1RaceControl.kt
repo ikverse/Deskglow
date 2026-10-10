@@ -17,6 +17,9 @@ enum class EventKind { Flag, Red, Penalty, Incident, Info, Pit, Position, Fastes
  */
 data class LiveEvent(val kind: EventKind, val text: String, val at: Instant)
 
+/** While a session has not started: how long before its start race control messages are still taken as its own. */
+internal val MESSAGES_FROM: java.time.Duration = java.time.Duration.ofMinutes(45)
+
 /** Everything the widgets use from race control's messages, read once whenever they change. */
 internal class RaceControl(
     val delayed: Boolean = false,
@@ -41,7 +44,7 @@ private const val KEPT_EVENTS = 6
  * Reads the message list: the snapshot is an array, and a change before any snapshot is an object
  * keyed by index. [offset] is the track's own offset from UTC, for the times race control writes in track time.
  */
-internal fun readRaceControl(topic: JSONObject?, offset: ZoneOffset): RaceControl {
+internal fun readRaceControl(topic: JSONObject?, offset: ZoneOffset, since: Instant? = null): RaceControl {
     val list = topic?.opt("Messages")
     val messages: List<JSONObject> = when (list) {
         is JSONArray -> (0 until list.length()).mapNotNull { list.optJSONObject(it) }
@@ -60,6 +63,8 @@ internal fun readRaceControl(topic: JSONObject?, offset: ZoneOffset): RaceContro
         val text = m.optString("Message").uppercase()
         if (text.isEmpty()) continue
         val at = runCatching { LocalDateTime.parse(m.optString("Utc")).toInstant(ZoneOffset.UTC) }.getOrNull() ?: continue
+        // The feed holds the last session's messages until the next one starts.
+        if (since != null && at.isBefore(since)) continue
         fun news(kind: EventKind, what: String) { events += LiveEvent(kind, what, at) }
         val car = CAR.find(text)
         val code = car?.groupValues?.get(2)

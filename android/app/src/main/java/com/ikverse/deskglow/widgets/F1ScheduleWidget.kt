@@ -118,11 +118,14 @@ object F1ScheduleWidget : WidgetType {
             // The live-timing feed says whether the session is delayed or stopped, and that it is still on after its slot.
             val pulse by feeds.f1Pulse.collectAsStateWithLifecycle()
             val plan = Plan(race, now, settings, h24, feedStatus(data.races, pulse, now))
+            val unit = canvasUnit(w, width)
+            // Measured afresh when the settings or the weekend change, not as the countdown ticks.
+            val key = listOf(settings, h24, race.name, plan.sessions.size, plan.chip != null)
             when (settings[LAYOUT]) {
-                "days" -> DaysLayout(plan, w, h)
-                "timeline" -> TimelineLayout(plan, w, h)
-                "strip" -> StripLayout(plan, w, h)
-                else -> ListLayout(plan, w, h)
+                "days" -> DaysLayout(plan, unit, key)
+                "timeline" -> TimelineLayout(plan, unit, key)
+                "strip" -> StripLayout(plan, unit, key)
+                else -> ListLayout(plan, w, h, unit)
             }
         }
     }
@@ -146,6 +149,7 @@ private class Plan(val race: F1Race, val now: Instant, settings: Settings, h24: 
         !settings[F1ScheduleWidget.SHOW_COUNTDOWN] -> null
         live != null -> when (onAir?.phase) {
             LivePhase.Delayed -> "DELAYED"
+            LivePhase.Break -> "BREAK"
             LivePhase.Red -> "RED FLAG"
             LivePhase.SafetyCar -> "SAFETY CAR"
             LivePhase.VirtualSafetyCar -> "VSC"
@@ -205,11 +209,11 @@ private fun Chip(text: String, accent: Color, px: Float) {
 
 /** A row per session: the day (on the first of each day), the session, the chip beside the one on or next, the time. */
 @Composable
-private fun ListLayout(plan: Plan, w: Float, h: Float) {
-    val row = min(h / (plan.sessions.size + 1.5f), w * 0.13f)
+private fun ListLayout(plan: Plan, w: Float, h: Float, unit: Float) {
+    val (_, row) = tableRows(plan.sessions.size, 1.5f, h, w * 0.13f, unit, least = plan.sessions.size)
     val text = row * 0.5f
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        Box(Modifier.fillMaxWidth().height(pxToDp(row * 1.3f)), contentAlignment = Alignment.CenterStart) { HeaderRow(plan, text * 0.85f, w, withChip = false) }
+        Box(Modifier.fillMaxWidth().height(pxToDp(row * 1.3f)), contentAlignment = Alignment.CenterStart) { HeaderRow(plan, Fitting.second(text, unit) * 0.85f, w, withChip = false) }
         plan.sessions.forEachIndexed { i, session ->
             val newDay = i == 0 || plan.local(plan.sessions[i - 1]).toLocalDate() != plan.local(session).toLocalDate()
             val shade = plan.shade(session)
@@ -236,31 +240,33 @@ private fun ListLayout(plan: Plan, w: Float, h: Float) {
 
 /** A column per day, its sessions and times underneath. */
 @Composable
-private fun DaysLayout(plan: Plan, w: Float, h: Float) {
+private fun DaysLayout(plan: Plan, unit: Float, key: Any?) {
     val days = plan.sessions.groupBy { plan.local(it).toLocalDate() }
-    val most = days.values.maxOf { it.size }
-    val px = min(h / (3.2f + most * 2.9f + if (plan.dates) 1f else 0f), w / days.size * 0.12f)
     val dayFormat = DateTimeFormatter.ofPattern("EEE", Locale.UK)
     val dateFormat = DateTimeFormatter.ofPattern("d MMM", Locale.UK)
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        HeaderRow(plan, px, w)
-        Spacer(Modifier.height(pxToDp(px * 0.9f)))
-        Row(Modifier.fillMaxWidth()) {
-            days.forEach { (date, sessions) ->
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        date.format(dayFormat).uppercase(), color = if (plan.current in sessions) plan.accent else Muted,
-                        fontSize = pxToSp(px * 0.9f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em, maxLines = 1, softWrap = false,
-                    )
-                    if (plan.dates) Text(date.format(dateFormat).uppercase(), color = Muted, fontSize = pxToSp(px * 0.75f), maxLines = 1, softWrap = false)
-                    Spacer(Modifier.height(pxToDp(px * 0.4f)))
-                    Box(Modifier.fillMaxWidth(0.85f).height(pxToDp((px * 0.06f).coerceAtLeast(1f))).background(Muted.copy(alpha = 0.3f)))
-                    Spacer(Modifier.height(pxToDp(px * 0.5f)))
-                    sessions.forEach { session ->
-                        val shade = plan.shade(session)
-                        Text(shortKind(session.kind), color = shade, fontSize = pxToSp(px * 0.85f), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(plan.time(session), color = shade, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+    Fit(unit, key) { f ->
+        val px = f.scale.main
+        Column(if (f.probing) Modifier else Modifier.fillMaxWidth()) {
+            HeaderRow(plan, f.scale.second, f.w)
+            Spacer(Modifier.height(pxToDp(px * 0.9f * f.scale.space)))
+            Row(if (f.probing) Modifier else Modifier.fillMaxWidth()) {
+                days.forEach { (date, sessions) ->
+                    // Spread across the width, but measured close together.
+                    Column(if (f.probing) Modifier.padding(end = pxToDp(px * 1.4f)) else Modifier.weight(1f)) {
+                        Text(
+                            date.format(dayFormat).uppercase(), color = if (plan.current in sessions) plan.accent else Muted,
+                            fontSize = pxToSp(px * 0.9f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em, maxLines = 1, softWrap = false,
+                        )
+                        if (plan.dates) Text(date.format(dateFormat).uppercase(), color = Muted, fontSize = pxToSp(px * 0.75f), maxLines = 1, softWrap = false)
+                        Spacer(Modifier.height(pxToDp(px * 0.4f)))
+                        Box(Modifier.fillMaxWidth(0.85f).height(pxToDp((px * 0.06f).coerceAtLeast(1f))).background(Muted.copy(alpha = 0.3f)))
                         Spacer(Modifier.height(pxToDp(px * 0.5f)))
+                        sessions.forEach { session ->
+                            val shade = plan.shade(session)
+                            Text(shortKind(session.kind), color = shade, fontSize = pxToSp(px * 0.85f), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(plan.time(session), color = shade, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+                            Spacer(Modifier.height(pxToDp(px * 0.5f * f.scale.space)))
+                        }
                     }
                 }
             }
@@ -273,48 +279,52 @@ private fun DaysLayout(plan: Plan, w: Float, h: Float) {
  * the session's name above its dot, its day and time below.
  */
 @Composable
-private fun TimelineLayout(plan: Plan, w: Float, h: Float) {
+private fun TimelineLayout(plan: Plan, unit: Float, key: Any?) {
     val count = plan.sessions.size
-    val px = min(h * 0.12f, w / count * 0.17f)
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        HeaderRow(plan, px, w)
-        Spacer(Modifier.height(pxToDp(px * 1.0f)))
-        Row(Modifier.fillMaxWidth()) {
-            plan.sessions.forEach { session ->
-                Text(
-                    shortKind(session.kind), color = plan.shade(session), fontSize = pxToSp(px * 0.85f), fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Spacer(Modifier.height(pxToDp(px * 0.3f)))
-        val progress = timelineProgress(plan.sessions, plan.now)
-        Canvas(Modifier.fillMaxWidth().height(pxToDp(px * 1.4f))) {
-            val cell = size.width / count
-            val y = size.height / 2
-            fun x(i: Float) = (i + 0.5f) * cell
-            val line = (px * 0.14f).coerceAtLeast(1.5f)
-            val radius = px * 0.3f
-            drawLine(Muted.copy(alpha = 0.35f), Offset(x(0f), y), Offset(x(count - 1f), y), line, StrokeCap.Round)
-            if (progress > 0f) drawLine(plan.accent, Offset(x(0f), y), Offset(x(progress), y), line, StrokeCap.Round)
-            plan.sessions.forEachIndexed { i, session ->
-                val centre = Offset(x(i.toFloat()), y)
-                when {
-                    session == plan.current -> {
-                        drawCircle(plan.accent.copy(alpha = 0.3f), radius * 2f, centre)
-                        drawCircle(plan.accent, radius * 1.2f, centre)
-                    }
-                    plan.past(session) -> drawCircle(plan.accent, radius, centre)
-                    else -> drawCircle(Muted, radius, centre)
+    Fit(unit, key) { f ->
+        val px = f.scale.main
+        // Each session's cell: shared out across the width, measured at the width its words need.
+        val cell = if (f.probing) Modifier.width(pxToDp(px * 4.6f)) else null
+        Column(if (f.probing) Modifier else Modifier.fillMaxWidth()) {
+            HeaderRow(plan, f.scale.second, f.w)
+            Spacer(Modifier.height(pxToDp(px * 1.0f * f.scale.space)))
+            Row(if (f.probing) Modifier else Modifier.fillMaxWidth()) {
+                plan.sessions.forEach { session ->
+                    Text(
+                        shortKind(session.kind), color = plan.shade(session), fontSize = pxToSp(px * 0.85f), fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = cell ?: Modifier.weight(1f),
+                    )
                 }
             }
-        }
-        Spacer(Modifier.height(pxToDp(px * 0.3f)))
-        Row(Modifier.fillMaxWidth()) {
-            plan.sessions.forEach { session ->
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(plan.day(session, long = false), color = Muted, fontSize = pxToSp(px * 0.7f), fontWeight = FontWeight.Medium, letterSpacing = 0.08.em, maxLines = 1, softWrap = false)
-                    Text(plan.time(session), color = plan.shade(session), fontSize = pxToSp(px * 0.85f), maxLines = 1, softWrap = false)
+            Spacer(Modifier.height(pxToDp(px * 0.3f)))
+            val progress = timelineProgress(plan.sessions, plan.now)
+            Canvas((if (f.probing) Modifier.width(pxToDp(px * 4.6f * count)) else Modifier.fillMaxWidth()).height(pxToDp(px * 1.4f))) {
+                val cell = size.width / count
+                val y = size.height / 2
+                fun x(i: Float) = (i + 0.5f) * cell
+                val line = (px * 0.14f).coerceAtLeast(1.5f)
+                val radius = px * 0.3f
+                drawLine(Muted.copy(alpha = 0.35f), Offset(x(0f), y), Offset(x(count - 1f), y), line, StrokeCap.Round)
+                if (progress > 0f) drawLine(plan.accent, Offset(x(0f), y), Offset(x(progress), y), line, StrokeCap.Round)
+                plan.sessions.forEachIndexed { i, session ->
+                    val centre = Offset(x(i.toFloat()), y)
+                    when {
+                        session == plan.current -> {
+                            drawCircle(plan.accent.copy(alpha = 0.3f), radius * 2f, centre)
+                            drawCircle(plan.accent, radius * 1.2f, centre)
+                        }
+                        plan.past(session) -> drawCircle(plan.accent, radius, centre)
+                        else -> drawCircle(Muted, radius, centre)
+                    }
+                }
+            }
+            Spacer(Modifier.height(pxToDp(px * 0.3f)))
+            Row(if (f.probing) Modifier else Modifier.fillMaxWidth()) {
+                plan.sessions.forEach { session ->
+                    Column(cell ?: Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(plan.day(session, long = false), color = Muted, fontSize = pxToSp(px * 0.7f), fontWeight = FontWeight.Medium, letterSpacing = 0.08.em, maxLines = 1, softWrap = false)
+                        Text(plan.time(session), color = plan.shade(session), fontSize = pxToSp(px * 0.85f), maxLines = 1, softWrap = false)
+                    }
                 }
             }
         }
@@ -334,48 +344,44 @@ internal fun timelineProgress(sessions: List<F1Session>, now: Instant): Float {
     return started + Duration.between(from, now).toMillis().toFloat() / span
 }
 
-/** Roughly how wide a session's label and time are, in units of the text size. */
-private fun stripItemWidth(plan: Plan, session: F1Session) =
-    maxOf("${shortKind(session.kind)} · ${plan.day(session, long = false)}".length * 0.55f, plan.time(session).length * 0.5f)
-
 /**
  * Every session, "FP1 · FRI" over its time: spread along one line when they fit, otherwise set
  * close together and running onto as many lines as the box has room for.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StripLayout(plan: Plan, w: Float, h: Float) {
+private fun StripLayout(plan: Plan, unit: Float, key: Any?) {
     val gap = 1.4f
-    val oneLine = plan.sessions.sumOf { stripItemWidth(plan, it).toDouble() }.toFloat() + (plan.sessions.size - 1) * gap
-    val single = w >= h && min(h * 0.2f, w * 0.042f) * oneLine <= w
-    var px = if (single) min(h * 0.2f, w * 0.042f) else min(h * 0.2f, w * 0.06f)
-    if (!single) repeat(2) {
-        val rows = Math.ceil((oneLine * px / w).toDouble()).toInt().coerceAtLeast(1)
-        px = min(px, h / (3.2f + 2.5f * rows))
-    }
-    val items: @Composable () -> Unit = {
-        plan.sessions.forEach { session ->
-            val shade = plan.shade(session)
-            Column {
-                Text(
-                    "${shortKind(session.kind)} · ${plan.day(session, long = false)}".uppercase(), color = shade,
-                    fontSize = pxToSp(px * 0.78f), fontWeight = FontWeight.Medium, letterSpacing = 0.05.em, maxLines = 1, softWrap = false,
-                )
-                Text(plan.time(session), color = shade, fontSize = pxToSp(px * 0.95f), maxLines = 1, softWrap = false)
+    Fit(unit, key, arrangements = 2) { f ->
+        val px = f.scale.main
+        val items: @Composable () -> Unit = {
+            plan.sessions.forEach { session ->
+                val shade = plan.shade(session)
+                Column {
+                    Text(
+                        "${shortKind(session.kind)} · ${plan.day(session, long = false)}".uppercase(), color = shade,
+                        fontSize = pxToSp(px * 0.78f), fontWeight = FontWeight.Medium, letterSpacing = 0.05.em, maxLines = 1, softWrap = false,
+                    )
+                    Text(plan.time(session), color = shade, fontSize = pxToSp(px * 0.95f), maxLines = 1, softWrap = false)
+                }
             }
         }
-    }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        HeaderRow(plan, px, w)
-        Spacer(Modifier.height(pxToDp(px * 0.8f)))
-        if (single) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { items() }
-        } else {
-            FlowRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(pxToDp(px * gap)),
-                verticalArrangement = Arrangement.spacedBy(pxToDp(px * 0.6f)),
-            ) { items() }
+        Column(if (f.probing) Modifier else Modifier.fillMaxWidth()) {
+            HeaderRow(plan, f.scale.second, f.w)
+            Spacer(Modifier.height(pxToDp(px * 0.8f * f.scale.space)))
+            if (f.arrangement == 0) {
+                Row(
+                    if (f.probing) Modifier else Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (f.probing) Arrangement.spacedBy(pxToDp(px * gap)) else Arrangement.SpaceBetween,
+                ) { items() }
+            } else {
+                // Wrapped at the box's width, so it is measured at that width too.
+                FlowRow(
+                    Modifier.width(pxToDp(f.w * Fitting.FILL)),
+                    horizontalArrangement = Arrangement.spacedBy(pxToDp(px * gap)),
+                    verticalArrangement = Arrangement.spacedBy(pxToDp(px * 0.6f * f.scale.space)),
+                ) { items() }
+            }
         }
     }
 }

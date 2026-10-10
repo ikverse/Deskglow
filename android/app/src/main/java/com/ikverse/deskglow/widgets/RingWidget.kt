@@ -116,6 +116,9 @@ object RingWidget : WidgetType {
                     if (settings[SHOW_BOLT] && battery.plugged) {
                         Bolt(accent, Modifier.size(pxToDp(side * 0.08f), pxToDp(side * 0.11f)))
                         Spacer(Modifier.height(pxToDp(side * 0.024f)))
+                    } else if (settings[SHOW_BOLT]) {
+                        EditorSlot("⚡", side * 0.07f)
+                        Spacer(Modifier.height(pxToDp(side * 0.024f)))
                     }
                     Text("${battery.level}%", color = colour, fontSize = pxToSp(side * 0.165f), fontWeight = FontWeight.Medium, maxLines = 1)
                     underText(under, battery)?.let { text ->

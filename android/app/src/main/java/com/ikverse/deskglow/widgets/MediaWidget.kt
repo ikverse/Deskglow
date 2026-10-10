@@ -89,42 +89,64 @@ object MediaWidget : WidgetType {
             val colour = Color(settings[Common.COLOUR])
             val align = settings[Common.ALIGN]
             val art = if (settings[PICTURE] == "art") track?.art else null
-            // The cover where there is one, a music note where there is not.
-            val lead: @Composable () -> Unit = {
-                if (art != null) {
-                    Image(art, contentDescription = null, modifier = Modifier.size(pxToDp(h * 0.82f)).clip(RoundedCornerShape(pxToDp(h * 0.08f))))
-                } else {
-                    MusicNote(Muted, Modifier.size(pxToDp(h * 0.62f)))
-                }
-            }
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                if (align != "right") {
-                    lead()
-                    Spacer(Modifier.width(pxToDp(h * 0.2f)))
-                }
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
-                    val titleSize = pxToSp(min(h * 0.34f, w * 0.05f))
-                    if (track == null) {
-                        Text("Nothing playing", color = Muted, fontSize = titleSize, maxLines = 1)
+            // The cover beside the words in a wide box, above them in a tall one; the title grows, the rest more slowly.
+            Fit(canvasUnit(w, width), listOf(settings, track == null, art != null), arrangements = 2, align = alignFraction(align)) { f ->
+                val s = f.scale
+                val title = s.main * 1.5f
+
+                // The cover where there is one, a music note where there is not.
+                @Composable
+                fun Lead() {
+                    if (art != null) {
+                        Image(art, contentDescription = null, modifier = Modifier.size(pxToDp(title * 3.4f)).clip(RoundedCornerShape(pxToDp(title * 0.33f))))
                     } else {
-                        Text(track.title, color = colour, fontSize = titleSize, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align))
-                        if (settings[SHOW_ARTIST] && track.artist.isNotBlank()) {
-                            Text(track.artist, color = Muted, fontSize = pxToSp(min(h * 0.24f, w * 0.04f)), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align))
-                        }
-                        val mode = settings[PROGRESS_MODE]
-                        if (mode != "none" && track.durationMs > 0) {
-                            Spacer(Modifier.height(pxToDp(h * 0.06f)))
-                            when (mode) {
-                                "times" -> ProgressTimes(track, min(h * 0.22f, w * 0.036f), align)
-                                "thin" -> Progress(track, colour.copy(alpha = 0.7f), Modifier.fillMaxWidth().height(pxToDp((h * 0.015f).coerceAtLeast(1f))))
-                                else -> Progress(track, colour, Modifier.fillMaxWidth().height(pxToDp((h * 0.04f).coerceAtLeast(2f))))
+                        MusicNote(Muted, Modifier.size(pxToDp(title * 2.6f)))
+                    }
+                }
+
+                @Composable
+                fun Words(modifier: Modifier) {
+                    Column(modifier, verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+                        if (track == null) {
+                            Text("Nothing playing", color = Muted, fontSize = pxToSp(title), maxLines = 1)
+                        } else {
+                            Text(f.sample(track.title, 22), color = colour, fontSize = pxToSp(title), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align))
+                            if (settings[SHOW_ARTIST] && track.artist.isNotBlank()) {
+                                Text(f.sample(track.artist, 26), color = Muted, fontSize = pxToSp(s.second * 1.1f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align))
+                            }
+                            if (settings[SHOW_ARTIST] && track.artist.isBlank()) EditorSlot("Artist", s.second * 1.1f)
+                            val mode = settings[PROGRESS_MODE]
+                            if (mode != "none" && track.durationMs > 0) {
+                                Spacer(Modifier.height(pxToDp(s.second * 0.4f * s.space)))
+                                val bar = if (f.probing) Modifier.width(pxToDp(title * 5f)) else Modifier.fillMaxWidth()
+                                when (mode) {
+                                    "times" -> ProgressTimes(track, s.second * 0.95f, align)
+                                    "thin" -> Progress(track, colour.copy(alpha = 0.7f), bar.height(pxToDp((s.second * 0.08f).coerceAtLeast(1f))))
+                                    else -> Progress(track, colour, bar.height(pxToDp((s.second * 0.2f).coerceAtLeast(2f))))
+                                }
                             }
                         }
                     }
                 }
-                if (align == "right") {
-                    Spacer(Modifier.width(pxToDp(h * 0.2f)))
-                    lead()
+
+                if (f.arrangement == 0) {
+                    Row(if (f.probing) Modifier else Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (align != "right") {
+                            Lead()
+                            Spacer(Modifier.width(pxToDp(title * 0.8f)))
+                        }
+                        Words(if (f.probing) Modifier else Modifier.weight(1f))
+                        if (align == "right") {
+                            Spacer(Modifier.width(pxToDp(title * 0.8f)))
+                            Lead()
+                        }
+                    }
+                } else {
+                    Column(if (f.probing) Modifier else Modifier.fillMaxWidth(), horizontalAlignment = horizontal(align)) {
+                        Lead()
+                        Spacer(Modifier.height(pxToDp(s.second * 0.6f * s.space)))
+                        Words(if (f.probing) Modifier else Modifier.fillMaxWidth())
+                    }
                 }
             }
         }

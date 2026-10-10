@@ -168,30 +168,30 @@ object StatWidget : WidgetType {
             val h = constraints.maxHeight.toFloat()
             val mode = settings[LABEL_MODE]
             val beside = mode == "beside"
-            // With the graph there is less room for the number and its label.
-            val body = if (graph) h * 0.74f else h
-            val valueSize = min(body * 0.56f, w * (if (beside) 0.15f else 0.22f))
-            val number = buildAnnotatedString {
-                append(value)
-                if (unit.isNotEmpty()) withStyle(SpanStyle(color = Color(settings[ACCENT]), fontSize = pxToSp(valueSize * 0.64f), fontWeight = FontWeight.Normal)) {
-                    append(" $unit")
-                }
-            }
             val colour = Color(settings[Common.COLOUR])
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                // The number and its label as large as the room above the graph allows; the label grows more slowly.
+                Fit(canvasUnit(w, width), listOf(settings, unit.isNotEmpty()), Modifier.weight(1f).fillMaxWidth(), align = alignFraction(align)) { f ->
+                    val s = f.scale
+                    val valueSize = s.main * 2.4f
+                    val number = buildAnnotatedString {
+                        append(value)
+                        if (unit.isNotEmpty()) withStyle(SpanStyle(color = Color(settings[ACCENT]), fontSize = pxToSp(valueSize * 0.64f), fontWeight = FontWeight.Normal)) {
+                            append(" $unit")
+                        }
+                    }
                     if (beside) {
-                        Row(Modifier.fillMaxSize(), horizontalArrangement = arrangementOf(align), verticalAlignment = Alignment.Bottom) {
+                        Row(verticalAlignment = Alignment.Bottom) {
                             Text(number, color = colour, fontSize = pxToSp(valueSize), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
-                            Spacer(Modifier.width(pxToDp(h * 0.12f)))
-                            Text(label, color = Muted, fontSize = pxToSp(min(body * 0.26f, w * 0.08f)), maxLines = 1, softWrap = false, modifier = Modifier.padding(bottom = pxToDp(h * 0.1f)))
+                            Spacer(Modifier.width(pxToDp(s.second * 0.5f)))
+                            Text(label, color = Muted, fontSize = pxToSp(s.second * 1.05f), maxLines = 1, softWrap = false, modifier = Modifier.padding(bottom = pxToDp(valueSize * 0.12f)))
                         }
                     } else {
-                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+                        Column(horizontalAlignment = horizontal(align)) {
                             Text(number, color = colour, fontSize = pxToSp(valueSize), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, textAlign = textAlign(align))
                             if (mode == "under") {
-                                Spacer(Modifier.height(pxToDp(body * 0.06f)))
-                                Text(label, color = Muted, fontSize = pxToSp(min(body * 0.26f, w * 0.11f)), maxLines = 1, textAlign = textAlign(align))
+                                Spacer(Modifier.height(pxToDp(s.second * 0.3f * s.space)))
+                                Text(label, color = Muted, fontSize = pxToSp(s.second * 1.05f), maxLines = 1, softWrap = false, textAlign = textAlign(align))
                             }
                         }
                     }

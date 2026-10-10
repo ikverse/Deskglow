@@ -22,6 +22,7 @@ import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,6 +34,7 @@ import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
 import com.ikverse.deskglow.widgets.Common
+import com.ikverse.deskglow.widgets.LocalCanvasBox
 import com.ikverse.deskglow.widgets.Widgets
 import java.time.LocalDateTime
 import kotlin.math.min
@@ -97,7 +99,7 @@ fun WidgetBody(item: WidgetItem, modifier: Modifier) {
     // while its neighbours are dragged about.
     val settings = remember(item.settings, type) { type.resolve(item.settings) }
     Box(modifier.graphicsLayer { alpha = settings[Common.OPACITY] / 100f }) {
-        CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle) { type.Content(settings) }
+        CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle, LocalCanvasBox provides IntSize(item.box.w, item.box.h)) { type.Content(settings) }
     }
 }
 
