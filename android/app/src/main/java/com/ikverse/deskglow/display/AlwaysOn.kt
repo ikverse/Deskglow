@@ -215,11 +215,13 @@ class AlwaysOnService : Service() {
                 Intent.ACTION_SCREEN_OFF -> screenOff()
                 Intent.ACTION_SCREEN_ON -> pending?.cancel()
                 Intent.ACTION_USER_PRESENT -> DeskglowPresence.closeAlwaysOn()
-                Intent.ACTION_DREAMING_STARTED -> {
+                // A screen saver starts while the screen is on. A "dream" that starts after the screen is off
+                // is the system's own doze (Samsung's always-on display and the like), which must not hold this back.
+                Intent.ACTION_DREAMING_STARTED -> if (getSystemService(PowerManager::class.java).isInteractive) {
                     dreaming = true
                     DeskglowPresence.closeAlwaysOn()
                 }
-                Intent.ACTION_DREAMING_STOPPED -> {
+                Intent.ACTION_DREAMING_STOPPED -> if (dreaming) {
                     dreaming = false
                     dreamEnded = SystemClock.elapsedRealtime()
                 }
