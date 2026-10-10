@@ -29,7 +29,7 @@ enum class Prayer(val english: String, val arabic: String) {
 }
 
 /** The five times for one day, in the place's own time. */
-data class PrayerDay(val date: LocalDate, val times: Map<Prayer, LocalTime>)
+data class PrayerDay(val date: LocalDate, val times: Map<Prayer, LocalTime>, /** Sunrise (Shuruq), when the answer had it. */ val sunrise: LocalTime? = null)
 
 sealed interface PrayerState {
     data object NoLocation : PrayerState
@@ -108,7 +108,10 @@ class PrayerRepository(
                 json.getString("key"), LocalDate.parse(json.getString("date")), City.fromJson(json.getString("city"))!!,
                 (0 until days.length()).map { i ->
                     val day = days.getJSONObject(i)
-                    PrayerDay(LocalDate.parse(day.getString("date")), Prayer.entries.associateWith { LocalTime.parse(day.getString(it.name)) })
+                    PrayerDay(
+                        LocalDate.parse(day.getString("date")), Prayer.entries.associateWith { LocalTime.parse(day.getString(it.name)) },
+                        day.optString("Sunrise").takeIf { it.isNotEmpty() }?.let { LocalTime.parse(it) },
+                    )
                 },
             )
         }.getOrNull()
@@ -116,7 +119,7 @@ class PrayerRepository(
 
     private fun cacheJson(c: Cached): String = JSONObject()
         .put("key", c.key).put("date", c.date.toString()).put("city", c.city.toJson())
-        .put("days", JSONArray(c.days.map { day -> JSONObject().put("date", day.date.toString()).also { o -> day.times.forEach { (p, t) -> o.put(p.name, t.toString()) } } }))
+        .put("days", JSONArray(c.days.map { day -> JSONObject().put("date", day.date.toString()).also { o -> day.times.forEach { (p, t) -> o.put(p.name, t.toString()) }; day.sunrise?.let { o.put("Sunrise", it.toString()) } } }))
         .toString()
 
     companion object {
@@ -138,7 +141,8 @@ class PrayerRepository(
 internal fun parsePrayerDay(body: String, date: LocalDate): PrayerDay {
     val timings = JSONObject(body).getJSONObject("data").getJSONObject("timings")
     // Times come as "04:31", or "04:31 (EET)" when a time zone is asked for.
-    return PrayerDay(date, Prayer.entries.associateWith { LocalTime.parse(timings.getString(it.name).take(5)) })
+    val sunrise = timings.optString("Sunrise").takeIf { it.length >= 5 }?.let { runCatching { LocalTime.parse(it.take(5)) }.getOrNull() }
+    return PrayerDay(date, Prayer.entries.associateWith { LocalTime.parse(timings.getString(it.name).take(5)) }, sunrise)
 }
 
 /** The next prayer after [now], and when. Null only when the days given are all in the past. */

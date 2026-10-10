@@ -621,6 +621,23 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `prayer times with sunrise and the Hijri date, in a row and on the arc`() {
+        feeds.prayers.value = PrayerState.Ready(cairo, tonight.map { it.copy(sunrise = LocalTime.of(5, 52)) })
+        feeds.minute.value = LocalDateTime.of(2026, 10, 7, 12, 30)
+        feeds.second.value = LocalDateTime.of(2026, 10, 7, 12, 30, 5)
+        val prayer = PrayerWidget
+        val shown = prayer.defaults.with(prayer.SHOW_SUNRISE, true).with(prayer.SHOW_HIJRI, true)
+        val items = listOf(
+            WidgetItem("p1", prayer.id, Box(8, 8, 396, 110), true, shown),
+            WidgetItem("p2", prayer.id, Box(8, 130, 396, 130), true, shown.with(prayer.VIEW, "arc")),
+            WidgetItem("p3", prayer.id, Box(8, 272, 396, 110), true, shown.with(com.ikverse.deskglow.widgets.Common.ARABIC, true).with(com.ikverse.deskglow.widgets.Common.ALIGN, "right")),
+            WidgetItem("p4", prayer.id, Box(8, 394, 396, 60), true, shown.with(prayer.VIEW, "next")),
+        )
+        show(Layout(items))
+        save("prayer-sunrise-and-hijri")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)
