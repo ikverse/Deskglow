@@ -68,13 +68,14 @@ object NotificationHub {
 
     internal fun refresh(watcher: NotificationWatcher) {
         val active = runCatching { watcher.activeNotifications?.toList().orEmpty() }.getOrDefault(emptyList())
+        val counts = notificationCounts(watcher.packageName, active)
         apps.value = notifiedApps(watcher.packageName, active).take(MAX_APPS).map { sbn ->
             icons.getOrPut(sbn.packageName) {
                 val icon = runCatching {
                     sbn.notification.smallIcon?.loadDrawable(watcher)?.toBitmap(ICON_PX, ICON_PX)?.asImageBitmap()
                 }.getOrNull()
                 NotifiedApp(sbn.packageName, icon)
-            }
+            }.copy(count = counts[sbn.packageName] ?: 1)
         }
     }
 
@@ -83,10 +84,16 @@ object NotificationHub {
      * (music, downloads, "USB debugging") and Deskglow's own are left out, as the always-on display does.
      */
     internal fun notifiedApps(ownPackage: String, active: List<StatusBarNotification>): List<StatusBarNotification> =
-        active
-            .filter { !it.isOngoing && it.packageName != ownPackage }
+        worthShowing(ownPackage, active)
             .sortedByDescending { it.postTime }
             .distinctBy { it.packageName }
+
+    /** How many of those each app has up, for the number beside its icon. */
+    internal fun notificationCounts(ownPackage: String, active: List<StatusBarNotification>): Map<String, Int> =
+        worthShowing(ownPackage, active).groupingBy { it.packageName }.eachCount()
+
+    private fun worthShowing(ownPackage: String, active: List<StatusBarNotification>) =
+        active.filter { !it.isOngoing && it.packageName != ownPackage }
 }
 
 /** The notification listener Android talks to. All it does is tell [NotificationHub] when things change. */

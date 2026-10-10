@@ -3,13 +3,16 @@ package com.ikverse.deskglow.widgets
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.NotificationState
@@ -26,10 +30,13 @@ import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.IntKey
 import com.ikverse.deskglow.model.Settings
 import com.ikverse.deskglow.model.TextKey
+import kotlin.math.min
 
 object NotificationsWidget : WidgetType {
     val MAX = IntKey("max", 5)
     val MORE = FlagKey("more", true)
+    /** The number of notifications beside each app's icon. */
+    val COUNTS = FlagKey("counts", false)
     /** "plain" icons, "pill" (the icons in a dim capsule) or "dots" (a dot for each app). */
     val STYLE = TextKey("style", "plain")
     /** "nothing", or "text" to say "All caught up" with no notifications. */
@@ -47,6 +54,7 @@ object NotificationsWidget : WidgetType {
         SliderField("Icons shown", MAX, 3..8),
         ChoiceField("When empty", EMPTY, listOf("nothing" to "Nothing", "text" to "All caught up")),
         ToggleField("Show +N when there are more", MORE),
+        ToggleField("Show how many from each app", COUNTS),
         Common.alignField,
         Common.colourField,
         Common.brightnessField,
@@ -83,10 +91,19 @@ object NotificationsWidget : WidgetType {
                         Row(capsule, verticalAlignment = Alignment.CenterVertically) {
                             shown.forEach { app ->
                                 val bitmap = app.icon
-                                if (bitmap != null && style != "dots") {
-                                    Image(bitmap, contentDescription = null, colorFilter = ColorFilter.tint(colour), modifier = Modifier.padding(horizontal = pxToDp(icon * 0.32f)).size(pxToDp(icon)))
-                                } else {
-                                    Canvas(Modifier.padding(horizontal = pxToDp(icon * 0.32f)).size(pxToDp(icon))) { drawCircle(colour, size.minDimension * 0.3f) }
+                                Box(Modifier.padding(horizontal = pxToDp(icon * 0.32f)).size(pxToDp(icon))) {
+                                    if (bitmap != null && style != "dots") {
+                                        Image(bitmap, contentDescription = null, colorFilter = ColorFilter.tint(colour), modifier = Modifier.fillMaxSize())
+                                    } else {
+                                        Canvas(Modifier.fillMaxSize()) { drawCircle(colour, size.minDimension * 0.3f) }
+                                    }
+                                    if (settings[COUNTS] && app.count > 1) {
+                                        Text(
+                                            "${min(app.count, 99)}", color = Color.Black, fontSize = pxToSp(icon * 0.42f), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+                                            modifier = Modifier.align(Alignment.TopEnd).offset(x = pxToDp(icon * 0.24f), y = pxToDp(-icon * 0.12f))
+                                                .background(colour, CircleShape).padding(horizontal = pxToDp(icon * 0.14f)),
+                                        )
+                                    }
                                 }
                             }
                             if (settings[MORE] && extra > 0) Text("+$extra", color = Muted, fontSize = pxToSp(h * 0.46f), modifier = Modifier.padding(end = pxToDp(icon * 0.2f)))

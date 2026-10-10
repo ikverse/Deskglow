@@ -638,6 +638,25 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `notification counts beside the icons, and the stat showing the charger, the health and the cycles`() {
+        feeds.notifications.value = com.ikverse.deskglow.data.NotificationState.Apps(
+            listOf(com.ikverse.deskglow.data.NotifiedApp("a", null, 3), com.ikverse.deskglow.data.NotifiedApp("b", null, 1), com.ikverse.deskglow.data.NotifiedApp("c", null, 12)),
+        )
+        feeds.battery.value = com.ikverse.deskglow.data.BatteryState(80, com.ikverse.deskglow.data.ChargeStatus.Charging, true, 4100, 335, 500, 5_400_000L, plugSource = 4, healthCode = 2, cycles = 212)
+        val notifs = com.ikverse.deskglow.widgets.NotificationsWidget
+        val stat = com.ikverse.deskglow.widgets.StatWidget
+        val items = listOf(
+            WidgetItem("n1", notifs.id, Box(8, 8, 396, 40), true, notifs.defaults.with(notifs.COUNTS, true)),
+            WidgetItem("n2", notifs.id, Box(8, 60, 396, 40), true, notifs.defaults.with(notifs.COUNTS, true).with(notifs.STYLE, "pill")),
+            WidgetItem("s1", stat.id, Box(8, 120, 120, 56), true, stat.defaults.with(stat.METRIC, "charger")),
+            WidgetItem("s2", stat.id, Box(140, 120, 120, 56), true, stat.defaults.with(stat.METRIC, "health")),
+            WidgetItem("s3", stat.id, Box(272, 120, 120, 56), true, stat.defaults.with(stat.METRIC, "cycles")),
+        )
+        show(Layout(items))
+        save("notification-counts-and-battery-readings")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)
