@@ -6,4 +6,6 @@
     <string name="widget_label">Deskglow start</string>
     <string name="widget_description">One tap to show the display full screen, without waiting for the charger.</string>
     <string name="widget_button">Start</string>
+    <string name="widget_tagline">Tap to start</string>
+    <string name="widget_start_display">Start display</string>
 </resources>

@@ -1,25 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The home-screen widget: a dark tile that starts the display when pressed. -->
+<!-- Wide size (about 2x1): ring and bolt on the left, name and prompt beside it. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/start_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_background"
-    android:gravity="center"
+    android:gravity="center_vertical"
     android:orientation="horizontal"
     android:padding="12dp">
 
     <ImageView
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:contentDescription="@null"
-        android:src="@drawable/ic_start" />
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_widget_ring" />
 
-    <TextView
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="10dp"
-        android:text="@string/widget_button"
-        android:textColor="#FFE6E6E6"
-        android:textSize="18sp" />
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:text="@string/tile_label"
+            android:textColor="@color/brand_text"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:text="@string/widget_tagline"
+            android:textColor="@color/brand_green"
+            android:textSize="13sp" />
+    </LinearLayout>
 </LinearLayout>

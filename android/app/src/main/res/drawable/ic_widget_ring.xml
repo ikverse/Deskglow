@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's charging ring with its bolt, cropped tight so the widget can scale it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="60dp"
+    android:height="60dp"
+    android:viewportWidth="60"
+    android:viewportHeight="60">
+    <group
+        android:translateX="-24"
+        android:translateY="-24">
+        <path
+            android:pathData="M38.44,69.56 A22,22 0 1,1 69.56,69.56"
+            android:strokeColor="@color/brand_track"
+            android:strokeWidth="5"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M38.44,69.56 A22,22 0 1,1 69.56,38.44"
+            android:strokeColor="@color/brand_green"
+            android:strokeWidth="5"
+            android:strokeLineCap="round" />
+        <path
+            android:fillColor="@color/brand_green"
+            android:pathData="M56.5,42 L47,56 L53.5,56 L51.5,66 L61,52 L54.5,52 Z" />
+    </group>
+</vector>
