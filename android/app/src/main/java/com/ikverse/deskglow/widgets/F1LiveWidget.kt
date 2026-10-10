@@ -18,6 +18,7 @@ import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.TrackFlag
 import com.ikverse.deskglow.data.countdownText
 import com.ikverse.deskglow.data.effectiveFavourite
+import com.ikverse.deskglow.data.heldBack
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.IntKey
@@ -30,8 +31,28 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 object F1LiveWidget : WidgetType {
-    /** "tower" (the classification), "glance" (the flag, big), "focus" (the followed car and its neighbours) or "line". */
+    /** "tower" (the classification), "glance" (the flag, big), "focus" (the followed car and its neighbours), "line" or "track" (the cars on a map). */
     val LAYOUT = TextKey("layout", "tower")
+
+    // The track map's own choices.
+    /** Which cars are named on the map: "me" (the followed car), "leader" (it and the leader), "top3", "all" or "none". */
+    val TRACK_LABELS = TextKey("trackLabels", "me")
+    /** Which cars are drawn bigger: "driver" (the followed car), "team" (both of the followed team's) or "none". */
+    val TRACK_HIGHLIGHT = TextKey("trackHighlight", "driver")
+    /** Fade every car but the highlighted ones. */
+    val TRACK_DIM = FlagKey("trackDim", false)
+    /** "small", "medium" or "large". */
+    val CAR_SIZE = TextKey("carSize", "medium")
+    /** "thin", "normal" or "bold". */
+    val TRACK_WIDTH = TextKey("trackWidth", "normal")
+    /** How far the map is turned clockwise, in degrees: "0", "90", "180" or "270". */
+    val TRACK_TURN = TextKey("trackTurn", "0")
+    /** What goes beside the map: "pit" (cars in the pits and out), "top3", "around" (the cars either side of the followed one) or "none". */
+    val TRACK_SIDE = TextKey("trackSide", "pit")
+    val START_LINE = FlagKey("startLine", true)
+    val CORNERS = FlagKey("corners", false)
+    /** The track drawn in the flag's colour while a flag is out. */
+    val TRACK_FLAG = FlagKey("trackFlag", true)
     val ROWS = IntKey("rows", 10)
     /** "auto" (the car ahead in a race, the leader otherwise), "leader" for the gap to the leader, "ahead" for the gap to the car in front. */
     val GAP = TextKey("gap", "auto")
@@ -48,6 +69,8 @@ object F1LiveWidget : WidgetType {
     /** "code" (VER), "number" (1) or "surname" (VERSTAPPEN). */
     val NAMES = TextKey("names", "code")
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
+    /** Seconds the timing is held back, to line up with a TV picture that lags it. */
+    val DELAY = IntKey("broadcastDelay", 0)
 
     override val id = "f1live"
     override val label = "F1 live session"
@@ -57,9 +80,20 @@ object F1LiveWidget : WidgetType {
     override val defaults: Settings = Common.base()
 
     override fun fields(settings: Settings) = buildList {
-        add(LayoutField("Layout", LAYOUT, listOf("tower" to "Tower", "glance" to "Glance", "focus" to "Focus", "line" to "One line")))
+        val track = settings[LAYOUT] == "track"
+        add(LayoutField("Layout", LAYOUT, listOf("tower" to "Tower", "glance" to "Glance", "focus" to "Focus", "line" to "One line", "track" to "Track map")))
+        add(SliderField("Broadcast delay", DELAY, 0..90, " s"))
         if (settings[LAYOUT] == "tower") add(SliderField("Rows", ROWS, 3..20))
         if (settings[LAYOUT] == "tower") add(ChoiceField("Gap", GAP, listOf("auto" to "Automatic", "leader" to "To the leader", "ahead" to "To the car ahead")))
+        if (track) {
+            add(ChoiceField("Car labels", TRACK_LABELS, listOf("me" to "My driver", "leader" to "My driver and leader", "top3" to "Top 3", "all" to "Everyone", "none" to "None")))
+            add(ChoiceField("Highlight", TRACK_HIGHLIGHT, listOf("driver" to "My driver", "team" to "My team", "none" to "None")))
+            add(ToggleField("Dim other cars", TRACK_DIM))
+            add(ChoiceField("Car size", CAR_SIZE, listOf("medium" to "Medium", "small" to "Small", "large" to "Large")))
+            add(ChoiceField("Track width", TRACK_WIDTH, listOf("normal" to "Normal", "thin" to "Thin", "bold" to "Bold")))
+            add(ChoiceField("Turn the map", TRACK_TURN, listOf("0" to "As drawn", "90" to "90°", "180" to "180°", "270" to "270°")))
+            add(ChoiceField("Beside the map", TRACK_SIDE, listOf("pit" to "Pit and out", "top3" to "Top 3", "around" to "Around my driver", "none" to "Nothing")))
+        }
         add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "My driver (from Home)", "none" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
         add(ChoiceField("Favourite team", FAV_TEAM, listOf("" to "My team (from Home)", "none" to "None") + F1Roster.teams))
         add(ToggleField("Team colour as accent", TEAM_ACCENT))
@@ -67,7 +101,14 @@ object F1LiveWidget : WidgetType {
         add(
             ShowField(
                 "Show",
-                listOf(SHOW_FLAG to "Flag and clock", BORDER to "Flag border", TYRES to "Tyres", GAINED to "Places gained", NEWS to "Latest news"),
+                if (track) {
+                    listOf(
+                        SHOW_FLAG to "Flag and clock", BORDER to "Flag border", NEWS to "Latest news",
+                        START_LINE to "Start line", CORNERS to "Corner numbers", TRACK_FLAG to "Track in flag colour",
+                    )
+                } else {
+                    listOf(SHOW_FLAG to "Flag and clock", BORDER to "Flag border", TYRES to "Tyres", GAINED to "Places gained", NEWS to "Latest news")
+                },
             ),
         )
         add(Common.timeFormatField())
@@ -78,15 +119,21 @@ object F1LiveWidget : WidgetType {
 
     override fun note(settings: Settings) =
         "Live timing from Formula 1's own live-timing feed, which is unofficial and may stop working; results between sessions from it or from OpenF1. " +
+            (if (settings[LAYOUT] == "track") "On the map each car is placed from the last of the timing's mini-sectors it went through, so it is close but not exact; track outlines from MultiViewer. " else "") +
+            (if (settings[DELAY] > 0) "Shown ${settings[DELAY]} s behind the live timing to match the broadcast. " else "") +
             "Connects only while a session runs. Not affiliated with Formula 1."
 
     @Composable
     override fun Content(settings: Settings) {
         val feeds = LocalFeeds.current
-        val state by feeds.f1Live.collectAsStateWithLifecycle()
+        val editing = LocalEditing.current
+        // Held back to line up with the TV; the clock is set back with it, so countdowns and cars on the map match what is shown.
+        val delayMs = if (editing) 0L else settings[DELAY] * 1000L
+        val held = remember(feeds.f1Live, delayMs) { feeds.f1Live.heldBack(delayMs) }
+        val state by held.collectAsStateWithLifecycle(feeds.f1Live.value)
+        val lag = Duration.ofMillis(delayMs)
         val minute by feeds.minute.collectAsStateWithLifecycle()
         val app by LocalF1Favourite.current.collectAsStateWithLifecycle()
-        val editing = LocalEditing.current
         val zone = ZoneId.systemDefault()
         val driver = effectiveFavourite(settings[FAVOURITE], app.driver)
         val team = effectiveFavourite(settings[FAV_TEAM], app.team)
@@ -100,29 +147,35 @@ object F1LiveWidget : WidgetType {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val (session, live) = shown ?: return@BoxWithConstraints
             val sample = state == F1LiveState.Waiting
-            // Seconds only matter where a clock is counting down on screen; everywhere else the minute tick is enough.
-            val counting = live && session.running && session.clockRunning && !session.isRace && session.remaining != null
+            val onMap = settings[LAYOUT] == "track"
+            // Seconds only matter where a clock is counting down on screen, or cars are moving round the map; everywhere else the minute tick is enough.
+            val counting = live && session.running && (onMap || session.clockRunning && !session.isRace && session.remaining != null)
             val now = when {
                 sample -> F1LiveSample.AT
                 counting -> {
                     val second by feeds.second.collectAsStateWithLifecycle()
-                    second.atZone(zone).toInstant()
+                    second.atZone(zone).toInstant() - lag
                 }
-                else -> minute.atZone(zone).toInstant()
+                else -> minute.atZone(zone).toInstant() - lag
             }
             val followed = followedRow(session, driver, team)
             val noticed = if (live && !sample) {
                 val tracker = remember { FollowTracker() }
                 remember(session, followed?.code) { tracker.observe(session, followed?.code.orEmpty(), now) }
             } else null
-            val next = if (live) null else {
-                val calendar by feeds.f1.collectAsStateWithLifecycle()
-                nextSession(calendar, minute.atZone(zone).toInstant())
-            }
+            val calendar = if (!live || onMap) feeds.f1.collectAsStateWithLifecycle().value else null
+            val next = if (live) null else calendar?.let { nextSession(it, minute.atZone(zone).toInstant()) }
+            // The map's outline: the one fetched for this session, else the race-weekend widget's for this weekend, else the sample's in the editor.
+            val track = if (!onMap) null else session.track
+                ?: (calendar as? F1State.Ready)?.data?.track?.takeIf { live }
+                ?: F1LiveSample.track.takeIf { sample }
             val colour = if (settings[TEAM_ACCENT]) followed?.teamColour else null
             val styled = if (colour != null) settings.with(ACCENT, colour.toInt()) else settings
             LiveFace(
-                Board(styled, session, live, session.phase(now), now, h24, driver, team, followed?.code.orEmpty(), next, newsToShow(session, noticed, now, settings[NAMES]).takeIf { live }),
+                Board(
+                    styled, session, live, session.phase(now), now, h24, driver, team, followed?.code.orEmpty(), next,
+                    newsToShow(session, noticed, now, settings[NAMES]).takeIf { live }, track,
+                ),
                 constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(),
             )
         }

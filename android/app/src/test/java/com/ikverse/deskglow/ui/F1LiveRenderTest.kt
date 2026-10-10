@@ -251,12 +251,80 @@ class F1LiveRenderTest {
         assertTrue(shows("COLAPINTO stopped on track"))
     }
 
+    /** The track map with [changes] to its own settings. */
+    private fun map(vararg changes: Pair<com.ikverse.deskglow.model.Key<*>, Any>): Settings {
+        var s = settings("track")
+        @Suppress("UNCHECKED_CAST")
+        for ((key, value) in changes) s = when (value) {
+            is Boolean -> s.with(key as com.ikverse.deskglow.model.Key<Boolean>, value)
+            else -> s.with(key as com.ikverse.deskglow.model.Key<String>, value as String)
+        }
+        return s
+    }
+
+    @Test
+    fun `the track map puts the cars on the outline, wide and tall, with each thing beside it`() {
+        at(F1LiveSample.AT.plusSeconds(3))
+        feeds.f1Live.value = F1LiveState.Live(F1LiveSample.race.copy(track = F1LiveSample.track))
+        show(
+            Layout(
+                listOf(
+                    WidgetItem("wide", F1LiveWidget.id, Box(8, 8, 384, 200), true, map(F1LiveWidget.CORNERS to true, F1LiveWidget.TRACK_LABELS to "top3")),
+                    WidgetItem("top", F1LiveWidget.id, Box(8, 216, 188, 300), true, map(F1LiveWidget.TRACK_SIDE to "top3", F1LiveWidget.TRACK_LABELS to "all", F1LiveWidget.CAR_SIZE to "small")),
+                    WidgetItem(
+                        "around", F1LiveWidget.id, Box(204, 216, 188, 300), true,
+                        map(F1LiveWidget.TRACK_SIDE to "around", F1LiveWidget.TRACK_TURN to "90", F1LiveWidget.TRACK_HIGHLIGHT to "team", F1LiveWidget.TRACK_DIM to true, F1LiveWidget.TRACK_WIDTH to "bold", F1LiveWidget.CAR_SIZE to "large"),
+                    ),
+                    WidgetItem("bare", F1LiveWidget.id, Box(8, 524, 384, 160), true, map(F1LiveWidget.TRACK_SIDE to "none", F1LiveWidget.TRACK_LABELS to "none", F1LiveWidget.START_LINE to false, F1LiveWidget.TRACK_FLAG to false)),
+                ),
+            ),
+        )
+        save("f1-live-track-map")
+        assertTrue(shows("SAFETY CAR"))
+        assertTrue(shows("Lap 8/21"))
+        // The sample's car in the pits is listed beside the map, not drawn on it.
+        assertTrue(shows("In pit"))
+        assertTrue(shows("COL"))
+        // The top 3, and the cars either side of the followed one (NOR, fourth).
+        assertTrue(shows("LEC"))
+        assertTrue(shows("PIA"))
+        assertFalse(shows("Cars show once"))
+    }
+
+    @Test
+    fun `without an outline the map is a ring, and before the cars run it says so`() {
+        at(F1LiveSample.AT)
+        feeds.f1Live.value = F1LiveState.Live(F1LiveSample.race.copy(rows = F1LiveSample.race.rows.map { it.copy(spot = null) }))
+        show(Layout(listOf(WidgetItem("ring", F1LiveWidget.id, Box(8, 8, 188, 300), true, map()))))
+        save("f1-live-track-map-ring")
+        assertTrue(shows("Cars show once they are out on track"))
+    }
+
+    @Test
+    fun `the track map falls back to the race-weekend widget's outline, and a stale car is left off`() {
+        at(F1LiveSample.AT.plusSeconds(600))
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1LiveSample.track))
+        feeds.f1Live.value = F1LiveState.Live(F1LiveSample.race)
+        show(Layout(listOf(WidgetItem("stale", F1LiveWidget.id, Box(8, 8, 384, 200), true, map()))))
+        save("f1-live-track-map-stale")
+        // Ten minutes without a mini-sector is more than two laps: none of the sample's cars is still drawn.
+        assertTrue(shows("Cars show once they are out on track"))
+    }
+
     @Test
     fun `the editor shows a made-up session where there is none, so every layout can be seen`() {
         show(everyLayout(), editing = true)
         save("f1-live-layouts-editor-sample")
         assertTrue(shows("SAFETY CAR"))
         assertTrue(shows("VER"))
+    }
+
+    @Test
+    fun `the editor's track map has the sample's circuit and cars`() {
+        show(Layout(listOf(WidgetItem("map", F1LiveWidget.id, Box(8, 8, 384, 220), true, map(F1LiveWidget.CORNERS to true)))), editing = true)
+        save("f1-live-track-map-editor")
+        assertTrue(shows("SAFETY CAR"))
+        assertFalse(shows("Cars show once"))
     }
 
     @Test
