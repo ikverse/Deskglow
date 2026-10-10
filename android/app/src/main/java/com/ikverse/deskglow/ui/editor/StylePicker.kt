@@ -175,7 +175,7 @@ private fun Preview(kind: StyleKind, settings: Settings, id: String) {
     when (kind) {
         StyleKind.Clock -> {
             val arabic = Common.arabicDigits(settings)
-            ClockFace(id, TimeText.parts(now, Common.use24Hour(settings), settings[ClockWidget.SECONDS], arabic), colour, arabic)
+            ClockFace(id, TimeText.parts(now, Common.use24Hour(settings), settings[ClockWidget.SECONDS_MODE] == "digits", arabic, leadingZero = settings[ClockWidget.LEADING_ZERO]), colour, arabic)
         }
         StyleKind.Date -> DateFace(settings.with(Common.ALIGN, "center"), id, now.toLocalDate(), Modifier.fillMaxSize())
         StyleKind.Weather -> {

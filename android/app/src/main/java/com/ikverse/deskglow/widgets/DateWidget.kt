@@ -17,6 +17,8 @@ object DateWidget : WidgetType {
     val FORMAT = TextKey("format", "short")
     /** "thin" (the phone's font, light) or a font id. */
     val FONT = TextKey("font", "thin")
+    /** "normal", or "upper" for capitals (English only). */
+    val CASE = TextKey("case", "normal")
 
     override val id = "date"
     override val label = "Date"
@@ -29,6 +31,7 @@ object DateWidget : WidgetType {
         add(StyleField("Font", FONT, StyleKind.Date))
         add(ChoiceField("Format", FORMAT, if (settings[Common.ARABIC]) TimeText.DATE_FORMATS_ARABIC else TimeText.DATE_FORMATS))
         addAll(Common.arabicFields(settings))
+        if (!settings[Common.ARABIC]) add(ChoiceField("Letters", CASE, listOf("normal" to "As written", "upper" to "UPPERCASE")))
         add(Common.alignField)
         add(Common.colourField)
         add(Common.brightnessField)
@@ -52,7 +55,8 @@ object DateWidget : WidgetType {
 @Composable
 fun DateFace(settings: Settings, font: String, date: java.time.LocalDate, modifier: Modifier) {
     val arabic = settings[Common.ARABIC]
-    val text = TimeText.date(date, settings[DateWidget.FORMAT], arabic, Common.arabicDigits(settings))
+    val written = TimeText.date(date, settings[DateWidget.FORMAT], arabic, Common.arabicDigits(settings))
+    val text = if (!arabic && settings[DateWidget.CASE] == "upper") written.uppercase() else written
     val fonts = LocalFonts.current
     val typeface = remember(font) { fonts.typeface(font) }
     FitText(
