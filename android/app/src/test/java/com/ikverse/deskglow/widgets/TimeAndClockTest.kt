@@ -117,7 +117,7 @@ class TimeAndClockTest {
         assertEquals(Triple("4.224", "V", "Voltage"), StatWidget.reading("voltage", battery))
         assertEquals(Triple("1.25", "W", "Power"), StatWidget.reading("power", battery))
         assertEquals(Triple("296", "mA", "Current"), StatWidget.reading("current", battery))
-        assertEquals(Triple("Full", "", "Estimate"), StatWidget.reading("time", battery))
+        assertEquals(Triple("Full", "", "To full"), StatWidget.reading("time", battery))
         val charging = battery.copy(status = com.ikverse.deskglow.data.ChargeStatus.Charging, timeToFullMs = 104 * 60_000L, currentMa = null)
         assertEquals("1h 44m", StatWidget.reading("time", charging).first)
         assertEquals("—", StatWidget.reading("power", charging).first)

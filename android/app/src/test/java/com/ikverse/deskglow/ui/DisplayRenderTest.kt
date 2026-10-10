@@ -502,6 +502,42 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `the ring, stat, notifications, weather, event and now playing in their new looks`() {
+        val common = com.ikverse.deskglow.widgets.Common.ALIGN
+        feeds.battery.value = com.ikverse.deskglow.data.BatteryState(42, com.ikverse.deskglow.data.ChargeStatus.Charging, true, 4100, 335, 500, 5_400_000L)
+        feeds.batteryPower.value = feeds.battery.value
+        feeds.notifications.value = com.ikverse.deskglow.data.NotificationState.Apps(
+            listOf(com.ikverse.deskglow.data.NotifiedApp("a", null), com.ikverse.deskglow.data.NotifiedApp("b", null), com.ikverse.deskglow.data.NotifiedApp("c", null)),
+        )
+        feeds.weather.value = WeatherState.Ready(cairo, WeatherWidget.SAMPLE)
+        feeds.nextEvent.value = com.ikverse.deskglow.data.EventState.Next("Team call", LocalDateTime.of(2026, 10, 7, 20, 30), LocalDateTime.of(2026, 10, 7, 21, 30), false)
+        feeds.media.value = MediaState.Track("Clair de Lune", "Debussy", 225_000, 83_000, android.os.SystemClock.elapsedRealtime(), false, 1f)
+        val ring = com.ikverse.deskglow.widgets.RingWidget
+        val stat = com.ikverse.deskglow.widgets.StatWidget
+        val notifs = com.ikverse.deskglow.widgets.NotificationsWidget
+        val media = com.ikverse.deskglow.widgets.MediaWidget
+        val event = com.ikverse.deskglow.widgets.EventWidget
+        val items = listOf(
+            WidgetItem("r1", ring.id, Box(8, 8, 120, 120), true, ring.defaults.with(ring.LAYOUT, "circle").with(ring.UNDER, "time")),
+            WidgetItem("r2", ring.id, Box(140, 8, 120, 120), true, ring.defaults.with(ring.LAYOUT, "segments").with(ring.UNDER, "power").with(ring.LEVEL_COLOUR, true)),
+            WidgetItem("r3", ring.id, Box(272, 8, 120, 120), true, ring.defaults.with(ring.UNDER, "temp").with(ring.LEVEL_COLOUR, true)),
+            WidgetItem("s1", stat.id, Box(8, 140, 190, 40), true, stat.defaults.with(stat.LABEL_MODE, "beside")),
+            WidgetItem("s2", stat.id, Box(210, 140, 190, 40), true, stat.defaults.with(stat.METRIC, "time").with(stat.LABEL_MODE, "under")),
+            WidgetItem("n1", notifs.id, Box(8, 192, 396, 30), true, notifs.defaults.with(notifs.STYLE, "pill")),
+            WidgetItem("n2", notifs.id, Box(8, 232, 396, 30), true, notifs.defaults.with(notifs.STYLE, "dots").with(common, "right")),
+            WidgetItem("w1", WeatherWidget.id, Box(8, 272, 196, 64), true, WeatherWidget.defaults.with(WeatherWidget.TINT, true).with(WeatherWidget.ICON_STYLE, "none")),
+            WidgetItem("w2", WeatherWidget.id, Box(212, 272, 196, 64), true, WeatherWidget.defaults.with(WeatherWidget.TINT, true).with(WeatherWidget.ICON_STYLE, "outline")),
+            WidgetItem("e1", event.id, Box(8, 348, 396, 70), true, event.defaults.with(event.SHOW_SOON, true)),
+            WidgetItem("m1", media.id, Box(8, 430, 396, 52), true, media.defaults.with(media.PROGRESS_MODE, "times")),
+            WidgetItem("m2", media.id, Box(8, 494, 396, 52), true, media.defaults.with(media.PROGRESS_MODE, "thin").with(common, "right")),
+        )
+        feeds.minute.value = LocalDateTime.of(2026, 10, 7, 20, 5)
+        feeds.second.value = LocalDateTime.of(2026, 10, 7, 20, 5, 9)
+        show(Layout(items))
+        save("widget-looks")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)
