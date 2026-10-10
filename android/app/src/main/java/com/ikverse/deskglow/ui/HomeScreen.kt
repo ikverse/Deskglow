@@ -27,14 +27,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -147,48 +148,47 @@ fun HomeScreen(
 private fun screensLabel(count: Int) = if (count == 1) "1 screen" else "$count screens"
 
 /**
- * Every screen of both layouts, drawn live, to swipe through. Tapping one, or Edit layout, opens the
- * editor on that screen.
+ * The screens of one layout at a time, drawn live, to swipe through; the tabs underneath switch
+ * between the portrait and landscape layouts, each remembering the screen it was on. Tapping a
+ * screen, or Edit layout, opens the editor on it.
  */
 @Composable
 private fun PreviewCard(graph: AppGraph, edit: (Orientation, Int) -> Unit) {
     val portraitScreens by graph.prefs.pageCount(Orientation.Portrait).collectAsStateWithLifecycle()
     val landscapeScreens by graph.prefs.pageCount(Orientation.Landscape).collectAsStateWithLifecycle()
-    val screens = remember(portraitScreens, landscapeScreens) {
-        (0 until portraitScreens).map { Orientation.Portrait to it } + (0 until landscapeScreens).map { Orientation.Landscape to it }
-    }
-    val pager = rememberPagerState { screens.size }
-    val (orientation, index) = screens[pager.currentPage.coerceIn(0, screens.lastIndex)]
+    var orientation by remember { mutableStateOf(Orientation.Portrait) }
+    val portraitPager = rememberPagerState { portraitScreens }
+    val landscapePager = rememberPagerState { landscapeScreens }
+    val pager = if (orientation == Orientation.Portrait) portraitPager else landscapePager
+    val screens = if (orientation == Orientation.Portrait) portraitScreens else landscapeScreens
+    val index = pager.currentPage.coerceIn(0, screens - 1)
     Card {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            HorizontalPager(pager, Modifier.fillMaxWidth().height(330.dp).testTag("preview pager"), pageSpacing = 12.dp) { page ->
-                val (pageOrientation, pageIndex) = screens[page]
-                val layout by graph.layoutsFor(pageOrientation, pageIndex).layout.collectAsStateWithLifecycle()
-                BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    val aspect = pageOrientation.width.toFloat() / pageOrientation.height
-                    val wide = maxWidth / maxHeight > aspect
-                    val density = LocalDensity.current
-                    val fitHeight = if (wide) maxHeight else maxWidth / aspect
-                    val fitWidth = if (wide) maxHeight * aspect else maxWidth
-                    Box(
-                        Modifier
-                            .size(fitWidth, fitHeight)
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, Palette.Rule, RoundedCornerShape(12.dp))
-                            .pressable(role = androidx.compose.ui.semantics.Role.Button) { edit(pageOrientation, pageIndex) },
-                    ) {
-                        DisplayContent(layout, burnIn = false, orientation = pageOrientation)
+            key(orientation) {
+                HorizontalPager(pager, Modifier.fillMaxWidth().height(330.dp).testTag("preview pager"), pageSpacing = 12.dp) { page ->
+                    val layout by graph.layoutsFor(orientation, page).layout.collectAsStateWithLifecycle()
+                    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        val aspect = orientation.width.toFloat() / orientation.height
+                        val wide = maxWidth / maxHeight > aspect
+                        val fitHeight = if (wide) maxHeight else maxWidth / aspect
+                        val fitWidth = if (wide) maxHeight * aspect else maxWidth
+                        Box(
+                            Modifier
+                                .size(fitWidth, fitHeight)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, Palette.Rule, RoundedCornerShape(12.dp))
+                                .pressable(role = androidx.compose.ui.semantics.Role.Button) { edit(orientation, page) },
+                        ) {
+                            DisplayContent(layout, burnIn = false, orientation = orientation)
+                        }
                     }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "${orientation.name} · screen ${index + 1} of ${if (orientation == Orientation.Portrait) portraitScreens else landscapeScreens}",
-                        fontSize = Type.Small, color = Palette.Muted,
-                    )
+                    Text("${orientation.name} · screen ${index + 1} of $screens", fontSize = Type.Small, color = Palette.Muted)
                     Row(Modifier.testTag("preview dots"), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        for (i in screens.indices) {
+                        for (i in 0 until screens) {
                             val current = i == pager.currentPage
                             Box(
                                 Modifier.height(4.dp).width(if (current) 18.dp else 6.dp).clip(RoundedCornerShape(2.dp))
@@ -199,6 +199,11 @@ private fun PreviewCard(graph: AppGraph, edit: (Orientation, Int) -> Unit) {
                 }
                 AppButton("Edit layout", { edit(orientation, index) })
             }
+            Segmented(
+                Orientation.entries.map { it.name to it.name }, orientation.name,
+                { name -> orientation = Orientation.valueOf(name) },
+                Modifier.align(Alignment.CenterHorizontally).testTag("preview tabs"),
+            )
         }
     }
 }
