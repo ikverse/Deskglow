@@ -32,10 +32,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.data.F1Race
+import com.ikverse.deskglow.data.FeedStatus
+import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.F1Session
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.countdownText
+import com.ikverse.deskglow.data.feedStatus
 import com.ikverse.deskglow.data.trackRace
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
@@ -112,7 +115,9 @@ object F1ScheduleWidget : WidgetType {
                 second.atZone(ZoneId.systemDefault()).toInstant()
             } else roughNow
             val h24 = when (settings[CLOCK]) { "12" -> false; "24" -> true; else -> phone24 }
-            val plan = Plan(race, now, settings, h24)
+            // The live-timing feed says whether the session is delayed or stopped, and that it is still on after its slot.
+            val pulse by feeds.f1Pulse.collectAsStateWithLifecycle()
+            val plan = Plan(race, now, settings, h24, feedStatus(data.races, pulse, now))
             when (settings[LAYOUT]) {
                 "days" -> DaysLayout(plan, w, h)
                 "timeline" -> TimelineLayout(plan, w, h)
@@ -124,20 +129,28 @@ object F1ScheduleWidget : WidgetType {
 }
 
 /** One weekend at one moment: which session is running or next, how each is shaded, and how times read. */
-private class Plan(val race: F1Race, val now: Instant, settings: Settings, h24: Boolean) {
+private class Plan(val race: F1Race, val now: Instant, settings: Settings, h24: Boolean, fed: FeedStatus? = null) {
     val colour = Color(settings[Common.COLOUR])
     val accent = Color(settings[F1ScheduleWidget.ACCENT])
     val dates = settings[F1ScheduleWidget.SHOW_DATES]
     private val dim = settings[F1ScheduleWidget.DIM_PAST]
     val sessions = F1ScheduleWidget.sessionsOf(race, settings)
-    private val live = sessions.firstOrNull { it.liveAt(now) }
+    /** The session the feed says is on (delayed, stopped or running), else the one the calendar says is. */
+    private val onAir = fed?.takeIf { it.phase != LivePhase.PreStart && it.session in sessions }
+    private val live = onAir?.session ?: sessions.firstOrNull { it.liveAt(now) }
     private val next = sessions.firstOrNull { it.start.isAfter(now) }
     /** The session running, or else the next to start; lit in the accent colour. */
     val current = live ?: next
-    /** "LIVE", "in 3 h 12 m", or null when the countdown is off or the weekend is over. */
+    /** "LIVE" (or "DELAYED", "RED FLAG"), "in 3 h 12 m", or null when the countdown is off or the weekend is over. */
     val chip: String? = when {
         !settings[F1ScheduleWidget.SHOW_COUNTDOWN] -> null
-        live != null -> "LIVE"
+        live != null -> when (onAir?.phase) {
+            LivePhase.Delayed -> "DELAYED"
+            LivePhase.Red -> "RED FLAG"
+            LivePhase.SafetyCar -> "SAFETY CAR"
+            LivePhase.VirtualSafetyCar -> "VSC"
+            else -> "LIVE"
+        }
         next != null -> "in " + countdownText(now, next.start)
         else -> null
     }

@@ -39,6 +39,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -184,7 +186,26 @@ private class LiveFeeds(
     override val weather = weatherRepository.updates().shared<WeatherState>(WeatherState.NoCity)
     override val alarm = alarmUpdates(context).shared(currentAlarm(context))
     override val f1 = f1Repository.updates().shared<F1State>(F1State.Loading)
-    override val f1Live = f1LiveRepository.updates(f1).shared<F1LiveState>(F1LiveState.Waiting)
+    // The whole timing is only asked for while something reads f1Live; widgets that read f1Pulse leave it at the few topics they need.
+    private val detail = MutableStateFlow(false)
+    private var watchers = 0
+    private fun watching(change: Int) = synchronized(this) {
+        watchers += change
+        detail.value = watchers > 0
+    }
+
+    private val live = f1LiveRepository.updates(f1, detail).shared<F1LiveState>(F1LiveState.Waiting)
+    override val f1Pulse: StateFlow<F1LiveState> = live
+    override val f1Live: StateFlow<F1LiveState> = object : StateFlow<F1LiveState> by live {
+        override suspend fun collect(collector: FlowCollector<F1LiveState>): Nothing {
+            watching(+1)
+            try {
+                live.collect(collector)
+            } finally {
+                watching(-1)
+            }
+        }
+    }
 
     private val prayers = HashMap<Pair<Int, Int>, StateFlow<PrayerState>>()
 

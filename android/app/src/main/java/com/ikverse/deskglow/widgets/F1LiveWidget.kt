@@ -1,39 +1,23 @@
 package com.ikverse.deskglow.widgets
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.data.F1LiveState
 import com.ikverse.deskglow.data.F1Roster
-import com.ikverse.deskglow.data.LiveRow
+import com.ikverse.deskglow.data.F1State
+import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.LiveSession
 import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.TrackFlag
+import com.ikverse.deskglow.data.countdownText
 import com.ikverse.deskglow.data.effectiveFavourite
-import com.ikverse.deskglow.data.standingColumns
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.IntKey
@@ -42,19 +26,25 @@ import com.ikverse.deskglow.model.TextKey
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.min
 
 object F1LiveWidget : WidgetType {
+    /** "tower" (the classification), "glance" (the flag, big), "focus" (the followed car and its neighbours) or "line". */
+    val LAYOUT = TextKey("layout", "tower")
     val ROWS = IntKey("rows", 10)
-    /** "leader" for the gap to the leader, "ahead" for the gap to the car in front. */
-    val GAP = TextKey("gap", "leader")
+    /** "auto" (the car ahead in a race, the leader otherwise), "leader" for the gap to the leader, "ahead" for the gap to the car in front. */
+    val GAP = TextKey("gap", "auto")
     val FAVOURITE = TextKey("favourite", "")
+    val FAV_TEAM = TextKey("favTeam", "")
     val SHOW_FLAG = FlagKey("showFlag", true)
     /** A thin border in the flag's colour round the widget while a flag is out. */
     val BORDER = FlagKey("border", false)
     /** The followed team's colour in place of the accent colour. */
     val TEAM_ACCENT = FlagKey("teamAccent", false)
+    val TYRES = FlagKey("showTyres", false)
+    val GAINED = FlagKey("showGained", false)
+    val NEWS = FlagKey("showNews", false)
     /** "code" (VER), "number" (1) or "surname" (VERSTAPPEN). */
     val NAMES = TextKey("names", "code")
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
@@ -66,17 +56,25 @@ object F1LiveWidget : WidgetType {
     override val height = 300
     override val defaults: Settings = Common.base()
 
-    override fun fields(settings: Settings) = listOf(
-        SliderField("Rows", ROWS, 3..20),
-        ChoiceField("Gap", GAP, listOf("leader" to "To the leader", "ahead" to "To the car ahead")),
-        ChoiceField("Favourite driver", FAVOURITE, listOf("" to "My driver (from Home)", "none" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }),
-        ToggleField("Team colour as accent", TEAM_ACCENT),
-        ChoiceField("Names", NAMES, listOf("code" to "Codes", "number" to "Numbers", "surname" to "Surnames")),
-        ShowField("Show", listOf(SHOW_FLAG to "Flag and clock", BORDER to "Flag border")),
-        ColourField("Accent colour", ACCENT),
-        Common.colourField,
-        Common.brightnessField,
-    )
+    override fun fields(settings: Settings) = buildList {
+        add(LayoutField("Layout", LAYOUT, listOf("tower" to "Tower", "glance" to "Glance", "focus" to "Focus", "line" to "One line")))
+        if (settings[LAYOUT] == "tower") add(SliderField("Rows", ROWS, 3..20))
+        if (settings[LAYOUT] == "tower") add(ChoiceField("Gap", GAP, listOf("auto" to "Automatic", "leader" to "To the leader", "ahead" to "To the car ahead")))
+        add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "My driver (from Home)", "none" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
+        add(ChoiceField("Favourite team", FAV_TEAM, listOf("" to "My team (from Home)", "none" to "None") + F1Roster.teams))
+        add(ToggleField("Team colour as accent", TEAM_ACCENT))
+        add(ChoiceField("Names", NAMES, listOf("code" to "Codes", "number" to "Numbers", "surname" to "Surnames")))
+        add(
+            ShowField(
+                "Show",
+                listOf(SHOW_FLAG to "Flag and clock", BORDER to "Flag border", TYRES to "Tyres", GAINED to "Places gained", NEWS to "Latest news"),
+            ),
+        )
+        add(Common.timeFormatField())
+        add(ColourField("Accent colour", ACCENT))
+        add(Common.colourField)
+        add(Common.brightnessField)
+    }
 
     override fun note(settings: Settings) =
         "Live timing from Formula 1's own live-timing feed, which is unofficial and may stop working; results between sessions from it or from OpenF1. " +
@@ -86,27 +84,47 @@ object F1LiveWidget : WidgetType {
     override fun Content(settings: Settings) {
         val feeds = LocalFeeds.current
         val state by feeds.f1Live.collectAsStateWithLifecycle()
+        val minute by feeds.minute.collectAsStateWithLifecycle()
         val app by LocalF1Favourite.current.collectAsStateWithLifecycle()
-        /** The settings with the followed driver filled in, and the accent taken from their car when asked. */
-        fun styled(session: LiveSession): Settings {
-            val favourite = effectiveFavourite(settings[FAVOURITE], app.driver)
-            val base = settings.with(FAVOURITE, favourite)
-            val colour = if (settings[TEAM_ACCENT]) session.rows.firstOrNull { it.code == favourite }?.teamColour else null
-            return if (colour != null) base.with(ACCENT, colour.toInt()) else base
+        val editing = LocalEditing.current
+        val zone = ZoneId.systemDefault()
+        val driver = effectiveFavourite(settings[FAVOURITE], app.driver)
+        val team = effectiveFavourite(settings[FAV_TEAM], app.team)
+        val h24 = Common.use24Hour(settings)
+        // The editor and its previews have no session between sessions; a made-up one stands in so every layout can be seen.
+        val shown: Pair<LiveSession, Boolean>? = when (val s = state) {
+            F1LiveState.Waiting -> if (editing) F1LiveSample.race to true else null
+            is F1LiveState.Result -> s.session to false
+            is F1LiveState.Live -> s.session to true
         }
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val h = constraints.maxHeight.toFloat()
-            val w = constraints.maxWidth.toFloat()
-            val hint = min(h * 0.1f, w * 0.08f)
-            when (val s = state) {
-                F1LiveState.Waiting -> EditorHint("Shows the next F1 session live", hint)
-                is F1LiveState.Result -> LiveFace(styled(s.session), s.session, live = false, now = Instant.EPOCH, w, h)
-                is F1LiveState.Live -> {
-                    // The session clock is counted down here between the feed's updates, so it reads the second tick.
+            val (session, live) = shown ?: return@BoxWithConstraints
+            val sample = state == F1LiveState.Waiting
+            // Seconds only matter where a clock is counting down on screen; everywhere else the minute tick is enough.
+            val counting = live && session.running && session.clockRunning && !session.isRace && session.remaining != null
+            val now = when {
+                sample -> F1LiveSample.AT
+                counting -> {
                     val second by feeds.second.collectAsStateWithLifecycle()
-                    LiveFace(styled(s.session), s.session, live = true, now = second.atZone(ZoneId.systemDefault()).toInstant(), w, h)
+                    second.atZone(zone).toInstant()
                 }
+                else -> minute.atZone(zone).toInstant()
             }
+            val followed = followedRow(session, driver, team)
+            val noticed = if (live && !sample) {
+                val tracker = remember { FollowTracker() }
+                remember(session, followed?.code) { tracker.observe(session, followed?.code.orEmpty(), now) }
+            } else null
+            val next = if (live) null else {
+                val calendar by feeds.f1.collectAsStateWithLifecycle()
+                nextSession(calendar, minute.atZone(zone).toInstant())
+            }
+            val colour = if (settings[TEAM_ACCENT]) followed?.teamColour else null
+            val styled = if (colour != null) settings.with(ACCENT, colour.toInt()) else settings
+            LiveFace(
+                Board(styled, session, live, session.phase(now), now, h24, driver, team, followed?.code.orEmpty(), next, newsToShow(session, noticed, now, settings[NAMES]).takeIf { live }),
+                constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(),
+            )
         }
     }
 }
@@ -117,143 +135,77 @@ internal fun clockText(left: Duration): String {
     return if (s >= 3600) String.format(Locale.US, "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60) else String.format(Locale.US, "%d:%02d", s / 60, s % 60)
 }
 
-/** What the clock line says: "Lap 23/62" in a race, "Q2 · 6:59 left" in qualifying, "32:10 left" in practice. */
+/**
+ * What the clock line says: "Lap 23/62" in a race (and "3 to go" near the end), "Q2 · 6:59 left" in
+ * qualifying, "32:10 left" in practice.
+ */
 internal fun sessionProgress(session: LiveSession, now: Instant): String {
     if (session.isRace) {
         val lap = session.lap ?: return ""
-        return if (session.totalLaps != null) "Lap $lap/${session.totalLaps}" else "Lap $lap"
+        val toGo = session.lapsToGo
+        return when {
+            toGo == 0 -> "Final lap"
+            toGo != null && toGo <= 3 -> "$toGo to go"
+            session.totalLaps != null -> "Lap $lap/${session.totalLaps}"
+            else -> "Lap $lap"
+        }
     }
     val left = session.timeLeft(now)?.let { clockText(it) + " left" }.orEmpty()
     val part = session.part?.let { (if (session.name.startsWith("Sprint")) "SQ" else "Q") + it }
     return listOfNotNull(part, left.ifEmpty { null }).joinToString(" · ")
 }
 
-/** How a driver is named in a row: "VER", the car number, or the surname in capitals. */
-private fun driverName(row: LiveRow, names: String): String = when (names) {
-    "number" -> row.number
-    "surname" -> F1Roster.drivers.firstOrNull { it.first == row.code }?.second?.substringAfterLast(' ')?.uppercase() ?: row.code
-    else -> row.code
+/** How far through a race it is, 0 to 1; null outside a race or before the lap count is known. */
+internal fun raceFraction(session: LiveSession): Float? {
+    val lap = session.lap ?: return null
+    val total = session.totalLaps ?: return null
+    return if (session.isRace) (lap.toFloat() / total).coerceIn(0f, 1f) else null
 }
 
-private fun flagLabel(flag: TrackFlag): Pair<String, Color>? = when (flag) {
-    TrackFlag.Clear -> null
-    TrackFlag.Yellow -> "YELLOW" to Color(0xFFFFD60A)
-    TrackFlag.SafetyCar -> "SAFETY CAR" to Color(0xFFFFB000)
-    TrackFlag.VirtualSafetyCar -> "VSC" to Color(0xFFFFB000)
-    TrackFlag.VscEnding -> "VSC ENDING" to Color(0xFFFFB000)
-    TrackFlag.Red -> "RED FLAG" to Color(0xFFE10600)
+internal val Amber = Color(0xFFFFB000)
+internal val FlagYellow = Color(0xFFFFD60A)
+internal val FlagRed = Color(0xFFE10600)
+internal val FlagGreen = Color(0xFF3FB950)
+internal val Gain = Color(0xFF3FB950)
+internal val Loss = Color(0xFFF2766B)
+
+/** What the status bar says: [label] in [shade], [detail] beside it; [filled] when the shade is the bar's background, as for a flag. */
+internal data class Status(val label: String, val detail: String, val shade: Color, val filled: Boolean)
+
+internal fun timeText(at: Instant?, h24: Boolean): String =
+    at?.atZone(ZoneId.systemDefault())?.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US)).orEmpty()
+
+/** Where [session] stands, in the words and colour of a flag. */
+internal fun statusOf(session: LiveSession, phase: LivePhase, now: Instant, h24: Boolean): Status {
+    val progress = sessionProgress(session, now)
+    return when (phase) {
+        LivePhase.PreStart -> {
+            val minutes = session.start?.let { Duration.between(now, it).toMinutes() }
+            val label = if (minutes != null && minutes in 0..59) "Starts in $minutes min" else if (session.start != null) "Starts ${timeText(session.start, h24)}" else "Starting soon"
+            Status(label, "", Muted, false)
+        }
+        LivePhase.Delayed -> Status(
+            "Delayed", session.restart?.let { "${session.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }.orEmpty(), Amber, true,
+        )
+        LivePhase.Running -> if (session.flag == TrackFlag.Yellow) Status("Yellow flag", progress, FlagYellow, true) else Status("Green flag", progress, FlagGreen, false)
+        LivePhase.SafetyCar -> Status("Safety car", progress, Amber, true)
+        LivePhase.VirtualSafetyCar -> Status(if (session.flag == TrackFlag.VscEnding) "VSC ending" else "VSC", progress, Amber, true)
+        LivePhase.Red -> Status("Red flag", session.restart?.let { "Resumes ${timeText(it, h24)}" } ?: progress, FlagRed, true)
+        LivePhase.Finished -> Status("Finished", "Provisional", Muted, false)
+        LivePhase.Final -> Status("Final", "", Muted, false)
+    }
 }
 
-/**
- * The session's name and state over its classification: while [live], the LIVE badge, the flag and
- * the clock; afterwards "Result". The top rows, in two columns in a wide box, and the favourite
- * underneath when it is further down.
- */
-@Composable
-private fun LiveFace(settings: Settings, session: LiveSession, live: Boolean, now: Instant, w: Float, h: Float) {
-    val colour = Color(settings[Common.COLOUR])
-    val accent = Color(settings[F1LiveWidget.ACCENT])
-    val favourite = settings[F1LiveWidget.FAVOURITE]
-    val toAhead = settings[F1LiveWidget.GAP] == "ahead"
-    val showFlag = settings[F1LiveWidget.SHOW_FLAG]
-    val names = settings[F1LiveWidget.NAMES]
-    val flagShade = flagLabel(session.flag)?.second.takeIf { live && settings[F1LiveWidget.BORDER] }
-    // Room round the edge, so the border has none of the rows against it.
-    val inset = if (flagShade != null) min(w, h) * 0.035f else 0f
-    val top = session.rows.take(settings[F1LiveWidget.ROWS])
-    val extra = session.rows.drop(top.size).firstOrNull { favourite.isNotEmpty() && it.code == favourite }
-
-    val twoColumns = top.size > 5 && w >= h * 1.25f
-    val (left, right) = if (twoColumns) standingColumns(top) else top to emptyList()
-    val columnGap = w * 0.06f
-    val columnW = if (twoColumns) (w - columnGap) / 2 else w
-    val headerSlots = if (live && showFlag) 2.4f else 1.4f
-    val slots = left.size + headerSlots + (if (extra != null) 1.3f else 0f)
-    val row = min((h - inset * 2) / slots, (columnW - inset * 2) * 0.16f)
-    val text = row * 0.56f
-
-    @Composable
-    fun Line(r: LiveRow) {
-        val fav = favourite.isNotEmpty() && r.code == favourite
-        val dim = r.knockedOut || r.out
-        val main = (if (fav) accent else colour).let { if (dim) it.copy(alpha = 0.45f) else it }
-        Row(Modifier.fillMaxWidth().height(pxToDp(row)), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "${r.position}", color = Muted, fontSize = pxToSp(text * 0.9f), textAlign = TextAlign.End,
-                maxLines = 1, softWrap = false, modifier = Modifier.width(pxToDp(text * 1.3f)),
-            )
-            Spacer(Modifier.width(pxToDp(text * 0.45f)))
-            Box(
-                Modifier.width(pxToDp(text * 0.2f)).height(pxToDp(row * 0.62f))
-                    .background(Color(r.teamColour ?: 0xFF8C8C8C).let { if (dim) it.copy(alpha = 0.45f) else it }, RoundedCornerShape(pxToDp(text * 0.1f))),
-            )
-            Spacer(Modifier.width(pxToDp(text * 0.45f)))
-            Text(
-                driverName(r, names), color = main, fontSize = pxToSp(text), fontWeight = if (fav) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-            )
-            val tag = when {
-                r.out -> "OUT"
-                r.inPit && live -> "PIT"
-                else -> null
-            }
-            if (tag != null) {
-                Text(
-                    tag, color = Muted, fontSize = pxToSp(text * 0.6f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false,
-                    modifier = Modifier.background(Muted.copy(alpha = 0.18f), RoundedCornerShape(pxToDp(text * 0.2f))).padding(horizontal = pxToDp(text * 0.25f)),
-                )
-                Spacer(Modifier.width(pxToDp(text * 0.35f)))
-            }
-            Text(
-                if (toAhead) r.interval else r.gap, color = if (fav) accent else Muted, fontSize = pxToSp(text * 0.85f),
-                maxLines = 1, softWrap = false,
-            )
-        }
-    }
-
-    val frame = if (flagShade != null) Modifier.border(pxToDp((min(w, h) * 0.008f).coerceAtLeast(1.5f)), flagShade, RoundedCornerShape(pxToDp(inset * 1.5f))).padding(pxToDp(inset)) else Modifier
-    Column(Modifier.fillMaxSize().then(frame), verticalArrangement = Arrangement.Center) {
-        Row(Modifier.fillMaxWidth().height(pxToDp(row * 1.4f)), verticalAlignment = Alignment.CenterVertically) {
-            if (live) {
-                LiveBadge(accent, text * 0.7f)
-                Spacer(Modifier.width(pxToDp(text * 0.4f)))
-            }
-            Text(
-                session.name.replace("Qualifying", "Quali").uppercase(), color = colour, fontSize = pxToSp(text * 0.78f), fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.06.em, maxLines = 1, softWrap = false,
-            )
-            Spacer(Modifier.width(pxToDp(text * 0.5f)))
-            Text(
-                if (live) session.meeting else "Result · ${session.meeting}", color = Muted, fontSize = pxToSp(text * 0.72f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-            )
-        }
-        if (live && showFlag) {
-            Row(Modifier.fillMaxWidth().height(pxToDp(row)), verticalAlignment = Alignment.CenterVertically) {
-                flagLabel(session.flag)?.let { (label, shade) ->
-                    Text(
-                        label, color = Color.Black, fontSize = pxToSp(text * 0.62f), fontWeight = FontWeight.Bold, letterSpacing = 0.08.em, maxLines = 1, softWrap = false,
-                        modifier = Modifier.background(shade, RoundedCornerShape(pxToDp(text * 0.2f))).padding(horizontal = pxToDp(text * 0.35f), vertical = pxToDp(text * 0.06f)),
-                    )
-                    Spacer(Modifier.width(pxToDp(text * 0.5f)))
-                }
-                Text(sessionProgress(session, now), color = Muted, fontSize = pxToSp(text * 0.72f), maxLines = 1, softWrap = false)
-            }
-        }
-        if (twoColumns) {
-            Row(Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) { left.forEach { Line(it) } }
-                Spacer(Modifier.width(pxToDp(columnGap)))
-                Column(Modifier.weight(1f)) { right.forEach { Line(it) } }
-            }
-        } else {
-            top.forEach { Line(it) }
-        }
-        if (extra != null) {
-            Box(Modifier.fillMaxWidth().height(pxToDp(row * 0.3f)), contentAlignment = Alignment.Center) {
-                Box(Modifier.fillMaxWidth().height(pxToDp((row * 0.02f).coerceAtLeast(1f))).background(Color(0xFF2A2A2A)))
-            }
-            Line(extra)
-        }
-    }
+/** "Qualifying in 4 h 12 m", or after a race "Japanese GP in 6 d 2 h"; null when nothing is scheduled. */
+internal fun nextSession(calendar: F1State, now: Instant): String? {
+    val races = when (calendar) {
+        is F1State.Ready -> calendar.data.races
+        is F1State.Failed -> calendar.last?.races
+        F1State.Loading -> null
+    } ?: return null
+    val race = races.firstOrNull { r -> r.sessions.any { it.start.isAfter(now) } } ?: return null
+    val session = race.sessions.first { it.start.isAfter(now) }
+    val sameWeekend = race.sessions.any { !it.start.isAfter(now) }
+    val what = if (sameWeekend) shortKind(session.kind) else race.name
+    return "$what in ${countdownText(now, session.start)}"
 }

@@ -4,27 +4,20 @@ import com.ikverse.deskglow.store.AppPrefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.Closeable
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.SocketTimeoutException
-import java.net.URL
-import java.net.URLEncoder
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
@@ -39,6 +32,9 @@ import kotlin.math.abs
 
 /** The flag out on track, from the feed's track status. */
 enum class TrackFlag { Clear, Yellow, SafetyCar, Red, VirtualSafetyCar, VscEnding }
+
+/** Where a session stands, in one word: from what the feed says and, before the start, the clock. */
+enum class LivePhase { PreStart, Delayed, Running, SafetyCar, VirtualSafetyCar, Red, Finished, Final }
 
 /**
  * One car in a classification. [gap] is to the leader and [interval] to the car ahead, as the feed
@@ -57,7 +53,34 @@ data class LiveRow(
     val out: Boolean = false,
     /** Out of qualifying in an earlier part. */
     val knockedOut: Boolean = false,
-)
+    /** Out for good; such a car is listed last. */
+    val retired: Boolean = false,
+    /** The team's name as the feed writes it ("Red Bull Racing"). */
+    val team: String = "",
+    val grid: Int? = null,
+    /** The tyre's compound as its letter: S, M, H, I or W. */
+    val tyre: Char? = null,
+    /** Laps on that set. */
+    val tyreLaps: Int? = null,
+    val stops: Int = 0,
+    /** Laps run, in practice. */
+    val laps: Int? = null,
+    val lastLap: String = "",
+    /** The car's best lap: in qualifying, in the part now on. */
+    val bestLap: String = "",
+    /** Time penalties not yet served, in seconds. */
+    val penaltySeconds: Int = 0,
+    /** In a race: closing on the car ahead. */
+    val catching: Boolean = false,
+    /** In a race: holds the fastest lap. */
+    val fastest: Boolean = false,
+) {
+    val lastLapMs: Long? get() = lapMillis(lastLap)
+    val bestMs: Long? get() = lapMillis(bestLap)
+
+    /** Places gained since the grid: positive is up. Null when the grid is not known. */
+    val gained: Int? get() = grid?.takeIf { it > 0 }?.let { it - position }
+}
 
 /** A session as the live-timing feed last described it: running, or over with its classification. */
 data class LiveSession(
@@ -68,6 +91,7 @@ data class LiveSession(
     val name: String,
     /** "Practice", "Qualifying" or "Race" (a sprint is a "Race"). */
     val type: String,
+    /** When the session was scheduled to start; a delay does not move it. */
     val start: Instant?,
     /** The feed's own word: "Inactive", "Started", "Aborted" (red flag), "Finished", "Finalised", "Ends". */
     val status: String,
@@ -83,6 +107,22 @@ data class LiveSession(
     val remaining: Duration? = null,
     val clockAt: Instant? = null,
     val clockRunning: Boolean = false,
+    /** Race control has said the start is delayed. */
+    val delayed: Boolean = false,
+    /** A new start or restart time race control announced, and what it is the time of ("Formation lap"). */
+    val restart: Instant? = null,
+    val restartLabel: String = "",
+    val rainRisk: Int? = null,
+    val raining: Boolean = false,
+    val trackTemp: Double? = null,
+    /** Race control's news in plain words, oldest first. */
+    val events: List<LiveEvent> = emptyList(),
+    /** In qualifying: how many cars go through from the part now on; null in the last part and outside qualifying. */
+    val cutoff: Int? = null,
+    /** When the feed last said anything, as this was shown; null in a saved result. */
+    val signalAt: Instant? = null,
+    /** The connection is down and this is the last that was seen. */
+    val signalLost: Boolean = false,
 ) {
     val isRace: Boolean get() = type == "Race"
 
@@ -95,6 +135,43 @@ data class LiveSession(
         return left.minus(Duration.between(clockAt, now)).let { if (it.isNegative) Duration.ZERO else it }
     }
 
+    /** Where the session stands at [now]. Only before the start does the clock matter: a start time gone by with nothing started is a delay. */
+    fun phase(now: Instant): LivePhase = when {
+        finished -> if (status in FINAL) LivePhase.Final else LivePhase.Finished
+        status == "Aborted" -> LivePhase.Red
+        status == "Started" -> when (flag) {
+            TrackFlag.SafetyCar -> LivePhase.SafetyCar
+            TrackFlag.VirtualSafetyCar, TrackFlag.VscEnding -> LivePhase.VirtualSafetyCar
+            TrackFlag.Red -> LivePhase.Red
+            else -> LivePhase.Running
+        }
+        delayed || (start != null && now.isAfter(start.plusSeconds(DELAY_GRACE_S))) -> LivePhase.Delayed
+        else -> LivePhase.PreStart
+    }
+
+    /** Laps left after the one the leader is on; null where there is no lap count. */
+    val lapsToGo: Int? get() = if (lap != null && totalLaps != null) (totalLaps - lap).coerceAtLeast(0) else null
+
+    /** The cars that go out at the end of this part of qualifying: those below the cut-off. */
+    fun dropZone(): List<LiveRow> = cutoff?.let { c -> rows.filter { it.position > c && !it.knockedOut } }.orEmpty()
+
+    /**
+     * In qualifying, how far [row] is inside the cut-off (positive: it is that much quicker than the
+     * first car out) or outside it (negative: that much slower than the last car in), in seconds.
+     * Null without a time of its own, or without the car it is measured against.
+     */
+    fun cutoffMargin(row: LiveRow): Double? {
+        val c = cutoff ?: return null
+        val own = row.bestMs ?: return null
+        return if (row.position <= c) {
+            val firstOut = rows.firstOrNull { it.position == c + 1 }?.bestMs ?: return null
+            (firstOut - own) / 1000.0
+        } else {
+            val lastIn = rows.firstOrNull { it.position == c }?.bestMs ?: return null
+            -(own - lastIn) / 1000.0
+        }
+    }
+
     fun toJson(): String = JSONObject()
         .put("key", key).put("meeting", meeting).put("name", name).put("type", type)
         .putOpt("start", start?.toEpochMilli()).put("status", status).put("finished", finished)
@@ -102,20 +179,30 @@ data class LiveSession(
             rows.forEach { r ->
                 put(
                     JSONObject().put("position", r.position).put("number", r.number).put("code", r.code).putOpt("colour", r.teamColour)
-                        .put("gap", r.gap).put("interval", r.interval).put("pit", r.inPit).put("out", r.out).put("knockedOut", r.knockedOut),
+                        .put("gap", r.gap).put("interval", r.interval).put("pit", r.inPit).put("out", r.out).put("knockedOut", r.knockedOut)
+                        .put("retired", r.retired).put("team", r.team).putOpt("grid", r.grid).putOpt("tyre", r.tyre?.toString())
+                        .putOpt("tyreLaps", r.tyreLaps).put("stops", r.stops).putOpt("laps", r.laps).put("lastLap", r.lastLap)
+                        .put("bestLap", r.bestLap).put("penalty", r.penaltySeconds).put("fastest", r.fastest),
                 )
             }
         })
         .toString()
 
     companion object {
-        /** A saved classification; the clock and flag are not kept, as only finished sessions are saved. */
+        /** A saved classification; the clock, flag and news are not kept, as only finished sessions are saved. */
         fun fromJson(text: String): LiveSession {
             val j = JSONObject(text)
             val rows = j.getJSONArray("rows").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.map { r ->
                 LiveRow(
                     r.getInt("position"), r.getString("number"), r.getString("code"), if (r.has("colour")) r.getLong("colour") else null,
                     r.getString("gap"), r.getString("interval"), r.optBoolean("pit"), r.optBoolean("out"), r.optBoolean("knockedOut"),
+                    retired = r.optBoolean("retired"), team = r.optString("team"),
+                    grid = if (r.has("grid")) r.getInt("grid") else null,
+                    tyre = r.optString("tyre").firstOrNull(),
+                    tyreLaps = if (r.has("tyreLaps")) r.getInt("tyreLaps") else null,
+                    stops = r.optInt("stops"), laps = if (r.has("laps")) r.getInt("laps") else null,
+                    lastLap = r.optString("lastLap"), bestLap = r.optString("bestLap"),
+                    penaltySeconds = r.optInt("penalty"), fastest = r.optBoolean("fastest"),
                 )
             }
             return LiveSession(
@@ -126,6 +213,12 @@ data class LiveSession(
     }
 }
 
+/** The feed's last word on a session: over for good. */
+private val FINAL = setOf("Finalised", "Ends")
+
+/** How long past its scheduled start a session may sit unstarted before it counts as delayed. */
+private const val DELAY_GRACE_S = 120L
+
 sealed interface F1LiveState {
     /** No session seen yet, and nothing saved from before. */
     data object Waiting : F1LiveState
@@ -134,36 +227,76 @@ sealed interface F1LiveState {
     data class Result(val session: LiveSession) : F1LiveState
 }
 
-/** One message from the feed: a topic's whole state ([full], from the snapshot on connecting) or a change to merge in. */
-class LiveMessage(val topic: String, val data: JSONObject, val full: Boolean)
-
-/**
- * Where live timing comes from. Kept behind this so another source (a licensed one, say) can take
- * the feed's place without the widget or [F1LiveRepository] changing.
- */
-fun interface LiveTimingSource {
-    /** Connects and subscribes to [topics]; throws an [IOException] when it cannot. */
-    fun open(topics: List<String>): LiveConnection
-}
-
-interface LiveConnection : Closeable {
-    /** Waits for the next messages; empty when none came for a while. Throws an [IOException] once the connection is lost. */
-    fun poll(): List<LiveMessage>
-}
-
 /**
  * The feed's topics as they stand: the snapshot replaces a topic whole, and each change is merged
- * into it. Changes to a list arrive as an object keyed by index ({"1": {...}}).
+ * into it. Changes to a list arrive as an object keyed by index ({"1": {...}}). What no widget reads
+ * (mini-sectors, speed traps, headshots) is dropped as it arrives, so it is never merged, kept or parsed again.
  */
 class LiveTiming {
     private val topics = HashMap<String, JSONObject>()
+    private var control: RaceControl? = null
 
-    fun apply(message: LiveMessage) {
+    /** Takes in [message]; false when nothing in it is shown anywhere, so there is nothing to redraw. */
+    @Synchronized
+    fun apply(message: LiveMessage): Boolean {
+        if (message.topic == "Heartbeat") return false
+        val spec = PRUNE[message.topic]
+        val used = spec == null || prune(message.data, spec)
+        if (!used && !message.full) return false
         val now = topics[message.topic]
         topics[message.topic] = if (message.full || now == null) message.data else mergeInto(now, message.data)
+        if (message.topic == "RaceControlMessages" || message.topic == "SessionInfo") control = null
+        return true
     }
 
-    fun session(): LiveSession? = parseLiveSession(topics)
+    @Synchronized
+    fun session(): LiveSession? {
+        val info = topics["SessionInfo"] ?: return null
+        val news = control ?: readRaceControl(topics["RaceControlMessages"], offsetOf(info.optString("GmtOffset"))).also { control = it }
+        return parseLiveSession(topics, news)
+    }
+
+    /** Whether the session is over for good: checked without building the classification. */
+    @Synchronized
+    fun finished(): Boolean = headerOf(topics)?.finished == true
+}
+
+/** What each busy topic keeps: a key to nothing keeps all of it, a key to a map goes on inside it, and "*" is any key. */
+private val LINE_KEEP: Map<String, Any?> = mapOf(
+    "Position" to null, "Line" to null, "GapToLeader" to null, "IntervalToPositionAhead" to null,
+    "TimeDiffToFastest" to null, "TimeDiffToPositionAhead" to null, "InPit" to null, "Retired" to null, "Stopped" to null,
+    "KnockedOut" to null, "Stats" to null, "BestLapTimes" to null, "NumberOfLaps" to null, "NumberOfPitStops" to null,
+    "BestLapTime" to mapOf("Value" to null), "LastLapTime" to mapOf("Value" to null),
+)
+private val PRUNE: Map<String, Map<String, Any?>> = mapOf(
+    "TimingData" to mapOf("Lines" to mapOf("*" to LINE_KEEP), "SessionPart" to null, "NoEntries" to null),
+    "DriverList" to mapOf("*" to mapOf("Tla" to null, "TeamColour" to null, "TeamName" to null)),
+    "TimingAppData" to mapOf("Lines" to mapOf("*" to mapOf("GridPos" to null, "Stints" to mapOf("*" to mapOf("Compound" to null, "TotalLaps" to null))))),
+)
+
+/** Drops from [node] what [spec] does not keep; true while anything is left. */
+@Suppress("UNCHECKED_CAST")
+private fun prune(node: Any?, spec: Any?): Boolean {
+    val keep = spec as? Map<String, Any?> ?: return true
+    when (node) {
+        is JSONObject -> {
+            for (key in node.keys().asSequence().toList()) {
+                val known = keep.containsKey(key)
+                if (!known && !keep.containsKey("*")) {
+                    node.remove(key)
+                    continue
+                }
+                val child = node.opt(key)
+                if ((child is JSONObject || child is JSONArray) && !prune(child, if (known) keep[key] else keep["*"])) node.remove(key)
+            }
+            return node.length() > 0
+        }
+        is JSONArray -> {
+            for (i in 0 until node.length()) (node.opt(i) as? JSONObject)?.let { prune(it, keep["*"]) }
+            return node.length() > 0
+        }
+        else -> return true
+    }
 }
 
 internal fun mergeInto(target: JSONObject, change: JSONObject): JSONObject {
@@ -192,32 +325,56 @@ private fun mergeInto(target: JSONArray, change: JSONObject) {
     }
 }
 
-/** The topics the widget reads. */
-val LIVE_TOPICS = listOf("SessionInfo", "SessionStatus", "TrackStatus", "LapCount", "ExtrapolatedClock", "TimingData", "DriverList")
+/** Everything the widgets read while a session runs. */
+val LIVE_TOPICS = listOf(
+    "SessionInfo", "SessionStatus", "TrackStatus", "LapCount", "ExtrapolatedClock", "TimingData", "DriverList",
+    "RaceControlMessages", "WeatherData", "TimingAppData", "Heartbeat",
+)
 
-internal fun parseLiveSession(topics: Map<String, JSONObject>): LiveSession? {
+/** All the race weekend and schedule widgets need: whether the session is on, delayed or stopped. About a kilobyte a minute. */
+val LITE_TOPICS = listOf("SessionInfo", "SessionStatus", "TrackStatus", "LapCount", "RaceControlMessages", "Heartbeat")
+
+private class Header(val info: JSONObject, val type: String, val status: String, val part: Int?, val finished: Boolean)
+
+private fun headerOf(topics: Map<String, JSONObject>): Header? {
     val info = topics["SessionInfo"] ?: return null
     val type = info.optString("Type")
     val status = topics["SessionStatus"]?.optString("Status").orEmpty()
+    val timing = topics["TimingData"]
+    val part = timing?.optInt("SessionPart")?.takeIf { it > 0 && type == "Qualifying" }
+    val parts = timing?.optJSONArray("NoEntries")?.length()
+    // Without the timing there is no telling which part of qualifying has ended, so only the feed's last word counts.
+    val finished = status in FINAL || info.optString("SessionStatus") in FINAL ||
+        (status == "Finished" && (timing != null || type != "Qualifying") && (part == null || parts == null || part >= parts))
+    return Header(info, type, status, part, finished)
+}
+
+internal fun parseLiveSession(topics: Map<String, JSONObject>, news: RaceControl? = null): LiveSession? {
+    val header = headerOf(topics) ?: return null
+    val info = header.info
+    val type = header.type
+    val part = header.part
     val timing = topics["TimingData"] ?: JSONObject()
-    val part = timing.optInt("SessionPart").takeIf { it > 0 && type == "Qualifying" }
-    val parts = timing.optJSONArray("NoEntries")?.length()
-    val over = setOf("Finalised", "Ends")
-    val finished = status in over || info.optString("SessionStatus") in over ||
-        (status == "Finished" && (part == null || parts == null || part >= parts))
+    val control = news ?: readRaceControl(topics["RaceControlMessages"], offsetOf(info.optString("GmtOffset")))
     val laps = topics["LapCount"]
     val clock = topics["ExtrapolatedClock"]
     val drivers = topics["DriverList"]
+    val weather = topics["WeatherData"]
+    val appLines = topics["TimingAppData"]?.optJSONObject("Lines")
     val lines = timing.optJSONObject("Lines") ?: JSONObject()
+    val noEntries = timing.optJSONArray("NoEntries")
 
     val rows = lines.keys().asSequence().mapNotNull { number ->
         val line = lines.optJSONObject(number) ?: return@mapNotNull null
         val driver = drivers?.optJSONObject(number)
+        val app = appLines?.optJSONObject(number)
         val (gap, interval) = when {
             type == "Race" -> line.optString("GapToLeader") to line.optJSONObject("IntervalToPositionAhead")?.optString("Value").orEmpty()
             part != null -> qualifyingGaps(line, part, line.optBoolean("KnockedOut"))
             else -> line.optString("TimeDiffToFastest") to line.optString("TimeDiffToPositionAhead")
         }
+        val stints = stintsOf(app?.opt("Stints"))
+        val current = stints.lastOrNull()
         LiveRow(
             position = line.optString("Position").toIntOrNull() ?: line.optInt("Line", 99),
             number = number,
@@ -227,15 +384,28 @@ internal fun parseLiveSession(topics: Map<String, JSONObject>): LiveSession? {
             inPit = line.optBoolean("InPit"),
             out = line.optBoolean("Retired") || line.optBoolean("Stopped"),
             knockedOut = line.optBoolean("KnockedOut"),
+            retired = line.optBoolean("Retired"),
+            team = driver?.optString("TeamName").orEmpty(),
+            grid = app?.optString("GridPos")?.toIntOrNull()?.takeIf { it > 0 },
+            tyre = current?.optString("Compound")?.let(::compoundLetter),
+            tyreLaps = current?.optInt("TotalLaps", -1)?.takeIf { it >= 0 },
+            stops = maxOf((stints.size - 1).coerceAtLeast(0), line.optInt("NumberOfPitStops")),
+            laps = line.optInt("NumberOfLaps", -1).takeIf { it >= 0 },
+            lastLap = line.optJSONObject("LastLapTime")?.optString("Value").orEmpty(),
+            bestLap = if (part != null) elementAt(line.opt("BestLapTimes"), part - 1)?.optString("Value").orEmpty() else line.optJSONObject("BestLapTime")?.optString("Value").orEmpty(),
+            penaltySeconds = control.penalties[number] ?: 0,
+            catching = type == "Race" && line.optJSONObject("IntervalToPositionAhead")?.optBoolean("Catching") == true,
         ) to line
-    }.sortedBy { it.first.position }.toList()
+    }.sortedWith(compareBy({ it.first.retired }, { it.first.position })).toList()
 
     // The leader has no gap to anyone: show its best lap, or in a race simply that it leads.
+    val fastestMs = if (type == "Race") rows.mapNotNull { it.first.bestMs }.minOrNull() else null
     val withLeader = rows.mapIndexed { i, (row, line) ->
-        if (i > 0) row
+        val marked = if (fastestMs != null && row.bestMs == fastestMs) row.copy(fastest = true) else row
+        if (i > 0) marked
         else {
             val best = if (type == "Race") "Leader" else bestLap(line, part)
-            row.copy(gap = best, interval = best)
+            marked.copy(gap = best, interval = best)
         }
     }
     return LiveSession(
@@ -244,8 +414,8 @@ internal fun parseLiveSession(topics: Map<String, JSONObject>): LiveSession? {
         name = info.optString("Name"),
         type = type,
         start = runCatching { LocalDateTime.parse(info.getString("StartDate")).toInstant(offsetOf(info.optString("GmtOffset"))) }.getOrNull(),
-        status = status,
-        finished = finished,
+        status = header.status,
+        finished = header.finished,
         rows = withLeader,
         flag = when (topics["TrackStatus"]?.optString("Status")) {
             "2" -> TrackFlag.Yellow
@@ -261,25 +431,58 @@ internal fun parseLiveSession(topics: Map<String, JSONObject>): LiveSession? {
         remaining = clock?.optString("Remaining")?.let(::parseClock),
         clockAt = clock?.optString("Utc")?.let { runCatching { Instant.parse(it) }.getOrNull() },
         clockRunning = clock?.optBoolean("Extrapolating") ?: false,
+        delayed = control.delayed,
+        restart = control.restart,
+        restartLabel = control.restartLabel,
+        rainRisk = control.rainRisk,
+        raining = weather?.optString("Rainfall").let { it == "1" || (it?.toDoubleOrNull() ?: 0.0) > 0.0 },
+        trackTemp = weather?.optString("TrackTemp")?.toDoubleOrNull(),
+        events = control.events,
+        cutoff = if (part != null && noEntries != null && part < noEntries.length()) noEntries.optInt(part).takeIf { it > 0 } else null,
     )
+}
+
+/** A list in a snapshot, or an object keyed by index when the first news of it came as a change: its [index]th element. */
+private fun elementAt(value: Any?, index: Int): JSONObject? = when (value) {
+    is JSONArray -> value.optJSONObject(index)
+    is JSONObject -> value.optJSONObject(index.toString())
+    else -> null
+}
+
+/** A car's tyre stints, oldest first. */
+private fun stintsOf(value: Any?): List<JSONObject> = when (value) {
+    is JSONArray -> (0 until value.length()).mapNotNull { value.optJSONObject(it) }
+    is JSONObject -> value.keys().asSequence().mapNotNull { k -> k.toIntOrNull()?.let { it to value.optJSONObject(k) } }
+        .sortedBy { it.first }.mapNotNull { it.second }.toList()
+    else -> emptyList()
+}
+
+private fun compoundLetter(name: String): Char? = when (name.uppercase()) {
+    "SOFT" -> 'S'
+    "MEDIUM" -> 'M'
+    "HARD" -> 'H'
+    "INTERMEDIATE" -> 'I'
+    "WET" -> 'W'
+    else -> null
 }
 
 /** In qualifying: the gaps in the part now on (none yet without a lap in it), or for a car [knockedOut] earlier, in the last part it ran in. */
 private fun qualifyingGaps(line: JSONObject, part: Int, knockedOut: Boolean): Pair<String, String> {
-    val stats = line.optJSONArray("Stats") ?: return "" to ""
-    fun at(i: Int): Pair<String, String>? = stats.optJSONObject(i)?.let { s ->
+    val stats = line.opt("Stats")
+    fun at(i: Int): Pair<String, String>? = elementAt(stats, i)?.let { s ->
         val gap = s.optString("TimeDiffToFastest")
         val ahead = s.optString("TimeDifftoPositionAhead").ifEmpty { s.optString("TimeDiffToPositionAhead") }
         (gap to ahead).takeIf { gap.isNotEmpty() }
     }
+    if (stats == null) return "" to ""
     if (!knockedOut) return at(part - 1) ?: ("" to "")
     return (part - 1 downTo 0).firstNotNullOfOrNull(::at) ?: ("" to "")
 }
 
 private fun bestLap(line: JSONObject, part: Int?): String {
     if (part == null) return line.optJSONObject("BestLapTime")?.optString("Value").orEmpty()
-    val laps = line.optJSONArray("BestLapTimes") ?: return ""
-    return (part - 1 downTo 0).firstNotNullOfOrNull { i -> laps.optJSONObject(i)?.optString("Value")?.takeIf { it.isNotEmpty() } }.orEmpty()
+    val laps = line.opt("BestLapTimes") ?: return ""
+    return (part - 1 downTo 0).firstNotNullOfOrNull { i -> elementAt(laps, i)?.optString("Value")?.takeIf { it.isNotEmpty() } }.orEmpty()
 }
 
 /** "F47600" to 0xFFF47600. */
@@ -292,8 +495,25 @@ internal fun parseClock(text: String): Duration? {
     return Duration.ofHours(parts[0]).plusMinutes(parts[1]).plusSeconds(parts[2])
 }
 
+/** "1:32.274" or "59.987" to milliseconds; null when it is not a lap time (blank, or a gap). */
+internal fun lapMillis(text: String): Long? {
+    val t = text.trim()
+    if (t.isEmpty() || t.startsWith("+")) return null
+    val minutes = if (':' in t) t.substringBefore(':').toLongOrNull() ?: return null else 0L
+    val seconds = (if (':' in t) t.substringAfter(':') else t).toDoubleOrNull() ?: return null
+    return minutes * 60_000 + Math.round(seconds * 1000)
+}
+
+private val LAPPED = Regex("""^\+?(\d+)\s?L(?:APS?)?$""", RegexOption.IGNORE_CASE)
+
+/** A gap as it reads best: "1L" is "+1 lap", "2L" is "+2 laps"; a time stays as it is. */
+fun gapText(gap: String): String = LAPPED.matchEntire(gap.trim())?.let { m ->
+    val laps = m.groupValues[1].toInt()
+    "+$laps lap" + if (laps == 1) "" else "s"
+} ?: gap
+
 /** "08:00:00" or "-05:00:00" to that offset from UTC. */
-private fun offsetOf(text: String): ZoneOffset {
+internal fun offsetOf(text: String): ZoneOffset {
     val negative = text.startsWith("-")
     val parts = text.removePrefix("-").split(':').map { it.toIntOrNull() ?: 0 }
     val seconds = (parts.getOrElse(0) { 0 } * 3600 + parts.getOrElse(1) { 0 } * 60 + parts.getOrElse(2) { 0 }) * if (negative) -1 else 1
@@ -346,12 +566,47 @@ fun sessionTop(races: List<F1Race>, result: LiveSession?, now: Instant): Session
     return SessionTop(race, session, result.rows.take(3), after?.first, after?.second)
 }
 
+/** What the feed says about the calendar's session [session]: [live] is the feed's own view of it. */
+data class FeedStatus(val session: F1Session, val phase: LivePhase, val live: LiveSession)
+
+/**
+ * The calendar session the feed is following now and where it stands, so a widget that knows only
+ * the calendar can say "delayed" or "red flag", and stay live past the slot the calendar gave the
+ * session. Null when the feed is following nothing, or something the calendar does not list.
+ */
+fun feedStatus(races: List<F1Race>, state: F1LiveState, now: Instant): FeedStatus? {
+    val live = (state as? F1LiveState.Live)?.session ?: return null
+    val start = live.start ?: return null
+    val session = races.asSequence().flatMap { it.sessions }.minByOrNull { Duration.between(it.start, start).abs() } ?: return null
+    if (Duration.between(session.start, start).abs() > SAME_SESSION) return null
+    return FeedStatus(session, live.phase(now), live)
+}
+
+/**
+ * [view] as the feed sees the weekend: while it says a session is on, delayed or stopped, that
+ * session is the live one whatever slot the calendar gave it (a delayed sprint outlives its hour).
+ */
+fun weekendViewWithFeed(view: WeekendView, races: List<F1Race>, fed: FeedStatus?): WeekendView {
+    if (fed == null || fed.phase == LivePhase.PreStart) return view
+    val race = races.firstOrNull { r -> r.sessions.any { it == fed.session } } ?: return view
+    return WeekendView.Upcoming(race, fed.session, race.sessions.firstOrNull { it.start.isAfter(fed.session.start) }, fed)
+}
+
+/** The race control news worth showing at [now]: the latest, if it is fresh. */
+fun LiveSession.freshEvent(now: Instant, within: Duration = EVENT_FRESH): LiveEvent? =
+    events.lastOrNull()?.takeIf { !it.at.isAfter(now.plusSeconds(60)) && Duration.between(it.at, now) <= within }
+
+/** How long a piece of news stays on a widget. */
+val EVENT_FRESH: Duration = Duration.ofSeconds(90)
+
 /**
  * Live timing for the session on now, and the result of the last one. Connects only from just before
  * a session starts until the feed says it is over, then saves the classification, disconnects
- * completely and shows that result until the next session starts. When the widget missed a session,
- * its result is fetched once afterwards: from the feed, which keeps it until the next session, or
- * failing that from OpenF1. Runs only while a live widget is on screen.
+ * completely and shows that result until the next session starts. While only the calendar-based
+ * widgets are on screen it subscribes to the few topics they need; while the live widget is on screen
+ * [updates]'s `detail` is true and it takes the rest. When the widget missed a session, its result is
+ * fetched once afterwards: from the feed, which keeps it until the next session, or failing that from
+ * OpenF1. Runs only while an F1 widget is on screen.
  */
 class F1LiveRepository(
     private val prefs: AppPrefs,
@@ -360,17 +615,32 @@ class F1LiveRepository(
     private val clock: () -> Long = System::currentTimeMillis,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    fun updates(calendar: StateFlow<F1State>): Flow<F1LiveState> = channelFlow {
+    /** What one run of [updates] has seen of the feed, kept across reconnects so a dropped connection can show the last thing it said. */
+    private class Seen {
+        @Volatile var at: Instant? = null
+        @Volatile var shown: LiveSession? = null
+    }
+
+    private sealed interface Followed {
+        /** The session is over (the classification as it stands, with no rows when only the few topics were followed), or null when the window closed first. */
+        data class Over(val session: LiveSession?) : Followed
+        /** The widgets on screen now want other topics than the ones subscribed. */
+        data object Reconnect : Followed
+    }
+
+    fun updates(calendar: StateFlow<F1State>, detail: StateFlow<Boolean> = MutableStateFlow(true)): Flow<F1LiveState> = channelFlow {
         // The calendar says when sessions are; keep it fetched while this runs.
         launch { calendar.collect {} }
         var result = prefs.f1LiveResult?.let { runCatching { LiveSession.fromJson(it) }.getOrNull() }
         send(result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
+        val seen = Seen()
 
         suspend fun keep(session: LiveSession) {
-            if (session.key == result?.key && result?.finished == true) return
-            result = session
-            prefs.f1LiveResult = session.toJson()
-            send(F1LiveState.Result(session))
+            if (!(session.key == result?.key && result?.finished == true)) {
+                result = session
+                prefs.f1LiveResult = session.toJson()
+            }
+            send(F1LiveState.Result(result ?: session))
         }
 
         var done: Instant? = null
@@ -384,23 +654,35 @@ class F1LiveRepository(
             }
             val window = races?.let { liveWindowSession(it, now) }
             if (races != null && window != null && window.start != done) {
-                val outcome = runCatching { showAtMostEverySecond { show -> follow(races, window, show) } }
+                val outcome = runCatching { follow(races, window, detail, seen) }
                 outcome.exceptionOrNull()?.let { if (it is CancellationException) throw it }
                 if (outcome.isFailure) {
-                    // Dropped: try again, the screen keeps what it shows meanwhile.
+                    // Dropped: say so over what was last seen, and try again.
+                    seen.shown?.let { send(F1LiveState.Live(it.copy(signalAt = seen.at, signalLost = true))) }
                     delay(RETRY_MS)
                     continue
                 }
-                val ended = outcome.getOrNull()
-                if (ended == null) {
-                    // The window closed with no end from the feed: back to the last result.
-                    result?.let { send(F1LiveState.Result(it)) }
-                    done = window.start
-                } else {
-                    keep(ended)
-                    // The feed may still be showing the session before this one; look again shortly.
-                    if (ended.start != null && Duration.between(ended.start, window.start).abs() < Duration.ofHours(3)) done = window.start
-                    else delay(STALE_MS)
+                when (val followed = outcome.getOrThrow()) {
+                    Followed.Reconnect -> Unit
+                    is Followed.Over -> {
+                        seen.shown = null
+                        val ended = followed.session
+                        if (ended == null) {
+                            // The window closed with no end from the feed: back to the last result.
+                            send(result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
+                            done = window.start
+                        } else {
+                            if (ended.rows.isNotEmpty()) keep(ended)
+                            else {
+                                // Followed without the timing: the classification is fetched whole, at once.
+                                send(result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
+                                lastCatchUp = Long.MIN_VALUE / 2
+                            }
+                            // The feed may still be showing the session before this one; look again shortly.
+                            if (ended.start != null && Duration.between(ended.start, window.start).abs() < Duration.ofHours(3)) done = window.start
+                            else delay(STALE_MS)
+                        }
+                    }
                 }
                 continue
             }
@@ -413,54 +695,51 @@ class F1LiveRepository(
     }.flowOn(io)
 
     /**
-     * Runs [follow] with a `show` that puts a session on screen at most once a second: the feed sends
-     * several messages a second, and a redraw per message is work the eye cannot use. The newest session
-     * always arrives within a second, and the last one is not lost when [follow] ends.
+     * Follows the feed through the session of [window], putting the session on screen from before it
+     * starts until the feed says it is over. The classification is built at most once a second, and
+     * only after something shown has changed: the feed sends several messages a second, and a redraw
+     * per message is work the eye cannot use. Throws when the connection fails. Leaving (cancelled,
+     * or done) closes the connection.
      */
-    private suspend fun <T> ProducerScope<F1LiveState>.showAtMostEverySecond(follow: suspend (suspend (LiveSession) -> Unit) -> T): T {
-        val pending = Channel<LiveSession>(Channel.CONFLATED)
-        val sender = launch {
-            for (session in pending) {
-                send(F1LiveState.Live(session))
+    private suspend fun ProducerScope<F1LiveState>.follow(races: List<F1Race>, window: F1Session, detail: StateFlow<Boolean>, seen: Seen): Followed {
+        val full = detail.value
+        val timing = LiveTiming()
+        val connection = source.open(if (full) LIVE_TOPICS else LITE_TOPICS)
+        val poller = Executors.newSingleThreadExecutor()
+        val changed = Channel<Unit>(Channel.CONFLATED)
+        val builder = launch {
+            for (ignored in changed) {
+                timing.session()?.takeIf { !it.finished && sameSession(it, window) }?.let { session ->
+                    val shown = session.copy(signalAt = seen.at)
+                    seen.shown = shown
+                    send(F1LiveState.Live(shown))
+                }
                 delay(SHOW_EVERY_MS)
             }
         }
         try {
-            return follow { pending.trySend(it) }
-        } finally {
-            sender.cancelAndJoin()
-            if (isActive) pending.tryReceive().getOrNull()?.let { send(F1LiveState.Live(it)) }
-        }
-    }
-
-    /**
-     * Follows the feed through the session of [window], passing it to [show] from when it starts, until
-     * the feed says it is over; returns it then. Null when the window closes first. Throws when the
-     * connection fails. Leaving (cancelled, or done) closes the connection.
-     */
-    private suspend fun follow(races: List<F1Race>, window: F1Session, show: suspend (LiveSession) -> Unit): LiveSession? {
-        val timing = LiveTiming()
-        val connection = source.open(LIVE_TOPICS)
-        val poller = Executors.newSingleThreadExecutor()
-        try {
-            var started = false
             while (true) {
                 currentCoroutineContext().ensureActive()
-                if (liveWindowSession(races, Instant.ofEpochMilli(clock()))?.start != window.start) return null
+                if (liveWindowSession(races, Instant.ofEpochMilli(clock()))?.start != window.start) return Followed.Over(null)
+                if (detail.value != full) return Followed.Reconnect
                 val messages = connection.pollCancellable(poller)
-                if (messages.isEmpty()) continue
-                messages.forEach(timing::apply)
-                val session = timing.session() ?: continue
-                if (session.finished) return session.takeIf { it.rows.isNotEmpty() }
-                // Before the start the feed has little to show: keep the last result up until then.
-                if (session.running) started = true
-                if (started) show(session)
+                seen.at = Instant.ofEpochMilli(clock())
+                var news = false
+                for (message in messages) if (timing.apply(message)) news = true
+                if (!news) continue
+                if (timing.finished()) return Followed.Over(timing.session())
+                changed.trySend(Unit)
             }
         } finally {
+            builder.cancel()
             connection.close()
             poller.shutdown()
         }
     }
+
+    /** Whether [session] is the one [window] is about, rather than the one before it that the feed may still hold. */
+    private fun sameSession(session: LiveSession, window: F1Session): Boolean =
+        session.start != null && Duration.between(session.start, window.start).abs() <= SAME_SESSION
 
     /** A poll can wait a long time for data; on its own thread, so leaving closes the connection and cuts it short. */
     private suspend fun LiveConnection.pollCancellable(poller: ExecutorService): List<LiveMessage> =
@@ -484,7 +763,7 @@ class F1LiveRepository(
         val timing = LiveTiming()
         repeat(3) {
             val messages = connection.poll()
-            messages.forEach(timing::apply)
+            messages.forEach { timing.apply(it) }
             if (messages.any { it.full }) return timing.session()
         }
         null
@@ -560,103 +839,4 @@ internal fun parseOpenF1Result(session: JSONObject, meeting: String, results: St
 internal fun lapTime(seconds: Double): String {
     val millis = Math.round(seconds * 1000)
     return String.format(Locale.US, "%d:%02d.%03d", millis / 60_000, millis / 1000 % 60, abs(millis % 1000))
-}
-
-/**
- * Formula 1's own live-timing feed: the one behind its timing pages, over SignalR's long polling,
- * so no more than plain HTTP is needed. Unofficial and undocumented, so it may change or close.
- */
-object F1LiveTimingFeed : LiveTimingSource {
-    const val BASE = "https://livetiming.formula1.com/signalrcore"
-    override fun open(topics: List<String>): LiveConnection = SignalRConnection(BASE, topics)
-}
-
-private const val RECORD_END = '\u001e'
-
-/**
- * One SignalR connection by long polling. The load balancer pins a connection to one server by a
- * cookie, so the cookies from each answer go back with the next request.
- */
-private class SignalRConnection(base: String, topics: List<String>) : LiveConnection {
-    private val cookies = LinkedHashMap<String, String>()
-    private val url: String
-    @Volatile private var inFlight: HttpURLConnection? = null
-    @Volatile private var closed = false
-
-    init {
-        val negotiated = JSONObject(String(request("$base/negotiate?negotiateVersion=1", "POST", "")))
-        url = "$base?id=" + URLEncoder.encode(negotiated.getString("connectionToken"), "UTF-8")
-        request(url, "POST", """{"protocol":"json","version":1}$RECORD_END""")
-        val subscribe = JSONObject().put("type", 1).put("target", "Subscribe").put("arguments", JSONArray().put(JSONArray(topics))).put("invocationId", "1")
-        request(url, "POST", subscribe.toString() + RECORD_END)
-    }
-
-    override fun poll(): List<LiveMessage> {
-        if (closed) throw IOException("closed")
-        val body = try {
-            String(request(url, "GET", null, readTimeoutMs = 100_000))
-        } catch (e: SocketTimeoutException) {
-            return emptyList()
-        }
-        return parseSignalR(body)
-    }
-
-    override fun close() {
-        if (closed) return
-        closed = true
-        inFlight?.disconnect()
-        Thread { runCatching { request(url, "DELETE", null) } }.start()
-    }
-
-    private fun request(url: String, method: String, body: String?, readTimeoutMs: Int = 15_000): ByteArray {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        inFlight = connection
-        try {
-            connection.requestMethod = method
-            connection.connectTimeout = 10_000
-            connection.readTimeout = readTimeoutMs
-            connection.setRequestProperty("User-Agent", UrlConnectionHttp.USER_AGENT)
-            if (cookies.isNotEmpty()) connection.setRequestProperty("Cookie", cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
-            if (body != null) {
-                connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "text/plain;charset=UTF-8")
-                connection.outputStream.use { it.write(body.toByteArray()) }
-            }
-            val code = connection.responseCode
-            connection.headerFields.filterKeys { it != null && it.equals("Set-Cookie", ignoreCase = true) }.values.flatten().forEach { header ->
-                val pair = header.substringBefore(';').split('=', limit = 2)
-                if (pair.size == 2) cookies[pair[0].trim()] = pair[1].trim()
-            }
-            // 204 is how long polling says the server has ended the connection.
-            if (code == HttpURLConnection.HTTP_NO_CONTENT) throw IOException("connection ended")
-            if (code !in 200..299) throw IOException("HTTP $code for $method")
-            return connection.inputStream.use { it.readBytes() }
-        } finally {
-            connection.disconnect()
-            if (inFlight === connection) inFlight = null
-        }
-    }
-}
-
-/**
- * SignalR's JSON frames, each ended by 0x1E: a "feed" call is one topic's change, the answer to the
- * subscription is every topic in full, and a close frame ends the connection.
- */
-internal fun parseSignalR(body: String): List<LiveMessage> = body.split(RECORD_END).filter { it.isNotBlank() }.flatMap { frame ->
-    val j = JSONObject(frame)
-    when (j.optInt("type", 0)) {
-        1 -> {
-            val args = j.optJSONArray("arguments")
-            val topic = args?.optString(0).orEmpty()
-            val data = args?.opt(1)
-            if (topic.isNotEmpty() && data is JSONObject) listOf(LiveMessage(topic, data, full = false)) else emptyList()
-        }
-        3 -> {
-            if (j.has("error")) throw IOException("subscribe refused: " + j.optString("error"))
-            val result = j.optJSONObject("result") ?: JSONObject()
-            result.keys().asSequence().mapNotNull { topic -> (result.opt(topic) as? JSONObject)?.let { LiveMessage(topic, it, full = true) } }.toList()
-        }
-        7 -> throw IOException("closed by the server: " + j.optString("error"))
-        else -> emptyList()
-    }
 }
