@@ -595,4 +595,18 @@ class DataParsingTest {
         val utc = phone.atZone(java.time.ZoneId.systemDefault()).toInstant().atZone(java.time.ZoneOffset.UTC).toLocalDateTime()
         assertEquals(utc.plusHours(3), weather.cityTime(phone))
     }
+
+    @Test
+    fun `sunrise is read from a prayer day when it is there, and left empty when not`() {
+        val day = java.time.LocalDate.of(2026, 10, 10)
+        val with = parsePrayerDay(
+            """{"data":{"timings":{"Fajr":"04:31 (EET)","Sunrise":"05:58 (EET)","Dhuhr":"11:42","Asr":"15:02","Maghrib":"17:30","Isha":"18:52"}}}""", day,
+        )
+        assertEquals(java.time.LocalTime.of(5, 58), with.sunrise)
+        assertEquals(java.time.LocalTime.of(4, 31), with.times.getValue(Prayer.Fajr))
+        val without = parsePrayerDay(
+            """{"data":{"timings":{"Fajr":"04:31","Dhuhr":"11:42","Asr":"15:02","Maghrib":"17:30","Isha":"18:52"}}}""", day,
+        )
+        assertNull(without.sunrise)
+    }
 }

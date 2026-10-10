@@ -52,6 +52,8 @@ object PrayerWidget : WidgetType {
     val SHOW_ALL = FlagKey("showAll", true)
     /** "next" prayer only, "row" of all five under it, or the day's five on an "arc" with the sun's place now. */
     val VIEW = TextKey("view", "row")
+    val SHOW_SUNRISE = FlagKey("showSunrise", false)
+    val SHOW_HIJRI = FlagKey("showHijri", false)
     val ACCENT = ColourKey("accent", 0xFF5BC0A6.toInt())
 
     override val id = "prayer"
@@ -64,6 +66,7 @@ object PrayerWidget : WidgetType {
     override fun fields(settings: Settings) = buildList {
         add(ChoiceField("Method", METHOD, PrayerRepository.METHODS.map { (n, name) -> n.toString() to name }))
         add(ChoiceField("Asr", SCHOOL, listOf("0" to "Standard", "1" to "Hanafi")))
+        add(ShowField("Show", listOf(SHOW_SUNRISE to "Sunrise", SHOW_HIJRI to "Hijri date")))
         add(LayoutField("Layout", VIEW, listOf("next" to "Next only", "row" to "Row of five", "arc" to "Sun arc")))
         addAll(Common.arabicFields(settings))
         add(Common.timeFormatField())
@@ -150,27 +153,40 @@ private fun PrayerFace(settings: Settings, days: List<PrayerDay>, next: Pair<Pra
                     color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
                 )
             }
-            Text(PrayerWidget.countdownText(now, at, arabic, digits), color = accent, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(PrayerWidget.countdownText(now, at, arabic, digits), color = accent, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+                if (settings[PrayerWidget.SHOW_HIJRI]) {
+                    Text(
+                        "  ·  " + TimeText.date(now.toLocalDate(), "hijri", arabic, digits), color = Muted,
+                        fontSize = pxToSp(small * 0.9f), maxLines = 1, softWrap = false,
+                    )
+                }
+            }
             if (showAll) {
                 Spacer(Modifier.height(pxToDp(h * 0.07f)))
                 // The day the next prayer falls on: after Isha that is tomorrow.
                 val day = days.firstOrNull { it.date == at.toLocalDate() } ?: days.first()
+                val slots = buildList {
+                    Prayer.entries.forEach { add(Slot(it, name(it), day.times.getValue(it))) }
+                    val sunrise = day.sunrise
+                    if (settings[PrayerWidget.SHOW_SUNRISE] && sunrise != null) add(1, Slot(null, if (arabic) "الشروق" else "Sunrise", sunrise))
+                }
                 if (view == "arc") {
-                    SunArc(day, now, prayer, accent, cell, ::name, { PrayerWidget.clockText(it, h24, arabic, digits, suffix = false) }, Modifier.weight(1f).fillMaxWidth())
+                    SunArc(slots, day.date, now, prayer, accent, cell, { PrayerWidget.clockText(it, h24, arabic, digits, suffix = false) }, Modifier.weight(1f).fillMaxWidth())
                 } else {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Prayer.entries.forEach { p ->
-                            val time = day.date.atTime(day.times.getValue(p))
-                            val isNext = p == prayer && day.date == at.toLocalDate()
+                        slots.forEach { slot ->
+                            val time = day.date.atTime(slot.time)
+                            val isNext = slot.prayer != null && slot.prayer == prayer && day.date == at.toLocalDate()
                             val shade = when {
                                 isNext -> accent
                                 time.isBefore(now) -> Muted.copy(alpha = 0.45f)
                                 else -> Muted
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(name(p), color = shade, fontSize = pxToSp(cell), letterSpacing = if (arabic) 0.em else 0.04.em, maxLines = 1, softWrap = false)
+                                Text(slot.name, color = shade, fontSize = pxToSp(cell), letterSpacing = if (arabic) 0.em else 0.04.em, maxLines = 1, softWrap = false)
                                 Text(
-                                    PrayerWidget.clockText(time.toLocalTime(), h24, arabic, digits, suffix = false), color = if (isNext) accent else shade,
+                                    PrayerWidget.clockText(slot.time, h24, arabic, digits, suffix = false), color = if (isNext) accent else shade,
                                     fontSize = pxToSp(cell * 1.1f), maxLines = 1, softWrap = false,
                                 )
                             }
@@ -182,23 +198,26 @@ private fun PrayerFace(settings: Settings, days: List<PrayerDay>, next: Pair<Pra
     }
 }
 
+/** One time on the row or the arc: a prayer, or sunrise (which is not one, and is never "next"). */
+private class Slot(val prayer: Prayer?, val name: String, val time: LocalTime)
+
 /**
- * The day's five prayers as evenly spaced dots along an arc, in the order the sun meets them, with a brighter dot
- * where the day is now and each prayer's name and time beneath its dot.
+ * The day's times as evenly spaced dots along an arc, in the order the sun meets them, with a brighter dot
+ * where the day is now and each one's name and time beneath its dot.
  */
 @Composable
 private fun SunArc(
-    day: PrayerDay, now: LocalDateTime, next: Prayer, accent: Color, labelPx: Float,
-    name: (Prayer) -> String, time: (LocalTime) -> String, modifier: Modifier,
+    slots: List<Slot>, date: java.time.LocalDate, now: LocalDateTime, next: Prayer, accent: Color, labelPx: Float,
+    time: (LocalTime) -> String, modifier: Modifier,
 ) {
     val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER } }
     Canvas(modifier) {
-        val seconds = Prayer.entries.map { day.times.getValue(it).toSecondOfDay().toFloat() }
+        val seconds = slots.map { it.time.toSecondOfDay().toFloat() }
         // The dots are evenly spaced so no two names meet; the sun moves between them in proportion to the time.
         val fractions = seconds.indices.map { it / (seconds.size - 1f) }
         val here = when {
-            now.toLocalDate().isBefore(day.date) -> 0f
-            now.toLocalDate().isAfter(day.date) -> 1f
+            now.toLocalDate().isBefore(date) -> 0f
+            now.toLocalDate().isAfter(date) -> 1f
             else -> {
                 val t = now.toLocalTime().toSecondOfDay().toFloat()
                 val i = seconds.indexOfLast { it <= t }
@@ -214,9 +233,11 @@ private fun SunArc(
         val b = (size.height - labelHeight - labelPx * 0.4f).coerceAtLeast(1f)
         val cx = size.width / 2
         val cy = size.height - labelHeight
+        // Evenly spaced across the width, each on the arc's height there, so the names never meet.
         fun at(f: Float): Offset {
-            val angle = Math.PI * (1 - f)
-            return Offset(cx + a * kotlin.math.cos(angle).toFloat(), cy - b * kotlin.math.sin(angle).toFloat())
+            val x = cx - a + 2 * a * f
+            val u = ((x - cx) / a).coerceIn(-1f, 1f)
+            return Offset(x, cy - b * kotlin.math.sqrt(1 - u * u))
         }
         val steps = 72
         val line = (labelPx * 0.12f).coerceAtLeast(1.5f)
@@ -226,23 +247,20 @@ private fun SunArc(
             val colour = if (f1 <= here) lerp(Color(0xFF2E2E2E), accent, 0.6f) else Color(0xFF2E2E2E)
             drawLine(colour, at(f0), at(f1), line, StrokeCap.Round)
         }
-        val shade = { p: Prayer, i: Int ->
-            when {
-                p == next -> accent
+        slots.forEachIndexed { i, slot ->
+            val spot = at(fractions[i])
+            val colour = when {
+                slot.prayer != null && slot.prayer == next -> accent
                 fractions[i] <= here -> Muted.copy(alpha = 0.45f)
                 else -> Muted
             }
-        }
-        Prayer.entries.forEachIndexed { i, p ->
-            val spot = at(fractions[i])
-            val colour = shade(p, i)
             drawCircle(Color.Black, labelPx * 0.42f, spot)
             drawCircle(colour, labelPx * 0.3f, spot)
             paint.color = colour.toArgb()
             paint.textSize = labelPx
-            drawContext.canvas.nativeCanvas.drawText(name(p), spot.x, cy + labelPx * 1.15f, paint)
+            drawContext.canvas.nativeCanvas.drawText(slot.name, spot.x, cy + labelPx * 1.15f, paint)
             paint.textSize = labelPx * 1.1f
-            drawContext.canvas.nativeCanvas.drawText(time(day.times.getValue(p)), spot.x, cy + labelPx * 2.4f, paint)
+            drawContext.canvas.nativeCanvas.drawText(time(slot.time), spot.x, cy + labelPx * 2.4f, paint)
         }
         val sun = at(here)
         drawCircle(accent.copy(alpha = 0.25f), labelPx * 0.9f, sun)
