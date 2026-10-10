@@ -90,7 +90,7 @@ class EditorScreenTest {
 
     @Test
     fun `tapping a widget opens its settings`() {
-        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick().performClick()
         compose.onNodeWithText("Format").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("عربي / Arabic").performScrollTo().assertIsDisplayed()
     }
@@ -116,7 +116,7 @@ class EditorScreenTest {
     @Test
     fun `the corner handle resizes, pushing the widgets below`() {
         val ring = idOf("ring")
-        compose.onNodeWithTag("widget $ring").performClick()
+        compose.onNodeWithTag("widget $ring").performClick().performClick()
         // The ring's corner lies under the settings sheet, so, as a person would, fold the sheet to reach it.
         compose.onNodeWithContentDescription("Fold settings").performClick()
         val stat = layout.items.first { it.type == "stat" }.id
@@ -131,7 +131,7 @@ class EditorScreenTest {
     @Test
     fun `the pill's delete removes a widget, and Undo brings it back`() {
         val before = layout
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         compose.onNodeWithTag("delete").performClick()
         compose.onNodeWithText("Clock deleted").assertIsDisplayed()
         assertEquals(before.items.size - 1, layout.items.size)
@@ -150,7 +150,7 @@ class EditorScreenTest {
 
     @Test
     fun `the clock style strip changes the style in one tap`() {
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         compose.onNodeWithTag("strip").performScrollToNode(hasText("Dot matrix"))
         compose.onNodeWithText("Dot matrix").performClick()
         assertEquals("dots", layout.find(idOf("clock"))!!.settings[ClockWidget.STYLE])
@@ -158,7 +158,7 @@ class EditorScreenTest {
 
     @Test
     fun `More fonts lists the library, and picking one downloads it and selects it`() {
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         compose.onNodeWithTag("strip").performScrollToNode(hasText("More fonts"))
         compose.onNodeWithText("More fonts").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Inter").fetchSemanticsNodes().isNotEmpty() }
@@ -176,7 +176,7 @@ class EditorScreenTest {
 
     @Test
     fun `a font that cannot be downloaded says so, on top of the font list rather than under it`() {
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         compose.onNodeWithTag("strip").performScrollToNode(hasText("More fonts"))
         compose.onNodeWithText("More fonts").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Inter").fetchSemanticsNodes().isNotEmpty() }
@@ -238,14 +238,14 @@ class EditorScreenTest {
 
     @Test
     fun `the canvas sits below the top bar, so nothing on it is covered`() {
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         // The bar is 52 dp and its rule 1 dp. The clock is the highest widget, so its action pill is the highest chrome.
         assertTrue(compose.onNodeWithTag("delete").getUnclippedBoundsInRoot().top >= 49.dp)
     }
 
     @Test
     fun `the action pill, the handle and the fold chevron have names`() {
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         compose.onNodeWithContentDescription("Delete Clock").assertIsDisplayed()
         compose.onNodeWithContentDescription("Duplicate Clock").assertIsDisplayed()
         compose.onNodeWithContentDescription("Hide Clock").assertIsDisplayed()
@@ -258,7 +258,7 @@ class EditorScreenTest {
     @Test
     fun `tabs and swatches say what they are, and the undo message is announced`() {
         compose.onNodeWithText("Widgets").assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         compose.onNodeWithContentDescription("Green").performScrollTo().performClick()
         assertEquals(0xFF44B98A.toInt(), layout.find(idOf("clock"))!!.settings[Common.COLOUR])
         compose.onNodeWithTag("delete").performClick()
@@ -287,7 +287,7 @@ class EditorScreenTest {
 
     @Test
     fun `tapping a widget brings the sheet up with its settings`() {
-        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick().performClick()
         compose.waitForIdle()
         assertTrue(sheetHeight() > 250.dp)
     }
@@ -310,7 +310,7 @@ class EditorScreenTest {
     @Test
     fun `the pill's duplicate copies the widget, and Undo takes the copy away`() {
         val before = layout
-        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick().performClick()
         compose.onNodeWithContentDescription("Duplicate Date").performClick()
         compose.waitForIdle()
         assertEquals(before.items.size + 1, layout.items.size)
@@ -338,7 +338,7 @@ class EditorScreenTest {
     @Test
     fun `the more menu resets only after a confirmation, and Undo brings the layout back`() {
         val before = layout
-        compose.onNodeWithTag("widget ${idOf("clock")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("clock")}").performClick().performClick()
         compose.onNodeWithTag("delete").performClick()
         val edited = layout
         compose.onNodeWithTag("more").performClick()

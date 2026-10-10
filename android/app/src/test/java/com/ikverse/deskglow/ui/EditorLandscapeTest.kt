@@ -84,7 +84,7 @@ class EditorLandscapeTest {
     @Test
     fun `the settings are a panel beside the canvas, and tapping a widget fills it`() {
         compose.onNodeWithTag("sheet").assertIsDisplayed()
-        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick().performClick()
         compose.onNodeWithText("Format").performScrollTo().assertIsDisplayed()
     }
 
@@ -133,7 +133,7 @@ class EditorLandscapeTest {
         compose.waitForIdle()
         assertNotEquals(before, layout.find(clock)!!.box)
         assertInsideAndNoOverlaps()
-        compose.onNodeWithTag("widget ${idOf("date")}").performClick()
+        compose.onNodeWithTag("widget ${idOf("date")}").performClick().performClick()
         compose.onNodeWithText("Format").performScrollTo().assertIsDisplayed()
     }
 }
