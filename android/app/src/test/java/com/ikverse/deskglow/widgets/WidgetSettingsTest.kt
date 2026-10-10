@@ -305,4 +305,52 @@ class WidgetSettingsTest {
         val teams = F1StandingsWidget.fields(F1StandingsWidget.resolve(Settings(mapOf("table" to "constructors")))).filterIsInstance<ChoiceField>().single { it.label == "Favourite team" }
         assertEquals(listOf("", "none"), teams.options.take(2).map { it.first })
     }
+
+    @Test
+    fun `the weather details stay on one line when they fit or nearly fit, and otherwise wrap onto two`() {
+        val values = listOf("21°", "48%", "14 km/h", "10%", "5:42 AM", "5:30 PM", "6")
+        val width = detailLineUnits(values) * 20f
+        // Plenty of room: one line at the full size.
+        val wide = splitDetails(values, 20f, 2000f)
+        assertEquals(listOf(values.indices.toList()), wide)
+        assertEquals(20f, detailsSize(values, wide, 20f, 2000f), 0f)
+        // A little short: still one line, set a little smaller.
+        val tight = splitDetails(values, 20f, width * 0.9f)
+        assertEquals(1, tight.size)
+        assertEquals(18f, detailsSize(values, tight, 20f, width * 0.9f), 0.01f)
+        // Well short: two lines, every item once and in order, and each line fits.
+        val narrow = splitDetails(values, 20f, width * 0.6f)
+        assertEquals(2, narrow.size)
+        assertEquals(values.indices.toList(), narrow.flatten())
+        val size = detailsSize(values, narrow, 20f, width * 0.6f)
+        assertTrue(narrow.all { line -> detailLineUnits(line.map { values[it] }) * size <= width * 0.6f + 0.01f })
+        // The two lines are about as wide as each other.
+        val units = narrow.map { line -> detailLineUnits(line.map { values[it] }) }
+        assertTrue("$units", Math.abs(units[0] - units[1]) < units.max() * 0.5f)
+        // One detail never splits, and with no room at all the type stops at half size.
+        assertEquals(1, splitDetails(listOf("48%"), 20f, 5f).size)
+        assertEquals(10f, detailsSize(listOf("48%"), listOf(listOf(0)), 20f, 5f), 0.01f)
+        assertEquals(10f, detailsSize(values, splitDetails(values, 20f, 1f), 20f, 1f), 0.01f)
+    }
+
+    @Test
+    fun `details that two lines cannot hold take three, and only when even half size is not enough are the last ones left off`() {
+        val values = listOf("21°", "48%", "14 km/h", "10%", "5:42 AM", "5:30 PM", "6")
+        val width = detailLineUnits(values) * 20f
+        val three = splitDetails(values, 20f, width * 0.4f)
+        assertEquals(3, three.size)
+        assertEquals(values.indices.toList(), three.flatten())
+        assertTrue(three.all { it.isNotEmpty() })
+        val fitted = fitDetails(values, 20f, width * 0.4f)
+        assertEquals(three, fitted.lines)
+        assertTrue(fitted.lines.all { line -> detailLineUnits(line.map { values[it] }) * fitted.px <= width * 0.4f + 0.01f })
+        // So little room that nothing fits at half size: the first details stay, whole, and the last go.
+        val room = detailLineUnits(listOf("21°", "48%")) * 10f
+        val tiny = fitDetails(values, 20f, room)
+        assertTrue(tiny.lines.sumOf { it.size } < values.size)
+        assertEquals(values.indices.toList().take(tiny.lines.sumOf { it.size }), tiny.lines.flatten())
+        assertTrue(tiny.lines.all { line -> detailLineUnits(line.map { values[it] }) * tiny.px <= room + 0.01f })
+        // One detail is always kept.
+        assertEquals(1, fitDetails(listOf("14 km/h"), 20f, 1f).lines.sumOf { it.size })
+    }
 }
