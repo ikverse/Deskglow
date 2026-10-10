@@ -558,6 +558,30 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `the F1 widgets in their new options`() {
+        feeds.f1.value = F1State.Ready(F1Samples.data.copy(track = F1Samples.marinaBay))
+        at(LocalDateTime.of(2026, 10, 10, 8, 30))
+        val raceOnly = weekend("classic").with(F1WeekendWidget.COUNT_TO, "race").with(F1WeekendWidget.SHOW_START, true).with(com.ikverse.deskglow.widgets.Common.TIME_FORMAT, "24")
+        feeds.f1Live.value = F1LiveState.Live(
+            sprintQuali.copy(status = "Aborted", finished = false, flag = TrackFlag.Red, part = 2, remaining = java.time.Duration.ofSeconds(419), clockAt = LocalDateTime.of(2026, 10, 10, 8, 30).toInstant(ZoneOffset.UTC)),
+        )
+        val items = listOf(
+            WidgetItem("k1", F1WeekendWidget.id, Box(8, 8, 396, 112), true, raceOnly),
+            WidgetItem("k2", F1WeekendWidget.id, Box(8, 128, 196, 150), true, raceOnly.with(F1WeekendWidget.LAYOUT, "hero").with(F1WeekendWidget.SHOW_TRACK, false)),
+            WidgetItem("k3", F1WeekendWidget.id, Box(212, 128, 196, 150), true, raceOnly.with(F1WeekendWidget.LAYOUT, "countdown").with(F1WeekendWidget.SHOW_TRACK, false)),
+            WidgetItem("c1", F1ScheduleWidget.id, Box(8, 290, 196, 110), true, F1ScheduleWidget.defaults.with(F1ScheduleWidget.LAYOUT, "list").with(F1ScheduleWidget.SESSIONS, "main")),
+            WidgetItem("l1", F1LiveWidget.id, Box(212, 290, 196, 260), true,
+                F1LiveWidget.defaults.with(F1LiveWidget.BORDER, true).with(F1LiveWidget.NAMES, "surname").with(F1LiveWidget.ROWS, 6)),
+            WidgetItem("t1", F1StandingsWidget.id, Box(8, 412, 196, 150), true, F1StandingsWidget.defaults.with(F1StandingsWidget.LAYOUT, "bars").with(F1StandingsWidget.ROWS, 5)),
+            WidgetItem("t2", F1StandingsWidget.id, Box(8, 572, 196, 150), true, F1StandingsWidget.defaults.with(F1StandingsWidget.VALUE, "ahead").with(F1StandingsWidget.ROWS, 5)),
+            WidgetItem("t3", F1StandingsWidget.id, Box(212, 572, 196, 150), true,
+                F1StandingsWidget.defaults.with(F1StandingsWidget.TABLE, "constructors").with(F1StandingsWidget.LAYOUT, "bars").with(F1StandingsWidget.VALUE, "gap")),
+        )
+        show(Layout(items))
+        save("f1-new-options")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)

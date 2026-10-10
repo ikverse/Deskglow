@@ -193,4 +193,28 @@ class WidgetSettingsTest {
         assertEquals("Gulf Region", com.ikverse.deskglow.data.PrayerRepository.METHODS.first { it.first == 8 }.second)
         assertTrue(ids.all { it in 0..23 })
     }
+
+    @Test
+    fun `the schedule lists every session, or only the main ones`() {
+        val sprintWeekend = com.ikverse.deskglow.F1Samples.data.races[2]
+        assertEquals(listOf("FP1", "Sprint Quali", "Sprint", "Qualifying", "Race"), F1ScheduleWidget.sessionsOf(sprintWeekend, F1ScheduleWidget.defaults).map { it.kind })
+        val main = F1ScheduleWidget.defaults.with(F1ScheduleWidget.SESSIONS, "main")
+        assertEquals(listOf("Sprint", "Qualifying", "Race"), F1ScheduleWidget.sessionsOf(sprintWeekend, main).map { it.kind })
+        val ordinary = com.ikverse.deskglow.F1Samples.data.races[1]
+        assertEquals(listOf("Qualifying", "Race"), F1ScheduleWidget.sessionsOf(ordinary, main).map { it.kind })
+        // A weekend with none of the main sessions known yet is not left empty.
+        val bare = ordinary.copy(sessions = ordinary.sessions.filter { it.kind.startsWith("FP") })
+        assertEquals(3, F1ScheduleWidget.sessionsOf(bare, main).size)
+    }
+
+    @Test
+    fun `the standings and live widgets offer the new choices, and keep their old ones`() {
+        val numbers = F1StandingsWidget.fields(F1StandingsWidget.defaults).filterIsInstance<ChoiceField>().single { it.label == "Numbers" }
+        assertEquals(listOf("points", "gap", "ahead"), numbers.options.map { it.first })
+        assertEquals("table", F1StandingsWidget.resolve(Settings())[F1StandingsWidget.LAYOUT])
+        assertEquals("code", F1LiveWidget.resolve(Settings())[F1LiveWidget.NAMES])
+        assertEquals(true, F1LiveWidget.resolve(Settings())[F1LiveWidget.SHOW_FLAG])
+        assertEquals(false, F1LiveWidget.resolve(Settings())[F1LiveWidget.BORDER])
+        assertEquals("next", F1WeekendWidget.resolve(Settings())[F1WeekendWidget.COUNT_TO])
+    }
 }

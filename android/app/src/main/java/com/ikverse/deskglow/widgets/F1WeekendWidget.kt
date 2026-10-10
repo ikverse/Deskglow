@@ -53,6 +53,7 @@ import com.ikverse.deskglow.model.TextKey
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.min
 
@@ -65,6 +66,10 @@ object F1WeekendWidget : WidgetType {
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
     /** "countdown", or "top3" for the last session's top 3 until an hour before the next. */
     val BETWEEN = TextKey("between", "countdown")
+    /** "next" session, or the "race" only. */
+    val COUNT_TO = TextKey("countTo", "next")
+    /** The session's start time, in the phone's zone, beside its countdown. */
+    val SHOW_START = FlagKey("showStart", false)
 
     private val LAYOUTS = listOf(
         "classic" to "Classic", "hero" to "Hero · big track", "countdown" to "Countdown blocks",
@@ -83,6 +88,9 @@ object F1WeekendWidget : WidgetType {
         add(LayoutField("Layout", LAYOUT, LAYOUTS))
         if (settings[LAYOUT] in TRACK_OPTIONAL) add(ToggleField("Show the track", SHOW_TRACK))
         add(ChoiceField("Between sessions", BETWEEN, listOf("countdown" to "Countdown", "top3" to "Latest session's top 3")))
+        add(ChoiceField("Count down to", COUNT_TO, listOf("next" to "Next session", "race" to "Race only")))
+        add(ToggleField("Show the start time", SHOW_START))
+        if (settings[SHOW_START]) add(Common.timeFormatField())
         add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
         add(ColourField("Accent colour", ACCENT))
         add(Common.colourField)
@@ -119,13 +127,23 @@ object F1WeekendWidget : WidgetType {
                 val live by feeds.f1Live.collectAsStateWithLifecycle()
                 (live as? F1LiveState.Result)?.session
             } else null
-            WeekendFace(settings, data, weekendView(data, now), sessionTop(data.races, latest, now), now)
+            val shown = weekendView(data, now).let { v ->
+                if (settings[COUNT_TO] == "race" && v is WeekendView.Upcoming) v.copy(next = v.race.race.takeIf { it.start.isAfter(now) }) else v
+            }
+            WeekendFace(settings, data, shown, sessionTop(data.races, latest, now), now)
         }
     }
 }
 
 /** The widget's colours and the favourite driver, passed down together. */
-private class Look(val colour: Color, val accent: Color, val favourite: String)
+private class Look(val colour: Color, val accent: Color, val favourite: String, val start: ((F1Session) -> String)? = null)
+
+/** "Sat 16:00": when [session] starts, in the phone's time zone. */
+private fun startLabel(session: F1Session, h24: Boolean): String =
+    session.start.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern(if (h24) "EEE HH:mm" else "EEE h:mm a", Locale.US))
+
+/** " · SAT 16:00" for a caption, or nothing when the start time is not asked for. */
+private fun startPart(look: Look, session: F1Session): String = look.start?.let { " · " + it(session).uppercase() }.orEmpty()
 
 /** One place on a podium as drawn, from a race result or from a session's timing. */
 private class Place(val position: Int, val code: String, val team: Color)
@@ -153,10 +171,12 @@ private fun placesText(places: List<Place>) = places.joinToString("  ") { "${it.
  */
 @Composable
 private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, sessionTop: SessionTop?, now: Instant) {
+    val h24 = Common.use24Hour(settings)
+    val startText: ((F1Session) -> String)? = if (settings[F1WeekendWidget.SHOW_START]) ({ session: F1Session -> startLabel(session, h24) }) else null
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val h = constraints.maxHeight.toFloat()
         val w = constraints.maxWidth.toFloat()
-        val look = Look(Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE])
+        val look = Look(Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE], startText)
         // A race's podium, once it has arrived, wins over its top 3 from timing.
         val top = sessionTop?.takeIf { view !is WeekendView.AfterRace }
         if (view == WeekendView.Empty && top == null) {
@@ -268,6 +288,10 @@ private fun SessionLine(view: WeekendView.Upcoming, now: Instant, look: Look, sm
             Text(next.kind, color = Muted, fontSize = pxToSp(big * 0.62f), maxLines = 1, softWrap = false)
             Spacer(Modifier.width(pxToDp(big * 0.3f)))
             Text(countdownText(now, next.start), color = look.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
+            look.start?.let { start ->
+                Spacer(Modifier.width(pxToDp(big * 0.3f)))
+                Text(start(next), color = Muted, fontSize = pxToSp(big * 0.45f), maxLines = 1, softWrap = false)
+            }
         }
     }
 }
@@ -307,7 +331,7 @@ private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look:
                     LiveBadge(look.accent, small)
                     Text(live.kind, color = look.colour, fontSize = pxToSp(big * 0.8f), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
                 } else if (next != null) {
-                    Text(next.kind.uppercase(), color = look.accent, fontSize = pxToSp(small * 0.9f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
+                    Text((next.kind + startPart(look, next)).uppercase(), color = look.accent, fontSize = pxToSp(small * 0.9f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
                     Text(countdownText(now, next.start), color = look.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
                 }
             }
@@ -333,7 +357,7 @@ private fun CountdownContent(view: WeekendView, top: SessionTop?, data: F1Data, 
     fun BlocksWithLine(race: F1Race, next: F1Session, line: String) {
         Header(race.name, race.place, look.accent, look.colour, small)
         Spacer(Modifier.height(pxToDp(h * 0.05f)))
-        Text("${next.kind} in".uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
+        Text(("${next.kind} in" + startPart(look, next)).uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
         CountdownBlocks(now, next.start, look, small, big)
         Spacer(Modifier.height(pxToDp(small * 0.6f)))
         Text(line, color = Muted, fontSize = pxToSp(small * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -362,7 +386,7 @@ private fun CountdownContent(view: WeekendView, top: SessionTop?, data: F1Data, 
                 if (live != null) {
                     SessionLine(view, now, look, small, big)
                 } else if (next != null) {
-                    Text("${next.kind} in".uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
+                    Text(("${next.kind} in" + startPart(look, next)).uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
                     CountdownBlocks(now, next.start, look, small, big)
                 }
             }

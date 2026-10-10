@@ -18,6 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -43,6 +47,8 @@ object F1StandingsWidget : WidgetType {
     val TABLE = TextKey("table", "drivers")
     val ROWS = IntKey("rows", 5)
     val VALUE = TextKey("value", "points")
+    /** "table", or "bars": each row's bar as long as its share of the leader's points. */
+    val LAYOUT = TextKey("layout", "table")
     val SHOW_MOVES = FlagKey("showMoves", true)
     val FAV_DRIVER = TextKey("favDriver", "")
     val FAV_TEAM = TextKey("favTeam", "")
@@ -60,9 +66,10 @@ object F1StandingsWidget : WidgetType {
     override fun title(settings: Settings) = "F1 standings · " + if (teams(settings)) "Constructors" else "Drivers"
 
     override fun fields(settings: Settings) = listOf(
+        LayoutField("Layout", LAYOUT, listOf("table" to "Table", "bars" to "Bars")),
         ChoiceField("Championship", TABLE, listOf("drivers" to "Drivers", "constructors" to "Constructors")),
         SliderField("Rows", ROWS, 3..10),
-        ChoiceField("Numbers", VALUE, listOf("points" to "Points", "gap" to "Gap to the leader")),
+        ChoiceField("Numbers", VALUE, listOf("points" to "Points", "gap" to "Gap to the leader", "ahead" to "Gap to the one ahead")),
         ToggleField("Show ▲▼ since the last round", SHOW_MOVES),
         if (teams(settings)) {
             ChoiceField("Favourite team", FAV_TEAM, listOf("" to "None") + F1Roster.teams)
@@ -112,13 +119,23 @@ object F1StandingsWidget : WidgetType {
             val row = min(h / slots, columnW * 0.16f)
             val text = row * 0.56f
             val leader = entries.first().points
-            val gap = settings[VALUE] == "gap"
+            val mode = settings[VALUE]
+            val bars = settings[LAYOUT] == "bars" && leader > 0
             val moves = settings[SHOW_MOVES]
+
+            /** The points a row's gap is counted from: the leader's, or the row above's. */
+            fun reference(r: StandingRow): Double =
+                if (mode == "ahead") entries.getOrNull(entries.indexOfFirst { it.id == r.entry.id } - 1)?.points ?: r.entry.points else leader
 
             @Composable
             fun Line(r: StandingRow) {
                 val fav = favourite.isNotEmpty() && r.entry.id == favourite
-                Row(Modifier.fillMaxWidth().height(pxToDp(row)), verticalAlignment = Alignment.CenterVertically) {
+                val share = (r.entry.points / leader).toFloat().coerceIn(0.03f, 1f)
+                val barColour = Color(teamColour(r.entry.teamId)).copy(alpha = 0.3f)
+                val barModifier = if (bars) Modifier.drawBehind {
+                    drawRoundRect(barColour, Offset(0f, row * 0.08f), Size(size.width * share, size.height - row * 0.16f), CornerRadius(text * 0.15f))
+                } else Modifier
+                Row(Modifier.fillMaxWidth().height(pxToDp(row)).then(barModifier), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "${r.entry.position}", color = Muted, fontSize = pxToSp(text * 0.9f), textAlign = TextAlign.End,
                         maxLines = 1, softWrap = false, modifier = Modifier.width(pxToDp(text * 1.3f)),
@@ -131,7 +148,7 @@ object F1StandingsWidget : WidgetType {
                         color = if (fav) accent else colour, fontSize = pxToSp(text), fontWeight = if (fav) FontWeight.Bold else FontWeight.Medium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
-                    Text(valueText(r.entry.points, leader, gap), color = if (fav) accent else Muted, fontSize = pxToSp(text * 0.92f), maxLines = 1, softWrap = false)
+                    Text(valueText(r.entry.points, reference(r), mode != "points"), color = if (fav) accent else Muted, fontSize = pxToSp(text * 0.92f), maxLines = 1, softWrap = false)
                     if (moves) {
                         val move = r.move ?: 0
                         Text(
