@@ -9,12 +9,14 @@ Nothing runs while it is not showing: no background service, no permanent notifi
 ## What it does
 
 - **Widgets:** clock, date, charging ring, battery stats (temperature, voltage, power, current,
-  time to full, level), notification icons, now playing, next event, weather, prayer times, next
-  alarm, and four Formula 1 widgets: race weekend (countdown, or the last session's top 3),
+  time to full, level, charger, health, charge cycles), notification icons, now playing, next event
+  (or the next few), weather (with an hourly forecast), sun and moon, prayer times, next alarm, and
+  four Formula 1 widgets: race weekend (countdown, or the last session's top 3),
   schedule, live session timing and the championship standings.
 - **Settings:** each widget has its own layouts and options. Several on/off options share one row of
   chips; times follow the phone's 12 or 24-hour setting unless told otherwise; the clock, date and
-  other text widgets can sit against either edge of their box.
+  other text widgets can sit against either edge of their box. The F1 driver and team you follow are
+  set once on the Home screen and every F1 widget follows them, unless it is told otherwise.
 - **Editor:** drag to move, drag the corner to resize, red × to delete (with Undo). Widgets never
   overlap: anything in the way is pushed down, and slides back while you are still holding.
 - **Portrait and landscape:** each has its own layout. Upright is the default; for a phone docked on
@@ -71,6 +73,7 @@ in a browser.
 - **Weather:** data by [Open-Meteo.com](https://open-meteo.com), under CC BY 4.0. Only the chosen
   city's position is sent.
 - **Prayer times:** from [Aladhan](https://aladhan.com), for where the phone is or the chosen city.
+- **Sun and moon:** sunrise and sunset come with the weather; the moon's phase is worked out on the phone.
 - **Formula 1:** the calendar, results and standings from the Jolpica F1 API (api.jolpi.ca); circuit
   outlines from OpenF1 and MultiViewer; live timing and session results from Formula 1's own
   live-timing feed (unofficial, and may stop working) or OpenF1. The live feed connects only while a
