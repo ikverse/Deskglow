@@ -182,10 +182,14 @@ class AppPrefs(context: Context) {
         get() = prefs.getString(KEY_F1_TRACK, null)
         set(value) = prefs.edit { putString(KEY_F1_TRACK, value) }
 
-    /** The classification of the last F1 session to finish, for the live-session widget. */
+    /**
+     * The classification of the last F1 session to finish, for the live-session widget. One saved by
+     * an older way of reading the feed is not given back, so the result is fetched again: a version
+     * that read a session wrong would otherwise go on showing its result until the next session.
+     */
     var f1LiveResult: String?
-        get() = prefs.getString(KEY_F1_LIVE, null)
-        set(value) = prefs.edit { putString(KEY_F1_LIVE, value) }
+        get() = prefs.getString(KEY_F1_LIVE, null)?.takeIf { prefs.getInt(KEY_F1_LIVE_FORMAT, 0) == F1_LIVE_FORMAT }
+        set(value) = prefs.edit { putString(KEY_F1_LIVE, value).putInt(KEY_F1_LIVE_FORMAT, F1_LIVE_FORMAT) }
 
     var pickedFonts: String?
         get() = prefs.getString(KEY_PICKED_FONTS, null)
@@ -207,6 +211,10 @@ class AppPrefs(context: Context) {
         const val KEY_F1_CACHE = "f1_cache"
         const val KEY_F1_TRACK = "f1_track"
         const val KEY_F1_LIVE = "f1_live_result"
+        const val KEY_F1_LIVE_FORMAT = "f1_live_result_format"
+
+        /** Raised whenever a change to reading the feed would make a saved result wrong. 1: qualifying no longer ends at the start of Q3. */
+        const val F1_LIVE_FORMAT = 1
         const val KEY_PICKED_FONTS = "picked_fonts"
         const val KEY_PAGE_COUNT = "page_count"
     }
