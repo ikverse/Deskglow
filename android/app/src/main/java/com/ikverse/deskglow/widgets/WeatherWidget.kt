@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ikverse.deskglow.data.HourForecast
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.Weather
 import com.ikverse.deskglow.data.WeatherState
@@ -39,6 +40,11 @@ import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.IntKey
 import com.ikverse.deskglow.model.Settings
 import com.ikverse.deskglow.model.TextKey
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.min
 
@@ -51,6 +57,9 @@ object WeatherWidget : WidgetType {
     val SHOW_ICON = FlagKey("showIcon", true)
     /** The temperature coloured by how warm it is. */
     val TINT = FlagKey("tint", false)
+    val SHOW_SUNRISE = FlagKey("showSunrise", false)
+    val SHOW_SUNSET = FlagKey("showSunset", false)
+    val SHOW_UV = FlagKey("showUv", false)
     val SHOW_CONDITION = FlagKey("showCondition", true)
     val SHOW_RANGE = FlagKey("showRange", true)
     val SHOW_CITY = FlagKey("showCity", true)
@@ -68,10 +77,21 @@ object WeatherWidget : WidgetType {
     override val defaults: Settings = Common.base()
 
     /** The layouts on offer, as (id, name). The ids are stored in saved layouts, so they keep their first names. */
-    val LAYOUTS = listOf("side" to "Classic", "stacked" to "Card", "compact" to "Ticker", "big" to "Poster")
+    val LAYOUTS = listOf("side" to "Classic", "stacked" to "Card", "compact" to "Ticker", "big" to "Poster", "hours" to "Forecast")
 
     /** What the picker's tiles show when there is no weather yet. */
-    val SAMPLE = Weather(22.0, 2, true, 26.0, 17.0, 0, feelsLikeC = 21.0, humidityPercent = 48, windKmh = 14.0, rainChancePercent = 10)
+    val SAMPLE: Weather get() = Weather(
+        22.0, 2, true, 26.0, 17.0, 0, feelsLikeC = 21.0, humidityPercent = 48, windKmh = 14.0, rainChancePercent = 10,
+        hours = sampleHours(), sunrise = LocalDate.now().atTime(6, 0), sunset = LocalDate.now().atTime(18, 0), uvIndex = 6.0,
+        utcOffsetSeconds = ZonedDateTime.now().offset.totalSeconds,
+    )
+
+    /** Twelve invented hours from the next one, for a picker tile before there is any real weather. */
+    private fun sampleHours(): List<HourForecast> {
+        val start = LocalDateTime.now().truncatedTo(ChronoUnit.HOURS).plusHours(1)
+        val codes = listOf(2, 2, 3, 3, 61, 61, 3, 2, 2, 0, 0, 1)
+        return codes.mapIndexed { i, code -> HourForecast(start.plusHours(i.toLong()), 22.0 - i * 0.6, code, start.plusHours(i.toLong()).hour in 6..17) }
+    }
 
     override fun fields(settings: Settings) = listOf(
         StyleField("Layout", LAYOUT, StyleKind.Weather),
@@ -85,6 +105,7 @@ object WeatherWidget : WidgetType {
             listOf(
                 SHOW_CONDITION to "Condition", SHOW_RANGE to "High and low", SHOW_CITY to "City",
                 SHOW_FEELS to "Feels like", SHOW_HUMIDITY to "Humidity", SHOW_WIND to "Wind", SHOW_RAIN to "Chance of rain",
+                SHOW_SUNRISE to "Sunrise", SHOW_SUNSET to "Sunset", SHOW_UV to "UV index",
             ),
         ),
         ColourField("Accent colour", ACCENT),
@@ -109,24 +130,33 @@ object WeatherWidget : WidgetType {
                 is WeatherState.Failed -> s.city to (s.last ?: return@BoxWithConstraints EditorHint("No weather yet", h * 0.22f))
                 is WeatherState.Ready -> s.city to s.weather
             }
-            WeatherBody(settings, city.name, weather)
+            // Only the forecast layout reads the clock: it picks the hours still to come.
+            val now = if (settings[LAYOUT] == "hours") {
+                val minute by LocalFeeds.current.minute.collectAsStateWithLifecycle()
+                weather.cityTime(minute)
+            } else null
+            WeatherBody(settings, city.name, weather, now)
         }
     }
 
     /** The details the owner turned on, each with its symbol: thermometer 21°, droplet 48%, wind 14 km/h, umbrella 10%. */
-    fun details(settings: Settings, weather: Weather): List<Pair<Glyph, String>> {
+    fun details(settings: Settings, weather: Weather, h24: Boolean = false): List<Pair<Glyph, String>> {
         val f = settings[UNITS] == "f"
         return listOfNotNull(
             weather.feelsLikeC?.takeIf { settings[SHOW_FEELS] }?.let { Glyph.Thermometer to formatTemperature(it, f) },
             weather.humidityPercent?.takeIf { settings[SHOW_HUMIDITY] }?.let { Glyph.Droplet to "$it%" },
             weather.windKmh?.takeIf { settings[SHOW_WIND] }?.let { Glyph.Wind to formatWind(it, f) },
             weather.rainChancePercent?.takeIf { settings[SHOW_RAIN] }?.let { Glyph.Umbrella to "$it%" },
+            weather.sunrise?.takeIf { settings[SHOW_SUNRISE] }?.let { Glyph.Sunrise to sunTime(it, h24) },
+            weather.sunset?.takeIf { settings[SHOW_SUNSET] }?.let { Glyph.Sunset to sunTime(it, h24) },
+            weather.uvIndex?.takeIf { settings[SHOW_UV] }?.let { Glyph.Uv to Math.round(it).toString() },
         )
     }
 
     /** The weather drawn in the layout [LAYOUT] picks, filling whatever box it is given. */
     @Composable
-    fun WeatherBody(settings: Settings, cityName: String, weather: Weather) {
+    fun WeatherBody(settings: Settings, cityName: String, weather: Weather, now: LocalDateTime? = null) {
+        val h24 = Common.use24Hour(settings)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val look = WeatherLook(
                 settings = settings,
@@ -134,9 +164,12 @@ object WeatherWidget : WidgetType {
                 h = constraints.maxHeight.toFloat(),
                 w = constraints.maxWidth.toFloat(),
                 place = listOfNotNull(conditionOf(weather.code).takeIf { settings[SHOW_CONDITION] }, cityName.takeIf { settings[SHOW_CITY] }).joinToString(" · "),
-                details = details(settings, weather),
+                details = details(settings, weather, h24),
+                h24 = h24,
+                now = now,
             )
             when (settings[LAYOUT]) {
+                "hours" -> look.Hours()
                 "stacked" -> look.Card()
                 "compact" -> look.Ticker()
                 "big" -> look.Poster()
@@ -158,6 +191,14 @@ fun tintFor(celsius: Double, base: Color): Color {
     }
 }
 
+/** "5:42", or "5:42 AM" on a 12-hour clock: when the sun rises or sets. */
+fun sunTime(time: LocalDateTime, h24: Boolean): String =
+    time.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US))
+
+/** "15" on a 24-hour clock, "3 PM" on a 12-hour one: the head of a forecast column. */
+fun hourLabel(time: LocalDateTime, h24: Boolean): String =
+    if (h24) String.format(Locale.US, "%02d", time.hour) else time.format(DateTimeFormatter.ofPattern("h a", Locale.US))
+
 /** "14 km/h", or "9 mph" when the widget is in Fahrenheit. */
 fun formatWind(kmh: Double, miles: Boolean): String =
     if (miles) String.format(Locale.US, "%d mph", Math.round(kmh * 0.621371)) else String.format(Locale.US, "%d km/h", Math.round(kmh))
@@ -171,6 +212,9 @@ private class WeatherLook(
     /** "Partly cloudy · Cairo", or less, or empty. */
     val place: String,
     val details: List<Pair<Glyph, String>>,
+    val h24: Boolean = false,
+    /** The city's clock, for the forecast layout. */
+    val now: LocalDateTime? = null,
 ) {
     val f = settings[WeatherWidget.UNITS] == "f"
     val colour = Color(settings[Common.COLOUR])
@@ -306,6 +350,36 @@ private class WeatherLook(
 
     @Composable
     private fun Dot(px: Float) = Box(Modifier.padding(horizontal = pxToDp(px * 0.45f)).size(pxToDp(px * 0.16f)).background(Color(0xFF555555), CircleShape))
+
+    /** The icon and temperature, then the next hours as columns: the hour, its sky and its temperature. */
+    @Composable
+    fun Hours() {
+        val start = (now ?: LocalDateTime.now()).truncatedTo(ChronoUnit.HOURS).plusHours(1)
+        val upcoming = weather.hours.filter { !it.time.isBefore(start) }
+        val temp = min(h * 0.5f, w * 0.12f) * scale
+        val small = min(h * 0.17f, w * 0.04f)
+        val cell = small * 4.2f
+        val left = (if (showIcon) h * 0.58f else 0f) + temp * 1.55f + h * 0.22f
+        val count = ((w - left) / cell).toInt().coerceAtMost(8)
+        if (upcoming.isEmpty() || count < 1) return Classic()
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            if (showIcon) {
+                Icon(h * 0.5f)
+                Spacer(Modifier.width(pxToDp(h * 0.08f)))
+            }
+            Temperature(temp)
+            Spacer(Modifier.width(pxToDp(h * 0.1f)))
+            Box(Modifier.width(pxToDp((h * 0.012f).coerceAtLeast(1f))).height(pxToDp(h * 0.62f)).background(Color(0xFF333333)))
+            Spacer(Modifier.width(pxToDp(h * 0.1f)))
+            upcoming.take(count).forEach { hour ->
+                Column(Modifier.width(pxToDp(cell)), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(hourLabel(hour.time, h24), color = Muted, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+                    WeatherIcon(skyOf(hour.code), hour.isDay, accent, Modifier.size(pxToDp(h * 0.3f)), outline, colour)
+                    Text(formatTemperature(hour.temperatureC, f), color = colour, fontSize = pxToSp(small * 1.1f), maxLines = 1, softWrap = false)
+                }
+            }
+        }
+    }
 
     /** A very large thin temperature over the weather icon drawn big and faint, with the words beneath. */
     @Composable

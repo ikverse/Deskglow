@@ -182,7 +182,7 @@ private class WeatherArt(val scope: DrawScope, val s: Float, val accent: Color, 
 }
 
 /** The small symbols beside the weather details. */
-enum class Glyph { Thermometer, Droplet, Wind, Umbrella }
+enum class Glyph { Thermometer, Droplet, Wind, Umbrella, Sunrise, Sunset, Uv }
 
 /** One detail symbol, drawn in [color] with the same line weight at any size. */
 @Composable
@@ -217,6 +217,25 @@ fun DetailGlyph(glyph: Glyph, color: Color, modifier: Modifier) {
                     moveTo(0.2f * s, 0.8f * s); lineTo(0.46f * s, 0.8f * s)
                 }
                 drawPath(gusts, color, style = stroke)
+            }
+            Glyph.Sunrise, Glyph.Sunset -> {
+                drawLine(color, p(0.06f, 0.74f), p(0.94f, 0.74f), s * 0.1f, StrokeCap.Round)
+                drawArc(color, 180f, 180f, false, p(0.27f, 0.5f), androidx.compose.ui.geometry.Size(0.46f * s, 0.46f * s), style = stroke)
+                val up = glyph == Glyph.Sunrise
+                drawLine(color, p(0.5f, 0.1f), p(0.5f, 0.34f), s * 0.1f, StrokeCap.Round)
+                val tip = if (up) 0.1f else 0.34f
+                val back = if (up) 0.24f else 0.2f
+                drawLine(color, p(0.38f, back), p(0.5f, tip), s * 0.1f, StrokeCap.Round)
+                drawLine(color, p(0.62f, back), p(0.5f, tip), s * 0.1f, StrokeCap.Round)
+            }
+            Glyph.Uv -> {
+                drawCircle(color, 0.2f * s, p(0.5f, 0.5f), style = stroke)
+                for (i in 0 until 8) {
+                    val a = i * Math.PI / 4
+                    val c = kotlin.math.cos(a).toFloat()
+                    val n = kotlin.math.sin(a).toFloat()
+                    drawLine(color, p(0.5f + c * 0.32f, 0.5f + n * 0.32f), p(0.5f + c * 0.44f, 0.5f + n * 0.44f), s * 0.09f, StrokeCap.Round)
+                }
             }
             Glyph.Umbrella -> {
                 val canopy = Path().apply {

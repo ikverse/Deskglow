@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -222,7 +223,7 @@ private fun SunArc(
         for (i in 0 until steps) {
             val f0 = i / steps.toFloat()
             val f1 = (i + 1) / steps.toFloat()
-            val colour = if (f1 <= here) accent.copy(alpha = 0.55f) else Color(0xFF2E2E2E)
+            val colour = if (f1 <= here) lerp(Color(0xFF2E2E2E), accent, 0.6f) else Color(0xFF2E2E2E)
             drawLine(colour, at(f0), at(f1), line, StrokeCap.Round)
         }
         val shade = { p: Prayer, i: Int ->

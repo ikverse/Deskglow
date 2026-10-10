@@ -5,6 +5,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import com.ikverse.deskglow.store.City
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 /**
  * Everything the widgets show that comes from outside the app. Each feed runs only while something
@@ -96,7 +98,22 @@ data class Weather(
     val humidityPercent: Int? = null,
     val windKmh: Double? = null,
     val rainChancePercent: Int? = null,
-)
+    /** The hours ahead, from the start of today in the city; empty in an older cached answer. */
+    val hours: List<HourForecast> = emptyList(),
+    /** Today's sunrise and sunset in the city's own time. */
+    val sunrise: LocalDateTime? = null,
+    val sunset: LocalDateTime? = null,
+    val uvIndex: Double? = null,
+    /** The city's offset from UTC, for turning the phone's clock into the city's. */
+    val utcOffsetSeconds: Int = 0,
+) {
+    /** The city's clock when the phone's reads [phoneNow]. */
+    fun cityTime(phoneNow: LocalDateTime): LocalDateTime =
+        LocalDateTime.ofInstant(phoneNow.atZone(ZoneId.systemDefault()).toInstant(), ZoneOffset.ofTotalSeconds(utcOffsetSeconds))
+}
+
+/** One hour of the forecast, in the city's own time. */
+data class HourForecast(val time: LocalDateTime, val temperatureC: Double, val code: Int, val isDay: Boolean)
 
 sealed interface WeatherState {
     data object NoCity : WeatherState

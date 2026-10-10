@@ -58,7 +58,7 @@ private val CATEGORIES = listOf("All", "Time", "Day", "Battery", "F1", "Prayer")
 /** Which chip a widget is found under. */
 private fun categoryOf(id: String) = when {
     id == "clock" || id == "alarm" -> "Time"
-    id == "date" || id == "event" || id == "weather" || id == "notifs" || id == "media" -> "Day"
+    id == "date" || id == "event" || id == "weather" || id == "sunmoon" || id == "notifs" || id == "media" -> "Day"
     id == "ring" || id == "stat" -> "Battery"
     id == "prayer" -> "Prayer"
     id.startsWith("f1") -> "F1"

@@ -189,7 +189,7 @@ class DisplayRenderTest {
     private fun weatherLayouts(outline: Boolean) {
         feeds.weather.value = WeatherState.Ready(cairo, WeatherWidget.SAMPLE)
         // Each layout twice: at the size a new widget gets, and wide.
-        val items = WeatherWidget.LAYOUTS.flatMapIndexed { i, (layout, _) ->
+        val items = WeatherWidget.LAYOUTS.filter { it.first != "hours" }.flatMapIndexed { i, (layout, _) ->
             val settings = WeatherWidget.defaults.with(WeatherWidget.LAYOUT, layout)
                 .with(WeatherWidget.ICON_STYLE, if (outline) "outline" else "filled")
                 .with(WeatherWidget.SHOW_FEELS, true).with(WeatherWidget.SHOW_HUMIDITY, i % 2 == 0)
@@ -579,6 +579,45 @@ class DisplayRenderTest {
         )
         show(Layout(items))
         save("f1-new-options")
+    }
+
+    @Test
+    fun `the weather forecast layout, the sun details, and the sun and moon widget`() {
+        val city = cairo
+        val noon = LocalDateTime.of(2026, 10, 10, 14, 5)
+        feeds.minute.value = noon
+        feeds.second.value = noon
+        val offset = java.time.ZonedDateTime.of(noon, java.time.ZoneId.systemDefault()).offset.totalSeconds
+        val hours = (0 until 24).map { i ->
+            com.ikverse.deskglow.data.HourForecast(LocalDateTime.of(2026, 10, 10, 0, 0).plusHours(i.toLong()), 17.0 + 8 * Math.sin((i - 8) / 24.0 * 2 * Math.PI), listOf(0, 2, 3, 61, 3, 2)[i % 6], i in 6..17)
+        }
+        feeds.weather.value = WeatherState.Ready(
+            city,
+            Weather(
+                25.0, 2, true, 30.1, 18.0, 0, feelsLikeC = 26.0, humidityPercent = 48, windKmh = 14.0, rainChancePercent = 10, hours = hours,
+                sunrise = LocalDateTime.of(2026, 10, 10, 5, 42), sunset = LocalDateTime.of(2026, 10, 10, 17, 30), uvIndex = 6.4, utcOffsetSeconds = offset,
+            ),
+        )
+        val sun = com.ikverse.deskglow.widgets.SunMoonWidget
+        val items = listOf(
+            WidgetItem("h1", WeatherWidget.id, Box(8, 8, 396, 80), true, WeatherWidget.defaults.with(WeatherWidget.LAYOUT, "hours")),
+            WidgetItem("h2", WeatherWidget.id, Box(8, 100, 396, 112), true, WeatherWidget.defaults.with(WeatherWidget.LAYOUT, "hours").with(WeatherWidget.UNITS, "f")),
+            WidgetItem("h3", WeatherWidget.id, Box(8, 224, 196, 80), true, WeatherWidget.defaults.with(WeatherWidget.LAYOUT, "hours")),
+            WidgetItem("d1", WeatherWidget.id, Box(8, 316, 396, 70), true,
+                WeatherWidget.defaults.with(WeatherWidget.LAYOUT, "compact").with(WeatherWidget.SHOW_SUNRISE, true).with(WeatherWidget.SHOW_SUNSET, true).with(WeatherWidget.SHOW_UV, true)),
+            WidgetItem("d2", WeatherWidget.id, Box(212, 224, 196, 80), true,
+                WeatherWidget.defaults.with(WeatherWidget.SHOW_SUNRISE, true).with(WeatherWidget.SHOW_SUNSET, true).with(WeatherWidget.SHOW_UV, true)),
+            WidgetItem("s1", sun.id, Box(8, 400, 240, 88), true, sun.defaults),
+            WidgetItem("s2", sun.id, Box(8, 500, 396, 120), true, sun.defaults.with(sun.SHOW_MOON, false)),
+        )
+        show(Layout(items))
+        save("weather-forecast-and-sun-moon")
+        // And at night, before dawn.
+        val night = LocalDateTime.of(2026, 10, 10, 3, 30)
+        feeds.minute.value = night
+        feeds.second.value = night
+        compose.waitForIdle()
+        save("sun-moon-night")
     }
 
     @Test

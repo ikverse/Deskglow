@@ -73,6 +73,7 @@ object SmartLayout {
         "prayer" to Spec("P", Family.Banner, 280, 848, 80, 200),
         "event" to Spec("E", Family.Card, 120, 400, 48, 200),
         "alarm" to Spec("A", Family.Card, 120, 400, 48, 96),
+        "sunmoon" to Spec("SM", Family.Card, 160, 400, 64, 140),
         "media" to Spec("M", Family.Banner, 200, 848, 44, 96),
         "stat" to Spec("S", Family.Chip, 80, 276, 40, 96),
         "date" to Spec("D", Family.Chip, 100, 400, 20, 60),
@@ -248,7 +249,7 @@ object SmartLayout {
             val w = min(140, (colW - (chunk.size - 1) * GAP_X) / chunk.size)
             rows += Row(chunk.map { member(it, w, 56) })
         }
-        ofType("weather", "event", "alarm").chunked(if (colW >= 340) 2 else 1).forEach { pair ->
+        ofType("weather", "event", "alarm", "sunmoon").chunked(if (colW >= 340) 2 else 1).forEach { pair ->
             if (pair.size == 2) rows += Row(pair.map { member(it, (colW - GAP_X) / 2, 72) })
             else rows += Row(listOf(member(pair[0], colW, 80)))
         }
