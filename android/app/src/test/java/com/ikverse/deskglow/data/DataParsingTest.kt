@@ -400,7 +400,10 @@ class DataParsingTest {
         // The end of the first part is not the end of qualifying.
         timing.apply(LiveMessage("SessionStatus", org.json.JSONObject("""{"Status":"Finished"}"""), full = false))
         assertFalse(timing.session()!!.finished)
+        // Nor is the last part coming on while the status still says the one before finished.
         timing.apply(LiveMessage("TimingData", org.json.JSONObject("""{"SessionPart":3}"""), full = false))
+        assertFalse(timing.session()!!.finished)
+        timing.apply(LiveMessage("SessionStatus", org.json.JSONObject("""{"Status":"Finished"}"""), full = false))
         assertTrue(timing.session()!!.finished)
     }
 
