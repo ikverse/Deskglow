@@ -1,17 +1,36 @@
 package com.ikverse.deskglow.ui
 
 import android.graphics.Bitmap
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
+import com.ikverse.deskglow.F1Samples
 import com.ikverse.deskglow.FakeFeeds
+import com.ikverse.deskglow.data.AlarmState
 import com.ikverse.deskglow.data.EventState
+import com.ikverse.deskglow.data.F1LiveState
+import com.ikverse.deskglow.data.F1State
+import com.ikverse.deskglow.data.LiveSession
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.MediaState
 import com.ikverse.deskglow.data.NotificationState
+import com.ikverse.deskglow.data.Prayer
+import com.ikverse.deskglow.data.PrayerDay
+import com.ikverse.deskglow.data.PrayerState
+import com.ikverse.deskglow.data.Sky
+import com.ikverse.deskglow.data.TrackFlag
 import com.ikverse.deskglow.data.Weather
 import com.ikverse.deskglow.data.WeatherState
+import com.ikverse.deskglow.data.parseLiveSession
 import com.ikverse.deskglow.display.DisplayContent
 import com.ikverse.deskglow.fonts.BundledFonts
 import com.ikverse.deskglow.fonts.FontResolver
@@ -22,54 +41,36 @@ import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
 import com.ikverse.deskglow.store.City
+import com.ikverse.deskglow.widgets.AlarmWidget
+import com.ikverse.deskglow.widgets.Bell
 import com.ikverse.deskglow.widgets.ClockStyles
 import com.ikverse.deskglow.widgets.ClockWidget
 import com.ikverse.deskglow.widgets.Common
 import com.ikverse.deskglow.widgets.DateWidget
 import com.ikverse.deskglow.widgets.DefaultLayout
-import com.ikverse.deskglow.widgets.LocalEditing
-import com.ikverse.deskglow.widgets.WeatherWidget
-import com.ikverse.deskglow.widgets.Widgets
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.unit.dp
-import org.junit.Rule
-import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
-import java.io.File
-import java.time.LocalDateTime
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import com.ikverse.deskglow.F1Samples
-import com.ikverse.deskglow.data.AlarmState
-import com.ikverse.deskglow.data.F1LiveState
-import com.ikverse.deskglow.data.F1State
-import com.ikverse.deskglow.data.LiveSession
-import com.ikverse.deskglow.data.TrackFlag
-import com.ikverse.deskglow.data.parseLiveSession
-import com.ikverse.deskglow.data.Prayer
-import com.ikverse.deskglow.data.PrayerDay
-import com.ikverse.deskglow.data.PrayerState
-import com.ikverse.deskglow.data.Sky
-import com.ikverse.deskglow.widgets.AlarmWidget
-import com.ikverse.deskglow.widgets.Bell
 import com.ikverse.deskglow.widgets.DetailGlyph
 import com.ikverse.deskglow.widgets.F1LiveWidget
 import com.ikverse.deskglow.widgets.F1ScheduleWidget
 import com.ikverse.deskglow.widgets.F1StandingsWidget
 import com.ikverse.deskglow.widgets.F1WeekendWidget
 import com.ikverse.deskglow.widgets.Glyph
+import com.ikverse.deskglow.widgets.LocalEditing
 import com.ikverse.deskglow.widgets.PrayerWidget
 import com.ikverse.deskglow.widgets.WeatherIcon
+import com.ikverse.deskglow.widgets.WeatherWidget
+import com.ikverse.deskglow.widgets.Widgets
+import java.io.File
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * Draws the display in every state its data can be in, and every clock style and font in both
@@ -654,6 +655,52 @@ class DisplayRenderTest {
         )
         show(Layout(items))
         save("notification-counts-and-battery-readings")
+    }
+
+    @Test
+    fun `the next event as an agenda, with calendar colours and places`() {
+        feeds.minute.value = LocalDateTime.of(2026, 10, 7, 20, 5)
+        fun at(h: Int, m: Int = 0, d: Int = 7) = LocalDateTime.of(2026, 10, d, h, m)
+        feeds.nextEvent.value = com.ikverse.deskglow.data.EventState.Next(
+            "Team call", at(20, 30), at(21, 30), false, 0xFF4285F4.toInt(), "Zoom",
+            listOf(
+                com.ikverse.deskglow.data.EventState.Next("Dinner with Sara", at(22), at(23), false, 0xFF0B8043.toInt(), "Zamalek"),
+                com.ikverse.deskglow.data.EventState.Next("Dentist", at(9, 0, 8), at(10, 0, 8), false, 0xFFD50000.toInt(), "Maadi"),
+                com.ikverse.deskglow.data.EventState.Next("A holiday with a long name", at(0, 0, 9), at(0, 0, 10), true, null, ""),
+            ),
+        )
+        val event = com.ikverse.deskglow.widgets.EventWidget
+        val items = listOf(
+            WidgetItem("e1", event.id, Box(8, 8, 396, 130), true, event.defaults.with(event.COUNT, 4).with(event.SHOW_COLOUR, true).with(event.SHOW_LOCATION, true)),
+            WidgetItem("e2", event.id, Box(8, 150, 196, 110), true, event.defaults.with(event.COUNT, 3).with(event.SHOW_HEADING, false)),
+            WidgetItem("e3", event.id, Box(212, 150, 196, 110), true, event.defaults.with(event.COUNT, 2).with(event.SHOW_COLOUR, true).with(com.ikverse.deskglow.widgets.Common.ALIGN, "right")),
+            WidgetItem("e4", event.id, Box(8, 272, 220, 64), true, event.defaults.with(event.SHOW_COLOUR, true).with(event.SHOW_LOCATION, true)),
+        )
+        show(Layout(items))
+        save("event-agenda")
+    }
+
+    @Test
+    fun `now playing with the cover, or the note when there is none`() {
+        val bitmap = android.graphics.Bitmap.createBitmap(120, 120, android.graphics.Bitmap.Config.ARGB_8888).also { b ->
+            val canvas = android.graphics.Canvas(b)
+            canvas.drawColor(android.graphics.Color.rgb(40, 90, 160))
+            canvas.drawCircle(60f, 60f, 36f, android.graphics.Paint().apply { color = android.graphics.Color.rgb(250, 190, 60) })
+        }
+        val art = bitmap.asImageBitmap()
+        val media = com.ikverse.deskglow.widgets.MediaWidget
+        val track = MediaState.Track("Clair de Lune", "Debussy", 225_000, 83_000, android.os.SystemClock.elapsedRealtime(), false, 1f, art)
+        feeds.media.value = track
+        val items = listOf(
+            WidgetItem("m1", media.id, Box(8, 8, 396, 64), true, media.defaults.with(media.PICTURE, "art")),
+            WidgetItem("m2", media.id, Box(8, 84, 396, 64), true, media.defaults.with(media.PICTURE, "art").with(com.ikverse.deskglow.widgets.Common.ALIGN, "right")),
+            WidgetItem("m3", media.id, Box(8, 160, 396, 64), true, media.defaults.with(media.PICTURE, "note")),
+        )
+        show(Layout(items))
+        save("now-playing-art")
+        feeds.media.value = track.copy(art = null)
+        compose.waitForIdle()
+        save("now-playing-no-art")
     }
 
     @Test

@@ -1,19 +1,29 @@
 package com.ikverse.deskglow.widgets
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.style.TextOverflow
@@ -22,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.data.EventState
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.model.FlagKey
+import com.ikverse.deskglow.model.IntKey
 import com.ikverse.deskglow.model.Settings
 import java.time.Duration
 import java.time.LocalDateTime
@@ -37,6 +48,10 @@ object EventWidget : WidgetType {
     val SHOW_SOON = FlagKey("showSoon", false)
     /** A thin line filling as the event under way runs its course. */
     val SHOW_PROGRESS = FlagKey("showProgress", false)
+    /** How many events: one in the usual layout, more as an agenda. */
+    val COUNT = IntKey("count", 1)
+    val SHOW_COLOUR = FlagKey("showColour", false)
+    val SHOW_LOCATION = FlagKey("showLocation", false)
 
     override val id = "event"
     override val label = "Next event"
@@ -46,7 +61,14 @@ object EventWidget : WidgetType {
     override val defaults: Settings = Common.base()
 
     override fun fields(settings: Settings) = listOf(
-        ShowField("Show", listOf(SHOW_HEADING to "NEXT heading", SHOW_TIME to "Time", SHOW_SOON to "Minutes away", SHOW_PROGRESS to "Progress while on")),
+        SliderField("Events shown", COUNT, 1..5),
+        ShowField(
+            "Show",
+            listOf(
+                SHOW_HEADING to "NEXT heading", SHOW_TIME to "Time", SHOW_SOON to "Minutes away", SHOW_PROGRESS to "Progress while on",
+                SHOW_COLOUR to "Calendar colour", SHOW_LOCATION to "Location",
+            ),
+        ),
         Common.timeFormatField(),
         Common.alignField,
         Common.colourField,
@@ -69,7 +91,14 @@ object EventWidget : WidgetType {
                 is EventState.Next -> s
             }
             val align = settings[Common.ALIGN]
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+            val upcoming = if (event == null) emptyList() else (listOf(event) + event.later.filter { it.end.isAfter(minute) }).take(settings[COUNT])
+            if (upcoming.size > 1) return@BoxWithConstraints Agenda(upcoming, minute, h24, settings, w, h)
+            val bar = if (settings[SHOW_COLOUR] && event?.colour != null) Color(event.colour) else null
+            val barWidth = min(h * 0.06f, w * 0.03f)
+            val frame = if (bar != null) {
+                Modifier.drawBehind { drawRoundRect(bar, Offset(0f, h * 0.1f), Size(barWidth, size.height - h * 0.2f), CornerRadius(barWidth / 2)) }.padding(start = pxToDp(barWidth * 2.2f))
+            } else Modifier
+            Column(Modifier.fillMaxSize().then(frame), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
                 val heading = if (event != null && !event.allDay && event.start <= minute) "NOW" else "NEXT"
                 if (settings[SHOW_HEADING]) Text(heading, color = Muted, fontSize = pxToSp(min(h * 0.17f, w * 0.06f)), letterSpacing = 0.08.em, maxLines = 1, textAlign = textAlign(align))
                 Text(
@@ -79,7 +108,7 @@ object EventWidget : WidgetType {
                 )
                 if (event != null && settings[SHOW_TIME]) {
                     Text(
-                        whenText(event, minute, h24, settings[SHOW_SOON]),
+                        whenText(event, minute, h24, settings[SHOW_SOON]) + (event.location.takeIf { settings[SHOW_LOCATION] && it.isNotBlank() }?.let { " · $it" } ?: ""),
                         color = Muted, fontSize = pxToSp(min(h * 0.21f, w * 0.075f)), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align),
                     )
                 }
@@ -119,4 +148,45 @@ object EventWidget : WidgetType {
         val time = event.start.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US))
         return "$time · $day"
     }
+}
+
+/** Several events, one to a row: its colour (if asked), when it starts, its title and (if asked) where. */
+@Composable
+private fun Agenda(events: List<EventState.Next>, now: LocalDateTime, h24: Boolean, settings: Settings, w: Float, h: Float) {
+    val heading = settings[EventWidget.SHOW_HEADING]
+    val row = min(h / (events.size + if (heading) 0.9f else 0f), w * 0.13f)
+    val text = row * 0.58f
+    val colour = Color(settings[Common.COLOUR])
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+        if (heading) {
+            Text(
+                "UP NEXT", color = Muted, fontSize = pxToSp(text * 0.75f), letterSpacing = 0.08.em, maxLines = 1, textAlign = textAlign(settings[Common.ALIGN]),
+                modifier = Modifier.fillMaxWidth().height(pxToDp(row * 0.9f)),
+            )
+        }
+        events.forEach { event ->
+            Row(Modifier.fillMaxWidth().height(pxToDp(row)), horizontalArrangement = arrangementOf(settings[Common.ALIGN]), verticalAlignment = Alignment.CenterVertically) {
+                if (settings[EventWidget.SHOW_COLOUR]) {
+                    Box(Modifier.width(pxToDp(text * 0.2f)).height(pxToDp(row * 0.62f)).background(Color(event.colour ?: 0xFF8C8C8C.toInt()), RoundedCornerShape(pxToDp(text * 0.1f))))
+                    Spacer(Modifier.width(pxToDp(text * 0.4f)))
+                }
+                Text(agendaTime(event, now, h24), color = Muted, fontSize = pxToSp(text * 0.85f), maxLines = 1, softWrap = false)
+                Spacer(Modifier.width(pxToDp(text * 0.5f)))
+                Text(event.title, color = colour, fontSize = pxToSp(text), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                val where = event.location.takeIf { settings[EventWidget.SHOW_LOCATION] && it.isNotBlank() }
+                if (where != null) {
+                    Spacer(Modifier.width(pxToDp(text * 0.4f)))
+                    Text(where, color = Muted, fontSize = pxToSp(text * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                }
+            }
+        }
+    }
+}
+
+/** "8:30 PM" today, "Fri 9:00 AM" another day, "All day" for a whole day. */
+fun agendaTime(event: EventState.Next, now: LocalDateTime, h24: Boolean): String {
+    if (event.allDay) return "All day"
+    val time = DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US)
+    val sameDay = event.start.toLocalDate() == now.toLocalDate()
+    return if (sameDay) event.start.format(time) else event.start.format(DateTimeFormatter.ofPattern("EEE", Locale.UK)) + " " + event.start.format(time)
 }

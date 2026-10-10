@@ -2,6 +2,7 @@ package com.ikverse.deskglow.widgets
 
 import android.os.SystemClock
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -48,6 +51,8 @@ object MediaWidget : WidgetType {
     val PROGRESS_MODE = TextKey("progressMode", "bar")
     /** "text" says "Nothing playing"; "hide" shows nothing. */
     val WHEN_IDLE = TextKey("whenIdle", "text")
+    /** "note" (a music note) or "art" (the cover, when the player gives one). */
+    val PICTURE = TextKey("picture", "note")
 
     override val id = "media"
     override val label = "Now playing"
@@ -57,6 +62,7 @@ object MediaWidget : WidgetType {
     override val defaults: Settings = Common.base()
 
     override fun fields(settings: Settings) = listOf(
+        ChoiceField("Picture", PICTURE, listOf("note" to "Music note", "art" to "Cover art")),
         ToggleField("Show artist", SHOW_ARTIST),
         ChoiceField("Progress", PROGRESS_MODE, listOf("bar" to "Bar", "thin" to "Thin", "times" to "Times", "none" to "None")),
         ChoiceField("When nothing plays", WHEN_IDLE, listOf("text" to "Say so", "hide" to "Show nothing")),
@@ -82,9 +88,18 @@ object MediaWidget : WidgetType {
             if (track == null && settings[WHEN_IDLE] == "hide") return@BoxWithConstraints EditorHint("Nothing playing", h * 0.3f)
             val colour = Color(settings[Common.COLOUR])
             val align = settings[Common.ALIGN]
+            val art = if (settings[PICTURE] == "art") track?.art else null
+            // The cover where there is one, a music note where there is not.
+            val lead: @Composable () -> Unit = {
+                if (art != null) {
+                    Image(art, contentDescription = null, modifier = Modifier.size(pxToDp(h * 0.82f)).clip(RoundedCornerShape(pxToDp(h * 0.08f))))
+                } else {
+                    MusicNote(Muted, Modifier.size(pxToDp(h * 0.62f)))
+                }
+            }
             Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 if (align != "right") {
-                    MusicNote(Muted, Modifier.size(pxToDp(h * 0.62f)))
+                    lead()
                     Spacer(Modifier.width(pxToDp(h * 0.2f)))
                 }
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
@@ -109,7 +124,7 @@ object MediaWidget : WidgetType {
                 }
                 if (align == "right") {
                     Spacer(Modifier.width(pxToDp(h * 0.2f)))
-                    MusicNote(Muted, Modifier.size(pxToDp(h * 0.62f)))
+                    lead()
                 }
             }
         }

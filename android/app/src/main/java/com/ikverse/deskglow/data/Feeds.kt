@@ -80,13 +80,25 @@ sealed interface MediaState {
         val positionAtElapsedMs: Long,
         val playing: Boolean,
         val speed: Float,
+        /** The cover, scaled down; null when the player gives none. */
+        val art: ImageBitmap? = null,
     ) : MediaState
 }
 
 sealed interface EventState {
     data object NoAccess : EventState
     data object None : EventState
-    data class Next(val title: String, val start: LocalDateTime, val end: LocalDateTime, val allDay: Boolean) : EventState
+    data class Next(
+        val title: String,
+        val start: LocalDateTime,
+        val end: LocalDateTime,
+        val allDay: Boolean,
+        /** The calendar's colour, as the calendar app shows it. */
+        val colour: Int? = null,
+        val location: String = "",
+        /** The events after this one, soonest first, for an agenda. */
+        val later: List<Next> = emptyList(),
+    ) : EventState
 }
 
 /** What the sky is doing, in the few kinds the weather icon draws. */

@@ -1,12 +1,15 @@
 package com.ikverse.deskglow.data
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -75,5 +78,26 @@ private fun trackOf(controller: MediaController): MediaState {
         positionAtElapsedMs = state?.lastPositionUpdateTime ?: 0,
         playing = state?.state == PlaybackState.STATE_PLAYING,
         speed = state?.playbackSpeed ?: 1f,
+        art = artOf(metadata),
     )
+}
+
+/** The longest side the cover is kept at: plenty for a widget, little enough to hold on to. */
+private const val ART_PX = 240
+
+private var lastSource: Bitmap? = null
+private var lastArt: ImageBitmap? = null
+
+/** The player's cover (or its nearest stand-in), scaled down once and reused while the player hands over the same picture. */
+private fun artOf(metadata: MediaMetadata): ImageBitmap? {
+    val source = listOf(MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        .firstNotNullOfOrNull { key -> metadata.getBitmap(key)?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 } } ?: return null
+    if (source === lastSource) return lastArt
+    val k = ART_PX.toFloat() / maxOf(source.width, source.height)
+    val scaled = if (k >= 1f) source else runCatching {
+        Bitmap.createScaledBitmap(source, (source.width * k).toInt().coerceAtLeast(1), (source.height * k).toInt().coerceAtLeast(1), true)
+    }.getOrNull() ?: return null
+    lastSource = source
+    lastArt = scaled.asImageBitmap()
+    return lastArt
 }
