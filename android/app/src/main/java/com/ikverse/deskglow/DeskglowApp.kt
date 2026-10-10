@@ -156,6 +156,7 @@ private class LiveFeeds(
     override val minute = minuteTicks(context).shared(LocalDateTime.now())
     override val second = secondTicks().shared(LocalDateTime.now())
     override val battery = batteryUpdates(context).shared(currentBattery(context))
+    override val batteryPower = batteryUpdates(context, pollCurrent = true).shared(currentBattery(context))
     override val notifications = notificationUpdates(context).shared(NotificationState.Apps(emptyList()))
     override val media = mediaUpdates(context).shared<MediaState>(MediaState.Idle)
     override val nextEvent = nextEventUpdates(context).shared<EventState>(EventState.None)

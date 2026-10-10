@@ -17,9 +17,10 @@ import kotlin.math.abs
 /**
  * The battery. Level, status, voltage and temperature come from Android's own battery broadcast,
  * which only fires when something changes. The current (and so the power) is not in that broadcast,
- * so it alone is read every [CURRENT_POLL_MS] while the battery is on screen.
+ * so with [pollCurrent] it alone is also read every [CURRENT_POLL_MS] while the battery is on screen.
+ * Without it nothing runs between broadcasts, which is all a widget that shows level or status needs.
  */
-fun batteryUpdates(context: Context): Flow<BatteryState> = callbackFlow {
+fun batteryUpdates(context: Context, pollCurrent: Boolean = false): Flow<BatteryState> = callbackFlow {
     val manager = context.getSystemService(BatteryManager::class.java)
     var latest: Intent? = null
 
@@ -41,14 +42,14 @@ fun batteryUpdates(context: Context): Flow<BatteryState> = callbackFlow {
         context, receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED,
     )
     publish()
-    val poll = launch {
+    val poll = if (pollCurrent) launch {
         while (isActive) {
             delay(CURRENT_POLL_MS)
             publish()
         }
-    }
+    } else null
     awaitClose {
-        poll.cancel()
+        poll?.cancel()
         context.unregisterReceiver(receiver)
     }
 }

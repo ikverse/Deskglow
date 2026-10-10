@@ -48,6 +48,14 @@ class AppPrefs(context: Context) {
     private val burnInState = MutableStateFlow(prefs.getBoolean(KEY_BURN_IN, true))
     val burnIn: StateFlow<Boolean> = burnInState.asStateFlow()
 
+    /** Turn the screen off while the phone is covered or face down (the proximity sensor), and back on when it is clear. */
+    private val coverOffState = MutableStateFlow(prefs.getBoolean(KEY_COVER_OFF, true))
+    val coverOff: StateFlow<Boolean> = coverOffState.asStateFlow()
+
+    /** With Auto brightness, fade to black after a while in a dark room with no touch. Off unless chosen: some want a bedside clock all night. */
+    private val blankInDarkState = MutableStateFlow(prefs.getBoolean(KEY_BLANK_IN_DARK, false))
+    val blankInDark: StateFlow<Boolean> = blankInDarkState.asStateFlow()
+
     private val cityState = MutableStateFlow(prefs.getString(KEY_CITY, null)?.let(City::fromJson))
     val city: StateFlow<City?> = cityState.asStateFlow()
 
@@ -104,6 +112,16 @@ class AppPrefs(context: Context) {
         burnInState.value = on
     }
 
+    fun setCoverOff(on: Boolean) {
+        prefs.edit { putBoolean(KEY_COVER_OFF, on) }
+        coverOffState.value = on
+    }
+
+    fun setBlankInDark(on: Boolean) {
+        prefs.edit { putBoolean(KEY_BLANK_IN_DARK, on) }
+        blankInDarkState.value = on
+    }
+
     fun setCity(city: City?) {
         prefs.edit {
             if (city == null) remove(KEY_CITY) else putString(KEY_CITY, city.toJson())
@@ -144,6 +162,8 @@ class AppPrefs(context: Context) {
         const val KEY_BRIGHTNESS_MODE = "brightness_mode"
         const val KEY_BRIGHTNESS_LEVEL = "brightness_level"
         const val KEY_BURN_IN = "burn_in"
+        const val KEY_COVER_OFF = "cover_off"
+        const val KEY_BLANK_IN_DARK = "blank_in_dark"
         const val KEY_CITY = "city"
         const val KEY_AUTO_LOCATION = "auto_location"
         const val KEY_DETECTED_CITY = "detected_city"

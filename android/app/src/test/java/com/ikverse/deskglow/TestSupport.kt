@@ -22,6 +22,7 @@ class FakeFeeds : Feeds {
     override val minute = MutableStateFlow(LocalDateTime.of(2026, 10, 7, 20, 5))
     override val second = MutableStateFlow(LocalDateTime.of(2026, 10, 7, 20, 5, 9))
     override val battery = MutableStateFlow(BatteryState(100, ChargeStatus.Full, true, 4224, 335, 296))
+    override val batteryPower = battery
     override val notifications = MutableStateFlow<NotificationState>(NotificationState.Apps(emptyList()))
     override val media = MutableStateFlow<MediaState>(MediaState.Idle)
     override val nextEvent = MutableStateFlow<EventState>(EventState.None)
