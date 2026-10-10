@@ -2,6 +2,9 @@ package com.ikverse.deskglow.data
 
 import com.ikverse.deskglow.store.AppPrefs
 import com.ikverse.deskglow.store.City
+import java.net.URLEncoder
+import java.time.LocalDateTime
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -12,8 +15,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import org.json.JSONObject
-import java.net.URLEncoder
-import java.util.Locale
 
 /**
  * Weather from Open-Meteo: free, with no account and no key. Fetched only while a weather widget is
@@ -59,7 +60,8 @@ class WeatherRepository(
                 delay(RETRY_MS)
                 continue
             }
-            val age = last?.let { clock() - it.fetchedAtMs } ?: Long.MAX_VALUE
+            // An answer cached before the hours were asked for is stale at once, so the new layouts have their data.
+            val age = last?.takeIf { it.hours.isNotEmpty() }?.let { clock() - it.fetchedAtMs } ?: Long.MAX_VALUE
             if (age < REFRESH_MS) {
                 emit(WeatherState.Ready(here, last!!))
                 delay(REFRESH_MS - age)
@@ -80,8 +82,9 @@ class WeatherRepository(
     private fun fetch(city: City): Weather {
         val url = "https://api.open-meteo.com/v1/forecast?latitude=${city.latitude}&longitude=${city.longitude}" +
             "&current=temperature_2m,weather_code,is_day,apparent_temperature,relative_humidity_2m,wind_speed_10m" +
-            "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
-            "&timezone=auto&forecast_days=1"
+            "&hourly=temperature_2m,weather_code,is_day" +
+            "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max" +
+            "&timezone=auto&forecast_days=2"
         return parseForecast(String(http.get(url)), clock())
     }
 
@@ -103,6 +106,11 @@ class WeatherRepository(
                 humidityPercent = w.numberOrNull("hum")?.toInt(),
                 windKmh = w.numberOrNull("wind")?.toDouble(),
                 rainChancePercent = w.numberOrNull("rain")?.toInt(),
+                hours = w.optJSONArray("hours")?.let(::hoursFromJson).orEmpty(),
+                sunrise = w.optString("rise").takeIf { it.isNotEmpty() }?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() },
+                sunset = w.optString("set").takeIf { it.isNotEmpty() }?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() },
+                uvIndex = w.numberOrNull("uv")?.toDouble(),
+                utcOffsetSeconds = w.optInt("off", 0),
             )
         }.getOrNull()
     }
@@ -112,7 +120,9 @@ class WeatherRepository(
         .put("weather", JSONObject().put("t", w.temperatureC).put("code", w.code).put("day", w.isDay)
             .put("hi", w.highC).put("lo", w.lowC).put("at", w.fetchedAtMs)
             .putOpt("feels", w.feelsLikeC).putOpt("hum", w.humidityPercent)
-            .putOpt("wind", w.windKmh).putOpt("rain", w.rainChancePercent))
+            .putOpt("wind", w.windKmh).putOpt("rain", w.rainChancePercent)
+            .put("hours", hoursToJson(w.hours)).putOpt("rise", w.sunrise?.toString()).putOpt("set", w.sunset?.toString())
+            .putOpt("uv", w.uvIndex).put("off", w.utcOffsetSeconds))
         .toString()
 
     companion object {
@@ -136,7 +146,35 @@ internal fun parseForecast(body: String, nowMs: Long): Weather {
         humidityPercent = current.numberOrNull("relative_humidity_2m")?.toInt(),
         windKmh = current.numberOrNull("wind_speed_10m")?.toDouble(),
         rainChancePercent = daily.optJSONArray("precipitation_probability_max")?.takeIf { it.length() > 0 && !it.isNull(0) }?.getInt(0),
+        hours = parseHours(json.optJSONObject("hourly")),
+        sunrise = daily.localTimeAt("sunrise"),
+        sunset = daily.localTimeAt("sunset"),
+        uvIndex = daily.optJSONArray("uv_index_max")?.takeIf { it.length() > 0 && !it.isNull(0) }?.getDouble(0),
+        utcOffsetSeconds = json.optInt("utc_offset_seconds", 0),
     )
+}
+
+/** The hourly arrays as hours; an hour with anything missing is left out. */
+private fun parseHours(hourly: JSONObject?): List<HourForecast> {
+    val times = hourly?.optJSONArray("time") ?: return emptyList()
+    val temps = hourly.optJSONArray("temperature_2m") ?: return emptyList()
+    val codes = hourly.optJSONArray("weather_code") ?: return emptyList()
+    val days = hourly.optJSONArray("is_day")
+    return (0 until times.length()).mapNotNull { i ->
+        runCatching { HourForecast(LocalDateTime.parse(times.getString(i)), temps.getDouble(i), codes.getInt(i), days == null || days.optInt(i, 1) != 0) }.getOrNull()
+    }
+}
+
+/** The first entry of a daily array of times such as "2026-10-10T05:42", or null. */
+private fun JSONObject.localTimeAt(name: String): LocalDateTime? =
+    optJSONArray(name)?.takeIf { it.length() > 0 && !it.isNull(0) }?.let { runCatching { LocalDateTime.parse(it.getString(0)) }.getOrNull() }
+
+private fun hoursToJson(hours: List<HourForecast>): org.json.JSONArray = org.json.JSONArray().also { array ->
+    hours.forEach { array.put(org.json.JSONArray().put(it.time.toString()).put(it.temperatureC).put(it.code).put(it.isDay)) }
+}
+
+private fun hoursFromJson(array: org.json.JSONArray): List<HourForecast> = (0 until array.length()).mapNotNull { i ->
+    runCatching { array.getJSONArray(i).let { HourForecast(LocalDateTime.parse(it.getString(0)), it.getDouble(1), it.getInt(2), it.getBoolean(3)) } }.getOrNull()
 }
 
 private fun JSONObject.numberOrNull(name: String): Number? = if (has(name) && !isNull(name)) get(name) as? Number else null

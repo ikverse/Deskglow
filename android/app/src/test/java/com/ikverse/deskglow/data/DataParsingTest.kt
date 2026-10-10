@@ -562,4 +562,37 @@ class DataParsingTest {
         assertEquals("+3.779", s.rows[2].interval)
         assertNull(parseOpenF1Result(session, "", "[]", drivers))
     }
+
+    @Test
+    fun `the hours, the sun times, the UV index and the zone are read when present, and left empty when not`() {
+        val weather = parseForecast(
+            """{"utc_offset_seconds":10800,
+            "current":{"temperature_2m":25.0,"weather_code":2,"is_day":1},
+            "hourly":{"time":["2026-10-10T14:00","2026-10-10T15:00","2026-10-10T16:00"],"temperature_2m":[25.1,24.0,22.5],"weather_code":[2,61,3],"is_day":[1,1,0]},
+            "daily":{"temperature_2m_max":[30.1],"temperature_2m_min":[18.0],"sunrise":["2026-10-10T05:42"],"sunset":["2026-10-10T17:30"],"uv_index_max":[6.4]}}""", nowMs = 1L,
+        )
+        assertEquals(3, weather.hours.size)
+        assertEquals(java.time.LocalDateTime.of(2026, 10, 10, 15, 0), weather.hours[1].time)
+        assertEquals(24.0, weather.hours[1].temperatureC, 0.0)
+        assertEquals(61, weather.hours[1].code)
+        assertEquals(false, weather.hours[2].isDay)
+        assertEquals(java.time.LocalDateTime.of(2026, 10, 10, 5, 42), weather.sunrise)
+        assertEquals(java.time.LocalDateTime.of(2026, 10, 10, 17, 30), weather.sunset)
+        assertEquals(6.4, weather.uvIndex!!, 0.0)
+        assertEquals(10800, weather.utcOffsetSeconds)
+
+        val plain = parseForecast(forecast, nowMs = 1L)
+        assertEquals(emptyList<Any>(), plain.hours)
+        assertNull(plain.sunrise)
+        assertNull(plain.uvIndex)
+        assertEquals(0, plain.utcOffsetSeconds)
+    }
+
+    @Test
+    fun `the city's clock is the phone's moved to the city's zone`() {
+        val weather = Weather(20.0, 1, true, 25.0, 15.0, 0, utcOffsetSeconds = 3 * 3600)
+        val phone = java.time.LocalDateTime.of(2026, 10, 10, 12, 0)
+        val utc = phone.atZone(java.time.ZoneId.systemDefault()).toInstant().atZone(java.time.ZoneOffset.UTC).toLocalDateTime()
+        assertEquals(utc.plusHours(3), weather.cityTime(phone))
+    }
 }

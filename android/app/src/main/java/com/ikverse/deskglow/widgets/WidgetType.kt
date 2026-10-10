@@ -69,7 +69,7 @@ interface WidgetType {
 
 object Widgets {
     val all: List<WidgetType> = listOf(
-        ClockWidget, DateWidget, NotificationsWidget, RingWidget, StatWidget, WeatherWidget, EventWidget, MediaWidget,
+        ClockWidget, DateWidget, NotificationsWidget, RingWidget, StatWidget, WeatherWidget, SunMoonWidget, EventWidget, MediaWidget,
         PrayerWidget, AlarmWidget, F1WeekendWidget, F1ScheduleWidget, F1LiveWidget, F1StandingsWidget,
     )
 

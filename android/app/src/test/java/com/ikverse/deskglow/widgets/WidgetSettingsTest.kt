@@ -217,4 +217,44 @@ class WidgetSettingsTest {
         assertEquals(false, F1LiveWidget.resolve(Settings())[F1LiveWidget.BORDER])
         assertEquals("next", F1WeekendWidget.resolve(Settings())[F1WeekendWidget.COUNT_TO])
     }
+
+    @Test
+    fun `the moon's phase is worked out to within a few hours of the real ones`() {
+        fun near(expected: Double, at: String) {
+            val phase = Moon.phase(java.time.Instant.parse(at))
+            val distance = Math.min(Math.abs(phase - expected), 1 - Math.abs(phase - expected))
+            assertTrue("$at: phase $phase, wanted about $expected", distance < 0.03)
+        }
+        near(0.0, "2025-09-21T19:54:00Z")   // a new moon
+        near(0.5, "2025-10-07T03:47:00Z")   // a full moon
+        near(0.0, "2025-10-21T12:25:00Z")   // the next new moon
+        assertEquals("New moon", Moon.name(0.0))
+        assertEquals("Waxing crescent", Moon.name(0.1))
+        assertEquals("First quarter", Moon.name(0.25))
+        assertEquals("Waxing gibbous", Moon.name(0.4))
+        assertEquals("Full moon", Moon.name(0.5))
+        assertEquals("Waning gibbous", Moon.name(0.6))
+        assertEquals("Last quarter", Moon.name(0.75))
+        assertEquals("Waning crescent", Moon.name(0.9))
+        assertEquals(0, Moon.illumination(0.0))
+        assertEquals(50, Moon.illumination(0.25))
+        assertEquals(100, Moon.illumination(0.5))
+    }
+
+    @Test
+    fun `daylight is counted from sunrise to sunset, and the night waits for the next sunrise`() {
+        val rise = LocalDateTime.of(2026, 10, 10, 6, 0)
+        val set = LocalDateTime.of(2026, 10, 10, 18, 0)
+        assertNull(daylightFraction(rise, set, rise.minusMinutes(1)))
+        assertEquals(0f, daylightFraction(rise, set, rise)!!, 0f)
+        assertEquals(0.5f, daylightFraction(rise, set, rise.plusHours(6))!!, 0.001f)
+        assertNull(daylightFraction(rise, set, set))
+        assertEquals("Sunrise in 2 h 0 m", daylightText(rise, set, rise.minusHours(2)))
+        assertEquals("6 h 0 m of daylight left", daylightText(rise, set, rise.plusHours(6)))
+        assertEquals("Sunrise in 10 h 0 m", daylightText(rise, set, set.plusHours(2)))
+        assertEquals("5:42 AM", sunTime(LocalDateTime.of(2026, 10, 10, 5, 42), h24 = false))
+        assertEquals("17:30", sunTime(LocalDateTime.of(2026, 10, 10, 17, 30), h24 = true))
+        assertEquals("3 PM", hourLabel(LocalDateTime.of(2026, 10, 10, 15, 0), h24 = false))
+        assertEquals("15", hourLabel(LocalDateTime.of(2026, 10, 10, 15, 0), h24 = true))
+    }
 }
