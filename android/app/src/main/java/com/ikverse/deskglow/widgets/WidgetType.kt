@@ -1,8 +1,27 @@
 package com.ikverse.deskglow.widgets
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import android.text.format.DateFormat
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import com.ikverse.deskglow.data.Weather
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.IntKey
@@ -34,6 +53,12 @@ interface WidgetType {
     /** A line under its settings, e.g. where its data comes from. */
     fun note(settings: Settings): String? = null
 
+    /** A saved widget's settings brought up to date: a setting that was renamed or merged is carried into its new form. Run before the defaults are filled in. */
+    fun migrate(settings: Settings): Settings = settings
+
+    /** [saved] migrated, with every setting it lacks at its default. */
+    fun resolve(saved: Settings): Settings = migrate(saved).withDefaults(defaults)
+
     /** Settings after a change, made consistent (e.g. a style that cannot show Arabic numerals is swapped). */
     fun normalise(settings: Settings): Settings = settings
 
@@ -60,6 +85,8 @@ data class ToggleField(override val label: String, val key: FlagKey) : Field
 data class ChoiceField(override val label: String, val key: TextKey, val options: List<Pair<String, String>>) : Field
 /** A choice shown as small drawings of the widget itself, one per option ([options] are value to label), so a layout is picked by how it looks. */
 data class LayoutField(override val label: String, val key: TextKey, val options: List<Pair<String, String>>) : Field
+/** Several on/off settings as one row of chips, each lit when its setting is on. [items] are key to chip text. */
+data class ShowField(override val label: String, val items: List<Pair<FlagKey, String>>) : Field
 data class SliderField(override val label: String, val key: IntKey, val range: IntRange, val suffix: String = "") : Field
 data class ColourField(override val label: String, val key: ColourKey) : Field
 /** The sideways strip of preview tiles (clock styles, date fonts), ending in "More fonts". */
@@ -75,6 +102,19 @@ object Common {
     val ARABIC = FlagKey("arabic", false)
     /** "arabic" for ٠١٢٣, "western" for 0123. Only used while [ARABIC] is on. */
     val NUMERALS = TextKey("numerals", "arabic")
+
+    /** "phone" follows the phone's 12 or 24-hour setting. */
+    val TIME_FORMAT = TextKey("timeFormat", "phone")
+
+    fun timeFormatField(key: TextKey = TIME_FORMAT) =
+        ChoiceField("Time format", key, listOf("phone" to "Phone", "12" to "12-hour", "24" to "24-hour"))
+
+    /** Whether times read on a 24-hour clock under the choice stored at [key]. */
+    @Composable
+    fun use24Hour(settings: Settings, key: TextKey = TIME_FORMAT): Boolean {
+        val phone = DateFormat.is24HourFormat(LocalContext.current)
+        return when (settings[key]) { "12" -> false; "24" -> true; else -> phone }
+    }
 
     val colourField = ColourField("Colour", COLOUR)
     val brightnessField = SliderField("Brightness", OPACITY, 20..100, "%")
@@ -94,3 +134,26 @@ object Common {
 val LocalEditing = staticCompositionLocalOf { false }
 
 val Muted = Color(0xFF8C8C8C)
+
+
+/** A one-line hint, shown only in the editor and previews (on the display itself the widget stays empty). */
+@Composable
+internal fun EditorHint(text: String, size: Float) {
+    if (!LocalEditing.current) return
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text, color = Muted, fontSize = pxToSp(size), maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+internal fun horizontal(align: String) = when (align) { "center" -> Alignment.CenterHorizontally; "right" -> Alignment.End; else -> Alignment.Start }
+internal fun textAlign(align: String) = when (align) { "center" -> TextAlign.Center; "right" -> TextAlign.End; else -> TextAlign.Start }
+/** Where text or art sits in spare room: 0 against the left edge, 1 against the right. */
+internal fun alignFraction(align: String) = when (align) { "left" -> 0f; "right" -> 1f; else -> 0.5f }
+internal fun arrangementOf(align: String) = when (align) { "center" -> Arrangement.Center; "right" -> Arrangement.End; else -> Arrangement.Start }
+
+/** Text sized in pixels, so it fills a widget the same way whatever the phone's font-size setting. */
+@Composable
+fun pxToSp(px: Float): TextUnit = with(LocalDensity.current) { px.toSp() }
+
+@Composable
+fun pxToDp(px: Float): Dp = with(LocalDensity.current) { px.toDp() }

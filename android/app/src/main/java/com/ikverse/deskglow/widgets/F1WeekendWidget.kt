@@ -280,7 +280,7 @@ private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look:
 
     @Composable
     fun Table(title: String, subtitle: String, places: List<Place>, after: String?) {
-        Text(title.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false)
+        Text(title.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         Text(subtitle, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1)
         Spacer(Modifier.height(pxToDp(h * 0.04f)))
         places.forEach { PodiumEntry(it, look, big * 0.5f) }
@@ -298,7 +298,7 @@ private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look:
         when (view) {
             WeekendView.Empty -> {}
             is WeekendView.Upcoming -> {
-                Text(view.race.name.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false)
+                Text(view.race.name.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                 if (view.race.place.isNotEmpty()) Text(view.race.place, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(pxToDp(h * 0.07f)))
                 val live = view.live
@@ -412,8 +412,11 @@ private fun MinimalContent(view: WeekendView, top: SessionTop?, now: Instant, lo
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             @Composable
-            fun Part(text: String, colour: Color, weight: FontWeight = FontWeight.Normal) =
-                Text(text, color = colour, fontSize = pxToSp(px), fontWeight = weight, maxLines = 1, softWrap = false)
+            fun Part(text: String, colour: Color, weight: FontWeight = FontWeight.Normal, modifier: Modifier = Modifier) =
+                Text(text, color = colour, fontSize = pxToSp(px), fontWeight = weight, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = modifier)
+
+            // A name that does not fit gives way to what follows it, so the countdown is never the part cut off.
+            val yields = Modifier.weight(1f, fill = false)
 
             @Composable
             fun Places(places: List<Place>) = places.forEach { place ->
@@ -424,7 +427,7 @@ private fun MinimalContent(view: WeekendView, top: SessionTop?, now: Instant, lo
             if (top != null) {
                 // After a race the next weekend is too far off to be worth the room, as with the podium.
                 val inWeekend = sameWeekend(top)
-                Part(if (inWeekend) shortKind(top.session.kind) else top.race.name, look.colour, FontWeight.SemiBold)
+                Part(if (inWeekend) shortKind(top.session.kind) else top.race.name, look.colour, FontWeight.SemiBold, yields)
                 Part("  · ", Muted)
                 Places(placesOf(top))
                 val next = top.next
@@ -440,17 +443,17 @@ private fun MinimalContent(view: WeekendView, top: SessionTop?, now: Instant, lo
                         LiveBadge(look.accent, px * 0.75f)
                         Spacer(Modifier.width(pxToDp(px * 0.45f)))
                         Part(shortKind(live.kind), look.colour, FontWeight.Medium)
-                        Part("  ·  ${view.race.name}", Muted)
+                        Part("  ·  ${view.race.name}", Muted, modifier = yields)
                     } else if (next != null) {
-                        Part(view.race.name, look.colour, FontWeight.SemiBold)
+                        Part(view.race.name, look.colour, FontWeight.SemiBold, yields)
                         Part("  ·  ${shortKind(next.kind)} in ", Muted)
                         Part(countdownText(now, next.start), look.colour)
                     } else {
-                        Part(view.race.name, look.colour, FontWeight.SemiBold)
+                        Part(view.race.name, look.colour, FontWeight.SemiBold, yields)
                     }
                 }
                 is WeekendView.AfterRace -> {
-                    Part(view.result.raceName, look.colour, FontWeight.SemiBold)
+                    Part(view.result.raceName, look.colour, FontWeight.SemiBold, yields)
                     Part("  · ", Muted)
                     Places(placesOf(view.result))
                 }
@@ -488,10 +491,10 @@ internal fun Header(race: String, place: String, accent: Color, colour: Color, p
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(pxToDp(px * 0.28f)).height(pxToDp(px * 1.1f)).background(accent, RoundedCornerShape(pxToDp(px * 0.14f))))
         Spacer(Modifier.width(pxToDp(px * 0.5f)))
-        Text(race.uppercase(), color = colour, fontSize = pxToSp(px * 1.05f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false)
+        Text(race.uppercase(), color = colour, fontSize = pxToSp(px * 1.05f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         if (place.isNotEmpty()) {
             Spacer(Modifier.width(pxToDp(px * 0.6f)))
-            Text(place, color = Muted, fontSize = pxToSp(px), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(place, color = Muted, fontSize = pxToSp(px), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         }
     }
 }

@@ -69,7 +69,7 @@ object F1StandingsWidget : WidgetType {
         } else {
             ChoiceField("Favourite driver", FAV_DRIVER, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" })
         },
-        ColourField("Highlight colour", ACCENT),
+        ColourField("Accent colour", ACCENT),
         Common.colourField,
         Common.brightnessField,
     )

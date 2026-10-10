@@ -11,8 +11,8 @@ import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertIsOff
-import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.hasText
@@ -99,7 +99,7 @@ class EditorScreenTest {
     fun `a widget under the sheet is reached from the widget list`() {
         compose.onNodeWithText("Widgets").performClick()
         compose.onNodeWithText("Weather").performScrollTo().performClick()
-        compose.onNodeWithText("Show high and low").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("High and low").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Weather data by Open-Meteo.com. Set your city on the Home screen.").performScrollTo().assertIsDisplayed()
     }
 
@@ -204,13 +204,15 @@ class EditorScreenTest {
     }
 
     @Test
-    fun `a setting's switch is named by its label, and the whole row toggles it`() {
+    fun `a chip in the Show row is named by its label, and tapping it toggles its setting`() {
         compose.onNodeWithText("Widgets").performClick()
         compose.onNodeWithText("Weather").performScrollTo().performClick()
-        compose.onNodeWithText("Show city").performScrollTo().assertIsOn()
-        compose.onNodeWithText("Show city").performClick()
-        compose.onNodeWithText("Show city").assertIsOff()
+        compose.onNodeWithText("City").performScrollTo().assertIsSelected()
+        compose.onNodeWithText("City").performClick()
+        compose.onNodeWithText("City").assertIsNotSelected()
         assertEquals(false, layout.find(idOf("weather"))!!.settings[WeatherWidget.SHOW_CITY])
+        compose.onNodeWithText("City").performClick()
+        assertEquals(true, layout.find(idOf("weather"))!!.settings[WeatherWidget.SHOW_CITY])
     }
 
     @Test

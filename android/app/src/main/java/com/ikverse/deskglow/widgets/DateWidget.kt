@@ -23,12 +23,13 @@ object DateWidget : WidgetType {
     override val blurb = "Day and date"
     override val width = 164
     override val height = 24
-    override val defaults: Settings = Common.base(0xFFD8D8D8)
+    override val defaults: Settings = Common.base(0xFFD8D8D8).with(Common.ALIGN, "center")
 
     override fun fields(settings: Settings): List<Field> = buildList {
         add(StyleField("Font", FONT, StyleKind.Date))
         add(ChoiceField("Format", FORMAT, if (settings[Common.ARABIC]) TimeText.DATE_FORMATS_ARABIC else TimeText.DATE_FORMATS))
         addAll(Common.arabicFields(settings))
+        add(Common.alignField)
         add(Common.colourField)
         add(Common.brightnessField)
     }
@@ -61,5 +62,6 @@ fun DateFace(settings: Settings, font: String, date: java.time.LocalDate, modifi
         modifier = modifier,
         // A fixed sample keeps the height steady from day to day, whatever letters the date has.
         sample = if (arabic) "الأربعاء أكتوبر" else "Wdgjy0,",
+        align = alignFraction(settings[Common.ALIGN]),
     )
 }

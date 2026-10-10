@@ -1,6 +1,5 @@
 package com.ikverse.deskglow.widgets
 
-import android.text.format.DateFormat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,7 +19,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.data.LocalFeeds
@@ -54,8 +52,9 @@ object AlarmWidget : WidgetType {
     override fun fields(settings: Settings) = listOf(
         ToggleField("Show time-left bar", SHOW_BAR),
         ChoiceField("With no alarm set", WHEN_NONE, listOf("text" to "Say “No alarm”", "hide" to "Show nothing")),
+        Common.timeFormatField(),
         Common.alignField,
-        ColourField("Bell colour", ACCENT),
+        ColourField("Accent colour", ACCENT),
         Common.colourField,
         Common.brightnessField,
     )
@@ -82,7 +81,7 @@ object AlarmWidget : WidgetType {
         val feeds = LocalFeeds.current
         val state by feeds.alarm.collectAsStateWithLifecycle()
         val minute by feeds.minute.collectAsStateWithLifecycle()
-        val h24 = DateFormat.is24HourFormat(LocalContext.current)
+        val h24 = Common.use24Hour(settings)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val w = constraints.maxWidth.toFloat()
@@ -91,7 +90,7 @@ object AlarmWidget : WidgetType {
             val colour = Color(settings[Common.COLOUR])
             val accent = Color(settings[ACCENT])
             val align = settings[Common.ALIGN]
-            val arrangement = when (align) { "center" -> Arrangement.Center; "right" -> Arrangement.End; else -> Arrangement.Start }
+            val arrangement = arrangementOf(align)
             if (alarm == null && settings[WHEN_NONE] == "hide") return@BoxWithConstraints EditorHint("No alarm set", h * 0.24f)
             val showBar = alarm != null && settings[SHOW_BAR]
             val big = min(h * (if (showBar) 0.42f else 0.5f), w * 0.15f)

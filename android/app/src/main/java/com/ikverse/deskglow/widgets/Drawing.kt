@@ -20,7 +20,7 @@ import kotlin.math.hypot
 import kotlin.math.min
 
 /**
- * Text drawn as large as fits its box, centred, sized by the ink itself (not the font's line
+ * Text drawn as large as fits its box, centred unless [align] says otherwise, sized by the ink itself (not the font's line
  * height), so a clock fills its box the way the mockup's did. [sample] fixes the height so the text
  * does not jump as it changes; with [stableDigits] the width is measured as if every digit were "0",
  * so a narrow "1" does not make the clock grow and shrink through the day.
@@ -33,6 +33,8 @@ fun FitText(
     modifier: Modifier = Modifier,
     sample: String = text,
     stableDigits: Boolean = false,
+    /** 0 left, 0.5 centre, 1 right: where the text sits when the box is wider than it. */
+    align: Float = 0.5f,
 ) {
     val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG) }
     // Measuring text is the expensive part, so it is done once per text and font, not on every draw.
@@ -43,7 +45,7 @@ fun FitText(
         paint.typeface = typeface ?: Typeface.DEFAULT
         paint.color = color.toArgb()
         paint.textSize = 100f * scale
-        val x = (size.width - fit.inkWidth * scale) / 2 - fit.left * scale + fit.centringShift * scale
+        val x = (size.width - fit.inkWidth * scale) * align - fit.left * scale + fit.centringShift * 2 * align * scale
         val y = (size.height - fit.inkHeight * scale) / 2 - fit.top * scale
         drawContext.canvas.nativeCanvas.drawText(text, x, y, paint)
     }
@@ -67,13 +69,13 @@ private fun measureFit(text: String, typeface: Typeface?, sample: String, stable
     return TextFit(bounds.width().toFloat().coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f), bounds.left.toFloat(), top, shift)
 }
 
-/** A drawn clock (see [ClockStyles]) scaled to fit its box and centred. Paths are built once per new time. */
+/** A drawn clock (see [ClockStyles]) scaled to fit its box and set against [align] (0 left, 1 right). Paths are built once per new time. */
 @Composable
-fun ArtCanvas(art: ClockArt, color: Color, modifier: Modifier = Modifier, background: Color = Color.Black) {
+fun ArtCanvas(art: ClockArt, color: Color, modifier: Modifier = Modifier, background: Color = Color.Black, align: Float = 0.5f) {
     val paths = remember(art) { art.parts.map { part -> part to pathsOf(part) } }
     Canvas(modifier) {
         val scale = min(size.width / art.width, size.height / art.height)
-        val dx = (size.width - art.width * scale) / 2 - art.left * scale
+        val dx = (size.width - art.width * scale) * align - art.left * scale
         val dy = (size.height - art.height * scale) / 2 - art.top * scale
         withTransform({
             translate(dx, dy)

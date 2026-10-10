@@ -9,7 +9,12 @@ Nothing runs while it is not showing: no background service, no permanent notifi
 ## What it does
 
 - **Widgets:** clock, date, charging ring, battery stats (temperature, voltage, power, current,
-  time to full, level), notification icons, now playing, next event and weather.
+  time to full, level), notification icons, now playing, next event, weather, prayer times, next
+  alarm, and four Formula 1 widgets: race weekend (countdown, or the last session's top 3),
+  schedule, live session timing and the championship standings.
+- **Settings:** each widget has its own layouts and options. Several on/off options share one row of
+  chips; times follow the phone's 12 or 24-hour setting unless told otherwise; the clock, date and
+  other text widgets can sit against either edge of their box.
 - **Editor:** drag to move, drag the corner to resize, red × to delete (with Undo). Widgets never
   overlap: anything in the way is pushed down, and slides back while you are still holding.
 - **Portrait and landscape:** each has its own layout. Upright is the default; for a phone docked on
@@ -55,7 +60,7 @@ in a browser.
 | Folder | What it holds |
 | --- | --- |
 | `android/app/src/main/java/.../widgets` | One file per kind of widget. A new widget goes here and into the `Widgets.all` list. |
-| `.../data` | The data sources (battery, clock, notifications, media, calendar, weather). Each runs only while a widget on screen reads it. |
+| `.../data` | The data sources (battery, clock, notifications, media, calendar, weather, alarm, prayer times, Formula 1 and the light sensor). Each runs only while a widget on screen reads it. |
 | `.../layout` | The no-overlap rules (`Packer`) and dragging (`DragSession`), for either canvas (`Orientation`: 412 × 848 upright, 848 × 412 on its side). |
 | `.../fonts` | Bundled fonts and the Google Fonts library. |
 | `.../display` | The screen saver and Start now. |
@@ -65,6 +70,11 @@ in a browser.
 
 - **Weather:** data by [Open-Meteo.com](https://open-meteo.com), under CC BY 4.0. Only the chosen
   city's position is sent.
+- **Prayer times:** from [Aladhan](https://aladhan.com), for where the phone is or the chosen city.
+- **Formula 1:** the calendar, results and standings from the Jolpica F1 API (api.jolpi.ca); circuit
+  outlines from OpenF1 and MultiViewer; live timing and session results from Formula 1's own
+  live-timing feed (unofficial, and may stop working) or OpenF1. The live feed connects only while a
+  session runs. Not affiliated with Formula 1.
 - **Fonts:** the bundled fonts are under the SIL Open Font License 1.1. Their licences are in
   `android/app/src/main/assets/licences/` and in the app's About screen. Fonts picked from Google
   Fonts are open source as well.
