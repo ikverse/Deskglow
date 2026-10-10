@@ -9,6 +9,7 @@ import android.view.View
 import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -223,11 +224,20 @@ private fun Modifier.twoFingerSwipe(onSwipe: (direction: Int) -> Unit): Modifier
 }
 
 /**
- * Calls [onDouble] after two quick taps, or [onTriple] after three. The second tap waits one
- * double-tap interval for a third, so a double tap lands a moment after the finger lifts.
+ * How long a second tap waits for a third. Waiting for the second tap costs nothing, since a single
+ * tap does nothing, but this wait is the lag on every double tap. Under about 100 ms a delay feels
+ * instant and past about 200 ms it feels slow; a quick triple tap leaves roughly 80-130 ms between
+ * lifting and touching again and a relaxed one about 170 ms, so this still catches a deliberate triple.
+ */
+internal const val THIRD_TAP_WAIT_MS = 180L
+
+/**
+ * Calls [onDouble] after two quick taps, or [onTriple] after three. The first tap waits one
+ * double-tap interval for a second; the second waits only [THIRD_TAP_WAIT_MS] for a third, so a
+ * double tap lands a moment after the finger lifts.
  */
 private fun Modifier.doubleOrTripleTap(onDouble: () -> Unit, onTriple: () -> Unit): Modifier = pointerInput(onDouble, onTriple) {
-    val gap = viewConfiguration.doubleTapTimeoutMillis
+    val secondTapWait = viewConfiguration.doubleTapTimeoutMillis
     awaitEachGesture {
         var taps = 0
         awaitFirstDown()
@@ -238,7 +248,8 @@ private fun Modifier.doubleOrTripleTap(onDouble: () -> Unit, onTriple: () -> Uni
                 onTriple()
                 return@awaitEachGesture
             }
-            if (withTimeoutOrNull(gap) { awaitFirstDown() } == null) {
+            val wait = if (taps == 1) secondTapWait else THIRD_TAP_WAIT_MS
+            if (withTimeoutOrNull(wait) { awaitFirstDown() } == null) {
                 if (taps == 2) onDouble()
                 return@awaitEachGesture
             }
@@ -386,7 +397,8 @@ class DeskglowDream : DreamService() {
 
 /**
  * "Start now": the display full screen without waiting for the charger, kept on until closed. A double
- * tap closes it back to whatever was open before; a triple tap closes it into the app. Back closes it too.
+ * tap closes it back to whatever was open before; a triple tap closes it into the app. Back does
+ * nothing, so a stray swipe from the edge cannot close it.
  */
 class DisplayActivity : ComponentActivity() {
     private var roomDark by mutableStateOf(false)
@@ -394,6 +406,7 @@ class DisplayActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this) {}
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val brightness = chosenBrightness()
         windowBrightness(brightness)?.let { level ->

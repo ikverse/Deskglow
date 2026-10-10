@@ -215,4 +215,26 @@ class ScreensTest {
         assertEquals(true, openedApp)
         assertEquals(false, exited)
     }
+
+    @Test
+    fun `a double tap closes the display soon after the second tap lifts, not after a full double-tap interval`() {
+        show()
+        compose.mainClock.autoAdvance = false
+        compose.onRoot().performTouchInput { doubleClick() }
+        compose.mainClock.advanceTimeBy(250)
+        assertEquals(true, exited)
+        assertEquals(false, openedApp)
+    }
+
+    @Test
+    fun `a triple tap with a relaxed pause between taps still opens the app`() {
+        show()
+        compose.mainClock.autoAdvance = false
+        repeat(3) {
+            compose.onRoot().performTouchInput { click() }
+            compose.mainClock.advanceTimeBy(150)
+        }
+        assertEquals(true, openedApp)
+        assertEquals(false, exited)
+    }
 }
