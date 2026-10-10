@@ -1,6 +1,7 @@
 package com.ikverse.deskglow.widgets
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -48,6 +49,10 @@ object F1LiveWidget : WidgetType {
     val GAP = TextKey("gap", "leader")
     val FAVOURITE = TextKey("favourite", "")
     val SHOW_FLAG = FlagKey("showFlag", true)
+    /** A thin border in the flag's colour round the widget while a flag is out. */
+    val BORDER = FlagKey("border", false)
+    /** "code" (VER), "number" (1) or "surname" (VERSTAPPEN). */
+    val NAMES = TextKey("names", "code")
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
 
     override val id = "f1live"
@@ -61,7 +66,8 @@ object F1LiveWidget : WidgetType {
         SliderField("Rows", ROWS, 3..20),
         ChoiceField("Gap", GAP, listOf("leader" to "To the leader", "ahead" to "To the car ahead")),
         ChoiceField("Favourite driver", FAVOURITE, listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }),
-        ToggleField("Show the flag and session clock", SHOW_FLAG),
+        ChoiceField("Names", NAMES, listOf("code" to "Codes", "number" to "Numbers", "surname" to "Surnames")),
+        ShowField("Show", listOf(SHOW_FLAG to "Flag and clock", BORDER to "Flag border")),
         ColourField("Accent colour", ACCENT),
         Common.colourField,
         Common.brightnessField,
@@ -109,6 +115,13 @@ internal fun sessionProgress(session: LiveSession, now: Instant): String {
     return listOfNotNull(part, left.ifEmpty { null }).joinToString(" · ")
 }
 
+/** How a driver is named in a row: "VER", the car number, or the surname in capitals. */
+private fun driverName(row: LiveRow, names: String): String = when (names) {
+    "number" -> row.number
+    "surname" -> F1Roster.drivers.firstOrNull { it.first == row.code }?.second?.substringAfterLast(' ')?.uppercase() ?: row.code
+    else -> row.code
+}
+
 private fun flagLabel(flag: TrackFlag): Pair<String, Color>? = when (flag) {
     TrackFlag.Clear -> null
     TrackFlag.Yellow -> "YELLOW" to Color(0xFFFFD60A)
@@ -130,6 +143,10 @@ private fun LiveFace(settings: Settings, session: LiveSession, live: Boolean, no
     val favourite = settings[F1LiveWidget.FAVOURITE]
     val toAhead = settings[F1LiveWidget.GAP] == "ahead"
     val showFlag = settings[F1LiveWidget.SHOW_FLAG]
+    val names = settings[F1LiveWidget.NAMES]
+    val flagShade = flagLabel(session.flag)?.second.takeIf { live && settings[F1LiveWidget.BORDER] }
+    // Room round the edge, so the border has none of the rows against it.
+    val inset = if (flagShade != null) min(w, h) * 0.035f else 0f
     val top = session.rows.take(settings[F1LiveWidget.ROWS])
     val extra = session.rows.drop(top.size).firstOrNull { favourite.isNotEmpty() && it.code == favourite }
 
@@ -139,7 +156,7 @@ private fun LiveFace(settings: Settings, session: LiveSession, live: Boolean, no
     val columnW = if (twoColumns) (w - columnGap) / 2 else w
     val headerSlots = if (live && showFlag) 2.4f else 1.4f
     val slots = left.size + headerSlots + (if (extra != null) 1.3f else 0f)
-    val row = min(h / slots, columnW * 0.16f)
+    val row = min((h - inset * 2) / slots, (columnW - inset * 2) * 0.16f)
     val text = row * 0.56f
 
     @Composable
@@ -159,7 +176,7 @@ private fun LiveFace(settings: Settings, session: LiveSession, live: Boolean, no
             )
             Spacer(Modifier.width(pxToDp(text * 0.45f)))
             Text(
-                r.code, color = main, fontSize = pxToSp(text), fontWeight = if (fav) FontWeight.Bold else FontWeight.Medium,
+                driverName(r, names), color = main, fontSize = pxToSp(text), fontWeight = if (fav) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
             val tag = when {
@@ -181,7 +198,8 @@ private fun LiveFace(settings: Settings, session: LiveSession, live: Boolean, no
         }
     }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+    val frame = if (flagShade != null) Modifier.border(pxToDp((min(w, h) * 0.008f).coerceAtLeast(1.5f)), flagShade, RoundedCornerShape(pxToDp(inset * 1.5f))).padding(pxToDp(inset)) else Modifier
+    Column(Modifier.fillMaxSize().then(frame), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().height(pxToDp(row * 1.4f)), verticalAlignment = Alignment.CenterVertically) {
             if (live) {
                 LiveBadge(accent, text * 0.7f)

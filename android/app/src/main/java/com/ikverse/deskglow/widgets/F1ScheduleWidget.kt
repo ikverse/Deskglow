@@ -56,6 +56,13 @@ object F1ScheduleWidget : WidgetType {
     val SHOW_DATES = FlagKey("showDates", false)
     val SHOW_COUNTDOWN = FlagKey("showCountdown", true)
     val DIM_PAST = FlagKey("dimPast", true)
+    /** "all" the weekend's sessions, or the "main" ones: qualifying, a sprint and the race. */
+    val SESSIONS = TextKey("sessions", "all")
+    private val MAIN = setOf("Qualifying", "Sprint", "Race")
+
+    /** [race]'s sessions under the [SESSIONS] choice; all of them if none of the main ones are known yet. */
+    fun sessionsOf(race: F1Race, settings: Settings): List<F1Session> =
+        if (settings[SESSIONS] == "main") race.sessions.filter { it.kind in MAIN }.ifEmpty { race.sessions } else race.sessions
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
 
     override val id = "f1schedule"
@@ -67,6 +74,7 @@ object F1ScheduleWidget : WidgetType {
 
     override fun fields(settings: Settings) = listOf(
         LayoutField("Layout", LAYOUT, listOf("list" to "List", "days" to "Days", "timeline" to "Timeline", "strip" to "Strip")),
+        ChoiceField("Sessions", SESSIONS, listOf("all" to "All", "main" to "Quali and race")),
         Common.timeFormatField(CLOCK),
         ShowField("Show", listOf(SHOW_DATES to "Dates", SHOW_COUNTDOWN to "Countdown", DIM_PAST to "Dim finished sessions")),
         ColourField("Accent colour", ACCENT),
@@ -97,7 +105,7 @@ object F1ScheduleWidget : WidgetType {
                 Text("No races scheduled", color = Muted, fontSize = pxToSp(hint * 1.4f), maxLines = 1)
             }
             // The countdown shows seconds only in the last hour, so only then is the second tick read.
-            val next = race.sessions.firstOrNull { it.start.isAfter(roughNow) }
+            val next = F1ScheduleWidget.sessionsOf(race, settings).firstOrNull { it.start.isAfter(roughNow) }
             val fine = settings[SHOW_COUNTDOWN] && next != null && Duration.between(roughNow, next.start) < Duration.ofMinutes(61)
             val now = if (fine) {
                 val second by feeds.second.collectAsStateWithLifecycle()
@@ -121,7 +129,7 @@ private class Plan(val race: F1Race, val now: Instant, settings: Settings, h24: 
     val accent = Color(settings[F1ScheduleWidget.ACCENT])
     val dates = settings[F1ScheduleWidget.SHOW_DATES]
     private val dim = settings[F1ScheduleWidget.DIM_PAST]
-    val sessions = race.sessions
+    val sessions = F1ScheduleWidget.sessionsOf(race, settings)
     private val live = sessions.firstOrNull { it.liveAt(now) }
     private val next = sessions.firstOrNull { it.start.isAfter(now) }
     /** The session running, or else the next to start; lit in the accent colour. */
