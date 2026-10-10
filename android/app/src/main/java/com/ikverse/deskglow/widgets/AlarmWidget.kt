@@ -106,48 +106,71 @@ object AlarmWidget : WidgetType {
             val colour = Color(settings[Common.COLOUR])
             val accent = Color(settings[ACCENT])
             val align = settings[Common.ALIGN]
-            val arrangement = arrangementOf(align)
             if (alarm == null && settings[WHEN_NONE] == "hide") return@BoxWithConstraints EditorHint("No alarm set", h * 0.24f)
             val limit = settings[WITHIN].toLongOrNull()
             if (alarm != null && limit != null && Duration.between(now, alarm).toHours() >= limit) return@BoxWithConstraints EditorHint("The alarm is more than $limit hours away", h * 0.24f)
             val showBar = alarm != null && settings[TIME_LEFT] == "bar"
             val showRing = alarm != null && settings[TIME_LEFT] == "ring"
-            val big = min(h * (if (showBar) 0.42f else 0.5f), w * 0.15f)
-            val small = min(h * 0.19f, w * 0.065f)
-            Row(Modifier.fillMaxSize(), horizontalArrangement = arrangement, verticalAlignment = Alignment.CenterVertically) {
-                val bell = min(h * 0.5f, big * 1.1f)
-                if (showRing && alarm != null) {
-                    val left = timeLeft(now, alarm)
-                    Box(Modifier.size(pxToDp(bell * 1.3f)), contentAlignment = Alignment.Center) {
-                        Canvas(Modifier.fillMaxSize()) {
-                            val thick = size.minDimension * 0.07f
-                            val corner = Offset(thick / 2, thick / 2)
-                            val arc = Size(size.width - thick, size.height - thick)
-                            drawArc(Color(0xFF262626), 0f, 360f, false, corner, arc, style = Stroke(thick))
-                            if (left > 0f) drawArc(accent.copy(alpha = 0.85f), -90f, 360f * left, false, corner, arc, style = Stroke(thick, cap = StrokeCap.Round))
+            // The bell beside the time in a wide box, above it in a tall one.
+            Fit(canvasUnit(w, width), listOf(settings, alarm == null), arrangements = 2, align = alignFraction(align)) { f ->
+                val s = f.scale
+                val big = s.main * 2.4f
+                val small = s.second
+                val bell = big * 1.1f
+
+                @Composable
+                fun Lead() {
+                    if (showRing && alarm != null) {
+                        val left = timeLeft(now, alarm)
+                        Box(Modifier.size(pxToDp(bell * 1.3f)), contentAlignment = Alignment.Center) {
+                            Canvas(Modifier.fillMaxSize()) {
+                                val thick = size.minDimension * 0.07f
+                                val corner = Offset(thick / 2, thick / 2)
+                                val arc = Size(size.width - thick, size.height - thick)
+                                drawArc(Color(0xFF262626), 0f, 360f, false, corner, arc, style = Stroke(thick))
+                                if (left > 0f) drawArc(accent.copy(alpha = 0.85f), -90f, 360f * left, false, corner, arc, style = Stroke(thick, cap = StrokeCap.Round))
+                            }
+                            Bell(accent, Modifier.size(pxToDp(bell * 0.7f)))
                         }
-                        Bell(accent, Modifier.size(pxToDp(bell * 0.7f)))
+                    } else {
+                        Bell(if (alarm == null) Muted else accent, Modifier.size(pxToDp(bell)))
+                    }
+                }
+
+                @Composable
+                fun Words() {
+                    Column(verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+                        if (alarm == null) {
+                            Text("No alarm", color = Muted, fontSize = pxToSp(big * 0.7f), maxLines = 1, softWrap = false)
+                            return@Column
+                        }
+                        val time = alarm.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US))
+                        Text(time, color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
+                        Text(whenText(now, alarm, settings[PHRASE] == "sleep"), color = Muted, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+                        if (showBar) {
+                            Spacer(Modifier.height(pxToDp(small * 0.35f * s.space)))
+                            val left = timeLeft(now, alarm)
+                            Canvas(Modifier.width(pxToDp(big * 4.2f)).height(pxToDp((small * 0.3f).coerceAtLeast(3f)))) {
+                                val y = size.height / 2
+                                // The rounded ends reach half the bar's height past each end, so the line starts and stops that far in.
+                                drawLine(Color(0xFF262626), Offset(y, y), Offset(size.width - y, y), size.height, StrokeCap.Round)
+                                if (left > 0f) drawLine(accent.copy(alpha = 0.8f), Offset(y, y), Offset(y + (size.width - 2 * y) * left, y), size.height, StrokeCap.Round)
+                            }
+                        }
+                    }
+                }
+
+                if (f.arrangement == 0) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Lead()
+                        Spacer(Modifier.width(pxToDp(big * 0.35f)))
+                        Words()
                     }
                 } else {
-                    Bell(if (alarm == null) Muted else accent, Modifier.size(pxToDp(bell)))
-                }
-                Spacer(Modifier.width(pxToDp(h * 0.14f)))
-                Column(verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
-                    if (alarm == null) {
-                        Text("No alarm", color = Muted, fontSize = pxToSp(big * 0.7f), maxLines = 1, softWrap = false)
-                        return@Column
-                    }
-                    val time = alarm.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US))
-                    Text(time, color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
-                    Text(whenText(now, alarm, settings[PHRASE] == "sleep"), color = Muted, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
-                    if (showBar) {
-                        Spacer(Modifier.height(pxToDp(small * 0.35f)))
-                        val left = timeLeft(now, alarm)
-                        Canvas(Modifier.width(pxToDp(min(w * 0.6f, h * 2.4f))).height(pxToDp((h * 0.05f).coerceAtLeast(3f)))) {
-                            val y = size.height / 2
-                            drawLine(Color(0xFF262626), Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
-                            if (left > 0f) drawLine(accent.copy(alpha = 0.8f), Offset(0f, y), Offset(size.width * left, y), size.height, StrokeCap.Round)
-                        }
+                    Column(horizontalAlignment = horizontal(align)) {
+                        Lead()
+                        Spacer(Modifier.height(pxToDp(small * 0.5f * s.space)))
+                        Words()
                     }
                 }
             }

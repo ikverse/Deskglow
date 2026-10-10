@@ -3,7 +3,9 @@ package com.ikverse.deskglow.widgets
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +69,8 @@ object NotificationsWidget : WidgetType {
         val state by LocalFeeds.current.notifications.collectAsStateWithLifecycle()
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
+            val unit = canvasUnit(constraints.maxWidth.toFloat(), width)
+            val align = alignFraction(settings[Common.ALIGN])
             when (val s = state) {
                 NotificationState.NoAccess -> EditorHint("Allow notification access", h * 0.42f)
                 is NotificationState.Apps -> {
@@ -74,39 +78,48 @@ object NotificationsWidget : WidgetType {
                     val extra = s.apps.size - shown.size
                     val colour = Color(settings[Common.COLOUR])
                     val style = settings[STYLE]
-                    val icon = h * 0.62f
-                    val arrangement = arrangementOf(settings[Common.ALIGN])
                     if (shown.isEmpty()) {
                         if (settings[EMPTY] == "text") {
-                            Row(Modifier.fillMaxSize(), horizontalArrangement = arrangement, verticalAlignment = Alignment.CenterVertically) {
-                                Text("All caught up", color = Muted, fontSize = pxToSp(h * 0.42f), maxLines = 1, softWrap = false)
+                            Fit(unit, settings, align = align) { f ->
+                                Text("All caught up", color = Muted, fontSize = pxToSp(f.scale.main * 1.6f), maxLines = 1, softWrap = false)
                             }
                         } else {
                             EditorHint("No notifications", h * 0.42f)
                         }
                         return@BoxWithConstraints
                     }
-                    Row(Modifier.fillMaxSize(), horizontalArrangement = arrangement, verticalAlignment = Alignment.CenterVertically) {
-                        val capsule = if (style == "pill") Modifier.background(Color(0xFF1C1C1C), RoundedCornerShape(50)).padding(horizontal = pxToDp(icon * 0.1f), vertical = pxToDp(h * 0.08f)) else Modifier
-                        Row(capsule, verticalAlignment = Alignment.CenterVertically) {
-                            shown.forEach { app ->
-                                val bitmap = app.icon
-                                Box(Modifier.padding(horizontal = pxToDp(icon * 0.32f)).size(pxToDp(icon))) {
-                                    if (bitmap != null && style != "dots") {
-                                        Image(bitmap, contentDescription = null, colorFilter = ColorFilter.tint(colour), modifier = Modifier.fillMaxSize())
-                                    } else {
-                                        Canvas(Modifier.fillMaxSize()) { drawCircle(colour, size.minDimension * 0.3f) }
+                    // The icons in one row, or in a tall box in two, as large as fits; the count after them grows more slowly.
+                    Fit(unit, listOf(settings, shown.size, extra > 0), arrangements = if (shown.size > 1) 2 else 1, align = align) { f ->
+                        val icon = f.scale.main * 2.6f
+                        val more = f.scale.second * 1.6f
+                        val capsule = if (style == "pill") Modifier.background(Color(0xFF1C1C1C), RoundedCornerShape(50)).padding(horizontal = pxToDp(icon * 0.1f), vertical = pxToDp(icon * 0.13f)) else Modifier
+                        val rows = if (f.arrangement == 1) shown.chunked((shown.size + 1) / 2) else listOf(shown)
+                        Column(horizontalAlignment = horizontal(settings[Common.ALIGN]), verticalArrangement = Arrangement.spacedBy(pxToDp(icon * 0.3f * f.scale.space))) {
+                            rows.forEachIndexed { r, apps ->
+                                Row(capsule, verticalAlignment = Alignment.CenterVertically) {
+                                    apps.forEach { app ->
+                                        val bitmap = app.icon
+                                        Box(Modifier.padding(horizontal = pxToDp(icon * 0.32f)).size(pxToDp(icon))) {
+                                            if (bitmap != null && style != "dots") {
+                                                Image(bitmap, contentDescription = null, colorFilter = ColorFilter.tint(colour), modifier = Modifier.fillMaxSize())
+                                            } else {
+                                                Canvas(Modifier.fillMaxSize()) { drawCircle(colour, size.minDimension * 0.3f) }
+                                            }
+                                            if (settings[COUNTS] && app.count > 1) {
+                                                Text(
+                                                    "${min(app.count, 99)}", color = Color.Black, fontSize = pxToSp(icon * 0.42f), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+                                                    modifier = Modifier.align(Alignment.TopEnd).offset(x = pxToDp(icon * 0.24f), y = pxToDp(-icon * 0.12f))
+                                                        .background(colour, CircleShape).padding(horizontal = pxToDp(icon * 0.14f)),
+                                                )
+                                            }
+                                        }
                                     }
-                                    if (settings[COUNTS] && app.count > 1) {
-                                        Text(
-                                            "${min(app.count, 99)}", color = Color.Black, fontSize = pxToSp(icon * 0.42f), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
-                                            modifier = Modifier.align(Alignment.TopEnd).offset(x = pxToDp(icon * 0.24f), y = pxToDp(-icon * 0.12f))
-                                                .background(colour, CircleShape).padding(horizontal = pxToDp(icon * 0.14f)),
-                                        )
+                                    if (r == rows.lastIndex) {
+                                        if (settings[MORE] && extra > 0) Text("+$extra", color = Muted, fontSize = pxToSp(more), maxLines = 1, softWrap = false, modifier = Modifier.padding(end = pxToDp(icon * 0.2f)))
+                                        else if (settings[MORE]) EditorSlot("+N", more * 0.87f)
                                     }
                                 }
                             }
-                            if (settings[MORE] && extra > 0) Text("+$extra", color = Muted, fontSize = pxToSp(h * 0.46f), modifier = Modifier.padding(end = pxToDp(icon * 0.2f)))
                         }
                     }
                 }

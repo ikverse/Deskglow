@@ -187,6 +187,7 @@ internal fun statusOf(session: LiveSession, phase: LivePhase, now: Instant, h24:
         LivePhase.Delayed -> Status(
             "Delayed", session.restart?.let { "${session.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }.orEmpty(), Amber, true,
         )
+        LivePhase.Break -> Status("Break", session.restart?.let { "${session.restartLabel.ifEmpty { "Resumes" }} ${timeText(it, h24)}" }.orEmpty(), Muted, false)
         LivePhase.Running -> if (session.flag == TrackFlag.Yellow) Status("Yellow flag", progress, FlagYellow, true) else Status("Green flag", progress, FlagGreen, false)
         LivePhase.SafetyCar -> Status("Safety car", progress, Amber, true)
         LivePhase.VirtualSafetyCar -> Status(if (session.flag == TrackFlag.VscEnding) "VSC ending" else "VSC", progress, Amber, true)

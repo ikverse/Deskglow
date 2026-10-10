@@ -141,40 +141,53 @@ private fun PrayerFace(settings: Settings, days: List<PrayerDay>, next: Pair<Pra
 
         // Arabic letters stand taller than Latin ones at the same size, so they are set a little smaller to fit.
         val k = if (arabic) 0.8f else 1f
-        val big = k * if (showAll) min(h * 0.3f, w * 0.075f) else min(h * 0.46f, w * 0.1f)
-        val small = k * if (showAll) min(h * 0.15f, w * 0.042f) else min(h * 0.22f, w * 0.05f)
-        val cell = k * min(h * 0.13f, w * 0.036f)
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(name(prayer), color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
-                Spacer(Modifier.width(pxToDp(big * 0.4f)))
-                Text(
-                    PrayerWidget.clockText(at.toLocalTime(), h24, arabic, digits),
-                    color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(PrayerWidget.countdownText(now, at, arabic, digits), color = accent, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
-                if (settings[PrayerWidget.SHOW_HIJRI]) {
-                    Text(
-                        "  ·  " + TimeText.date(now.toLocalDate(), "hijri", arabic, digits), color = Muted,
-                        fontSize = pxToSp(small * 0.9f), maxLines = 1, softWrap = false,
-                    )
+        // The day the next prayer falls on: after Isha that is tomorrow.
+        val day = days.firstOrNull { it.date == at.toLocalDate() } ?: days.first()
+        val slots = buildList {
+            Prayer.entries.forEach { add(Slot(it, name(it), day.times.getValue(it))) }
+            val sunrise = day.sunrise
+            if (settings[PrayerWidget.SHOW_SUNRISE] && sunrise != null) add(1, Slot(null, if (arabic) "الشروق" else "Sunrise", sunrise))
+        }
+        // With all the times shown, they sit under the next prayer in a tall box and beside it in a wide one.
+        Fit(canvasUnit(w, PrayerWidget.width), listOf(settings, h24), arrangements = if (showAll) 2 else 1, align = alignFraction(settings[Common.ALIGN])) { f ->
+            val s = f.scale
+            val big = k * s.main * (if (showAll) 2.1f else 2.2f)
+            val small = k * s.second * (if (showAll) 1.15f else 1.1f)
+            val cell = k * s.second
+
+            @Composable
+            fun Next() {
+                Column(horizontalAlignment = horizontal(align)) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(name(prayer), color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                        Spacer(Modifier.width(pxToDp(big * 0.4f)))
+                        Text(
+                            PrayerWidget.clockText(at.toLocalTime(), h24, arabic, digits),
+                            color = colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(PrayerWidget.countdownText(now, at, arabic, digits), color = accent, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+                        if (settings[PrayerWidget.SHOW_HIJRI]) {
+                            Text(
+                                "  ·  " + TimeText.date(now.toLocalDate(), "hijri", arabic, digits), color = Muted,
+                                fontSize = pxToSp(small * 0.9f), maxLines = 1, softWrap = false,
+                            )
+                        }
+                    }
                 }
             }
-            if (showAll) {
-                Spacer(Modifier.height(pxToDp(h * 0.07f)))
-                // The day the next prayer falls on: after Isha that is tomorrow.
-                val day = days.firstOrNull { it.date == at.toLocalDate() } ?: days.first()
-                val slots = buildList {
-                    Prayer.entries.forEach { add(Slot(it, name(it), day.times.getValue(it))) }
-                    val sunrise = day.sunrise
-                    if (settings[PrayerWidget.SHOW_SUNRISE] && sunrise != null) add(1, Slot(null, if (arabic) "الشروق" else "Sunrise", sunrise))
-                }
+
+            @Composable
+            fun Times(modifier: Modifier) {
                 if (view == "arc") {
-                    SunArc(slots, day.date, now, prayer, accent, cell, { PrayerWidget.clockText(it, h24, arabic, digits, suffix = false) }, Modifier.weight(1f).fillMaxWidth())
+                    SunArc(
+                        slots, day.date, now, prayer, accent, cell, { PrayerWidget.clockText(it, h24, arabic, digits, suffix = false) },
+                        Modifier.width(pxToDp(cell * slots.size * 4.2f)).height(pxToDp(cell * 6.5f)),
+                    )
                 } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    // Spread across the width, but measured close together.
+                    Row(modifier, horizontalArrangement = if (f.probing) Arrangement.spacedBy(pxToDp(cell * 0.9f)) else Arrangement.SpaceBetween) {
                         slots.forEach { slot ->
                             val time = day.date.atTime(slot.time)
                             val isNext = slot.prayer != null && slot.prayer == prayer && day.date == at.toLocalDate()
@@ -192,6 +205,20 @@ private fun PrayerFace(settings: Settings, days: List<PrayerDay>, next: Pair<Pra
                             }
                         }
                     }
+                }
+            }
+
+            when {
+                !showAll -> Next()
+                f.arrangement == 0 -> Column(if (f.probing) Modifier else Modifier.fillMaxWidth(), horizontalAlignment = horizontal(align)) {
+                    Next()
+                    Spacer(Modifier.height(pxToDp(cell * 0.9f * s.space)))
+                    Times(if (f.probing) Modifier else Modifier.fillMaxWidth())
+                }
+                else -> Row(if (f.probing) Modifier else Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Next()
+                    Spacer(Modifier.width(pxToDp(big * 0.8f)))
+                    Times(if (f.probing) Modifier else Modifier.weight(1f))
                 }
             }
         }

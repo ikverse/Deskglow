@@ -280,6 +280,77 @@ class F1LiveTest {
         assertTrue(snapshot(race.plus("SessionStatus" to json("""{"Status":"Finished"}"""))).finished())
     }
 
+    @Test
+    fun `finished ends qualifying only when the last part is known to be the one that ended`() {
+        val ended = json("""{"Status":"Finished"}""")
+        // The part is not known, or is the first of three: the next part is still to come.
+        val noPart = qualifying().plus("TimingData" to json("""{"NoEntries":[22,16,10],"Lines":{}}"""))
+        assertFalse(snapshot(noPart.plus("SessionStatus" to ended)).session()!!.finished)
+        assertFalse(snapshot(noPart.plus("SessionStatus" to ended)).finished())
+        assertFalse(snapshot(qualifying(part = 1).plus("SessionStatus" to ended)).finished())
+        assertTrue(snapshot(qualifying(part = 3).plus("SessionStatus" to ended)).finished())
+    }
+
+    @Test
+    fun `the last part starting before the status leaves finished does not end qualifying`() {
+        // Q2 has ended; the feed moves on to Q3 a moment before it says Q3 has started.
+        val timing = snapshot(qualifying(part = 2).plus("SessionStatus" to json("""{"Status":"Finished"}""")))
+        assertFalse(timing.finished())
+        timing.apply(LiveMessage("TimingData", json("""{"SessionPart":3}"""), full = false))
+        assertFalse(timing.finished())
+        assertFalse(timing.session()!!.finished)
+        timing.apply(LiveMessage("SessionStatus", json("""{"Status":"Started"}"""), full = false))
+        assertFalse(timing.finished())
+        // Q3 ends: that is the end.
+        timing.apply(LiveMessage("SessionStatus", json("""{"Status":"Finished"}"""), full = false))
+        assertTrue(timing.finished())
+        assertTrue(timing.session()!!.finished)
+    }
+
+    @Test
+    fun `between the parts of qualifying it is a break, not a delay`() {
+        val long = at("2026-10-10T09:00:00Z") // an hour after the start
+        val between = snapshot(qualifying(part = 1).plus("SessionStatus" to json("""{"Status":"Finished"}"""))).session()!!
+        assertEquals(LivePhase.Break, between.phase(long))
+        val next = snapshot(qualifying(part = 2).plus("SessionStatus" to json("""{"Status":"Inactive"}"""))).session()!!
+        assertEquals(LivePhase.Break, next.phase(long))
+        // Before anything has run it is still a delay.
+        val before = snapshot(qualifying(part = 1).plus("SessionStatus" to json("""{"Status":"Inactive"}""")).plus("TimingData" to json("""{"SessionPart":1,"NoEntries":[22,16,10],"Lines":{}}"""))).session()!!
+        assertEquals(LivePhase.Delayed, before.phase(long))
+        assertEquals(LivePhase.Running, snapshot(qualifying(part = 2)).session()!!.phase(long))
+    }
+
+    @Test
+    fun `before qualifying starts, the session before it is not shown as it`() {
+        val held = qualifying(part = 1).plus("SessionStatus" to json("""{"Status":"Inactive"}"""))
+            .plus("TimingData" to json("""{"Lines":{"1":{"Position":"1","BestLapTime":{"Value":"1:32.429"}}}}"""))
+            .plus(
+                "RaceControlMessages" to JSONObject().put(
+                    "Messages",
+                    org.json.JSONArray()
+                        .put(JSONObject().put("Utc", "2026-10-10T05:00:00").put("Message", "CAR 5 (BOR) TIME 1:32.100 DELETED - TRACK LIMITS"))
+                        .put(JSONObject().put("Utc", "2026-10-10T07:40:00").put("Message", "RISK OF RAIN FOR THE SESSION IS 20%")),
+                ),
+            )
+        val s = snapshot(held).session()!!
+        assertTrue(s.rows.isEmpty())
+        // 16:00 at the track is 08:00 UTC: the earlier line is the last session's, the later one this session's.
+        assertEquals(listOf("Rain risk 20%"), s.events.map { it.text })
+    }
+
+    @Test
+    fun `the leader's time is from the part now on, like the gaps`() {
+        // Part two begun with no lap in it yet: nobody's time is a part one time.
+        val fresh = qualifying(part = 2).let { topics ->
+            val t = JSONObject(topics.getValue("TimingData").toString())
+            val lines = t.getJSONObject("Lines")
+            for (k in lines.keys()) lines.getJSONObject(k).put("BestLapTimes", org.json.JSONArray().put(JSONObject().put("Value", "1:30.000")).put(JSONObject().put("Value", "")).put(JSONObject().put("Value", "")))
+            topics.plus("TimingData" to t)
+        }
+        val s = snapshot(fresh).session()!!
+        assertEquals("", s.rows.first().gap)
+    }
+
     // ---- what is thrown away on arrival ----
 
     @Test

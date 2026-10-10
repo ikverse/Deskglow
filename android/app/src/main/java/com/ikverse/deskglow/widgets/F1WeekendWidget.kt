@@ -149,11 +149,16 @@ object F1WeekendWidget : WidgetType {
 }
 
 /** The widget's colours and the favourite driver, passed down together. */
-private class Look(val colour: Color, val accent: Color, val favourite: String, val start: ((F1Session) -> String)? = null, val note: String? = null)
+private class Look(
+    val colour: Color, val accent: Color, val favourite: String, val start: ((F1Session) -> String)? = null, val note: String? = null,
+    /** Pixels to a canvas unit, and what the words are measured afresh for (see [Fit]). */
+    val unit: Float = 1f, val key: Any? = null,
+)
 
 /** The badge for a session on: "LIVE", or what the feed says it is. */
 private fun badgeOf(view: WeekendView.Upcoming, look: Look): Pair<String, Color> = when (view.feed?.phase) {
     LivePhase.Delayed -> "DELAYED" to Amber
+    LivePhase.Break -> "BREAK" to Muted
     LivePhase.Red -> "RED FLAG" to FlagRed
     LivePhase.SafetyCar -> "SAFETY CAR" to Amber
     LivePhase.VirtualSafetyCar -> "VSC" to Amber
@@ -202,7 +207,12 @@ private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, ses
         val note = (view as? WeekendView.Upcoming)?.feed?.takeIf { it.phase == LivePhase.Delayed }?.live?.let { l ->
             l.restart?.let { "${l.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }
         }
-        val look = Look(Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE], startText, note)
+        // Measured afresh when the settings or the kind of view change, not as a countdown ticks.
+        val key = listOf(settings, view.javaClass, (view as? WeekendView.Upcoming)?.live != null, sessionTop != null, note != null, h24)
+        val look = Look(
+            Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE], startText, note,
+            canvasUnit(w, F1WeekendWidget.width), key,
+        )
         // A race's podium, once it has arrived, wins over its top 3 from timing.
         val top = sessionTop?.takeIf { view !is WeekendView.AfterRace }
         if (view == WeekendView.Empty && top == null) {
@@ -281,20 +291,22 @@ private fun BesideTrack(track: F1Track?, colour: Color, w: Float, h: Float, lead
  */
 @Composable
 private fun ClassicContent(view: WeekendView, top: SessionTop?, data: F1Data, now: Instant, look: Look, w: Float, h: Float, centred: Boolean, spread: Boolean) {
-    val small = min(h * 0.15f, w * 0.042f)
-    val big = min(h * 0.34f, w * 0.09f)
-    Column(horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start) {
-        if (top != null) {
-            PodiumBlock(top.race.name, shortKind(top.session.kind), placesOf(top), nextLine(top, now), look, small, big, spread)
-            return@Column
-        }
-        when (view) {
-            WeekendView.Empty -> {}
-            is WeekendView.AfterRace -> Podium(view.result, view.next, data, now, look, small, big, spread)
-            is WeekendView.Upcoming -> {
-                Header(view.race.name, view.race.place, look.accent, look.colour, small)
-                Spacer(Modifier.height(pxToDp(h * 0.05f)))
-                SessionLine(view, now, look, small, big)
+    Fit(look.unit, look.key, Modifier.fillMaxHeight(), align = if (centred) 0.5f else 0f) { f ->
+        val small = f.scale.second
+        val big = f.scale.main * 2.2f
+        Column(horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start) {
+            if (top != null) {
+                PodiumBlock(top.race.name, shortKind(top.session.kind), placesOf(top), nextLine(top, now), look, small, big, spread)
+                return@Column
+            }
+            when (view) {
+                WeekendView.Empty -> {}
+                is WeekendView.AfterRace -> Podium(view.result, view.next, data, now, look, small, big, spread)
+                is WeekendView.Upcoming -> {
+                    Header(view.race.name, view.race.place, look.accent, look.colour, small)
+                    Spacer(Modifier.height(pxToDp(small * 0.35f * f.scale.space)))
+                    SessionLine(view, now, look, small, big)
+                }
             }
         }
     }
@@ -330,48 +342,50 @@ private fun SessionLine(view: WeekendView.Upcoming, now: Instant, look: Look, sm
 /** Name and place over the session next and a large countdown; after a session or a race, its top 3 as a short table. */
 @Composable
 private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look: Look, w: Float, h: Float) {
-    val small = min(h * 0.12f, w * 0.06f)
-    val big = min(h * 0.34f, w * 0.19f)
+    Fit(look.unit, look.key, Modifier.fillMaxHeight(), align = 0f) { f ->
+        val small = f.scale.second
+        val big = f.scale.main * 3.2f
 
-    @Composable
-    fun Table(title: String, subtitle: String, places: List<Place>, after: String?) {
-        Text(title.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
-        Text(subtitle, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1)
-        Spacer(Modifier.height(pxToDp(h * 0.04f)))
-        places.forEach { PodiumEntry(it, look, big * 0.5f) }
-        if (after != null) {
-            Spacer(Modifier.height(pxToDp(h * 0.03f)))
-            Text(after, color = Muted, fontSize = pxToSp(small * 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-
-    Column {
-        if (top != null) {
-            Table(top.race.name, shortKind(top.session.kind), placesOf(top), nextLine(top, now))
-            return@Column
-        }
-        when (view) {
-            WeekendView.Empty -> {}
-            is WeekendView.Upcoming -> {
-                Text(view.race.name.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
-                if (view.race.place.isNotEmpty()) Text(view.race.place, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(pxToDp(h * 0.07f)))
-                val live = view.live
-                val next = view.next
-                if (live != null) {
-                    val (badge, shade) = badgeOf(view, look)
-                    LiveBadge(shade, small, badge)
-                    Text(live.kind, color = look.colour, fontSize = pxToSp(big * 0.8f), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
-                    look.note?.let { Text(it, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                } else if (next != null) {
-                    Text((next.kind + startPart(look, next)).uppercase(), color = look.accent, fontSize = pxToSp(small * 0.9f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
-                    Text(countdownText(now, next.start), color = look.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
-                }
+        @Composable
+        fun Table(title: String, subtitle: String, places: List<Place>, after: String?) {
+            Text(title.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1)
+            Spacer(Modifier.height(pxToDp(small * 0.35f * f.scale.space)))
+            places.forEach { PodiumEntry(it, look, big * 0.5f) }
+            if (after != null) {
+                Spacer(Modifier.height(pxToDp(small * 0.25f * f.scale.space)))
+                Text(after, color = Muted, fontSize = pxToSp(small * 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            is WeekendView.AfterRace -> Table(
-                view.result.raceName, "Result", placesOf(view.result),
-                view.next?.let { next -> "Next · ${next.name} · in ${countdownText(now, next.first.start)}" },
-            )
+        }
+
+        Column {
+            if (top != null) {
+                Table(top.race.name, shortKind(top.session.kind), placesOf(top), nextLine(top, now))
+                return@Column
+            }
+            when (view) {
+                WeekendView.Empty -> {}
+                is WeekendView.Upcoming -> {
+                    Text(view.race.name.uppercase(), color = look.colour, fontSize = pxToSp(small * 1.15f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                    if (view.race.place.isNotEmpty()) Text(view.race.place, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(pxToDp(small * 0.6f * f.scale.space)))
+                    val live = view.live
+                    val next = view.next
+                    if (live != null) {
+                        val (badge, shade) = badgeOf(view, look)
+                        LiveBadge(shade, small, badge)
+                        Text(live.kind, color = look.colour, fontSize = pxToSp(big * 0.8f), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                        look.note?.let { Text(it, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    } else if (next != null) {
+                        Text((next.kind + startPart(look, next)).uppercase(), color = look.accent, fontSize = pxToSp(small * 0.9f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
+                        Text(countdownText(now, next.start), color = look.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
+                    }
+                }
+                is WeekendView.AfterRace -> Table(
+                    view.result.raceName, "Result", placesOf(view.result),
+                    view.next?.let { next -> "Next · ${next.name} · in ${countdownText(now, next.first.start)}" },
+                )
+            }
         }
     }
 }
@@ -382,53 +396,55 @@ private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look:
  */
 @Composable
 private fun CountdownContent(view: WeekendView, top: SessionTop?, data: F1Data, now: Instant, look: Look, w: Float, h: Float) {
-    val small = min(h * 0.13f, w * 0.04f)
-    val big = min(h * 0.36f, w * 0.11f)
+    Fit(look.unit, look.key, Modifier.fillMaxHeight(), align = 0f) { f ->
+        val small = f.scale.second
+        val big = f.scale.main * 2.7f
 
-    /** [race]'s name over the blocks to [next], and [line] beneath. */
-    @Composable
-    fun BlocksWithLine(race: F1Race, next: F1Session, line: String) {
-        Header(race.name, race.place, look.accent, look.colour, small)
-        Spacer(Modifier.height(pxToDp(h * 0.05f)))
-        Text(("${next.kind} in" + startPart(look, next)).uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
-        CountdownBlocks(now, next.start, look, small, big)
-        Spacer(Modifier.height(pxToDp(small * 0.6f)))
-        Text(line, color = Muted, fontSize = pxToSp(small * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-
-    Column {
-        if (top != null) {
-            val nextRace = top.nextRace
-            val next = top.next
-            val places = placesOf(top)
-            if (nextRace == null || next == null) {
-                PodiumBlock(top.race.name, shortKind(top.session.kind), places, null, look, small, big, spread = false)
-            } else {
-                val what = if (sameWeekend(top)) shortKind(top.session.kind) else top.race.name
-                BlocksWithLine(nextRace, next, "$what · ${placesText(places)}")
-            }
-            return@Column
+        /** [race]'s name over the blocks to [next], and [line] beneath. */
+        @Composable
+        fun BlocksWithLine(race: F1Race, next: F1Session, line: String) {
+            Header(race.name, race.place, look.accent, look.colour, small)
+            Spacer(Modifier.height(pxToDp(small * 0.35f * f.scale.space)))
+            Text(("${next.kind} in" + startPart(look, next)).uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
+            CountdownBlocks(now, next.start, look, small, big)
+            Spacer(Modifier.height(pxToDp(small * 0.6f)))
+            Text(line, color = Muted, fontSize = pxToSp(small * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        when (view) {
-            WeekendView.Empty -> {}
-            is WeekendView.Upcoming -> {
-                Header(view.race.name, view.race.place, look.accent, look.colour, small)
-                Spacer(Modifier.height(pxToDp(h * 0.05f)))
-                val live = view.live
-                val next = view.next
-                if (live != null) {
-                    SessionLine(view, now, look, small, big)
-                } else if (next != null) {
-                    Text(("${next.kind} in" + startPart(look, next)).uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
-                    CountdownBlocks(now, next.start, look, small, big)
-                }
-            }
-            is WeekendView.AfterRace -> {
-                val next = view.next
-                if (next == null) {
-                    Podium(view.result, null, data, now, look, small, big, spread = false)
+
+        Column {
+            if (top != null) {
+                val nextRace = top.nextRace
+                val next = top.next
+                val places = placesOf(top)
+                if (nextRace == null || next == null) {
+                    PodiumBlock(top.race.name, shortKind(top.session.kind), places, null, look, small, big, spread = false)
                 } else {
-                    BlocksWithLine(next, next.first, "${view.result.raceName} · ${placesText(placesOf(view.result))}")
+                    val what = if (sameWeekend(top)) shortKind(top.session.kind) else top.race.name
+                    BlocksWithLine(nextRace, next, "$what · ${placesText(places)}")
+                }
+                return@Column
+            }
+            when (view) {
+                WeekendView.Empty -> {}
+                is WeekendView.Upcoming -> {
+                    Header(view.race.name, view.race.place, look.accent, look.colour, small)
+                    Spacer(Modifier.height(pxToDp(small * 0.35f * f.scale.space)))
+                    val live = view.live
+                    val next = view.next
+                    if (live != null) {
+                        SessionLine(view, now, look, small, big)
+                    } else if (next != null) {
+                        Text(("${next.kind} in" + startPart(look, next)).uppercase(), color = Muted, fontSize = pxToSp(small * 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false)
+                        CountdownBlocks(now, next.start, look, small, big)
+                    }
+                }
+                is WeekendView.AfterRace -> {
+                    val next = view.next
+                    if (next == null) {
+                        Podium(view.result, null, data, now, look, small, big, spread = false)
+                    } else {
+                        BlocksWithLine(next, next.first, "${view.result.raceName} · ${placesText(placesOf(view.result))}")
+                    }
                 }
             }
         }
@@ -465,56 +481,58 @@ internal fun countdownParts(now: Instant, then: Instant): List<Pair<String, Stri
  */
 @Composable
 private fun MinimalContent(view: WeekendView, top: SessionTop?, now: Instant, look: Look, w: Float, h: Float) {
-    val px = min(h * 0.4f, w * 0.042f)
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            @Composable
-            fun Part(text: String, colour: Color, weight: FontWeight = FontWeight.Normal, modifier: Modifier = Modifier) =
-                Text(text, color = colour, fontSize = pxToSp(px), fontWeight = weight, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = modifier)
+    Fit(look.unit, look.key, Modifier.fillMaxSize(), align = 0f) { f ->
+        val px = f.scale.main
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                @Composable
+                fun Part(text: String, colour: Color, weight: FontWeight = FontWeight.Normal, modifier: Modifier = Modifier) =
+                    Text(text, color = colour, fontSize = pxToSp(px), fontWeight = weight, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = modifier)
 
-            // A name that does not fit gives way to what follows it, so the countdown is never the part cut off.
-            val yields = Modifier.weight(1f, fill = false)
+                // A name that does not fit gives way to what follows it, so the countdown is never the part cut off.
+                val yields = if (f.probing) Modifier else Modifier.weight(1f, fill = false)
 
-            @Composable
-            fun Places(places: List<Place>) = places.forEach { place ->
-                Part("  ${place.position} ", Muted)
-                Part(place.code, if (place.code == look.favourite) look.accent else look.colour, FontWeight.Medium)
-            }
-
-            if (top != null) {
-                // After a race the next weekend is too far off to be worth the room, as with the podium.
-                val inWeekend = sameWeekend(top)
-                Part(if (inWeekend) shortKind(top.session.kind) else top.race.name, look.colour, FontWeight.SemiBold, yields)
-                Part("  · ", Muted)
-                Places(placesOf(top))
-                val next = top.next
-                if (inWeekend && next != null) Part("  ·  ${shortKind(next.kind)} in ${countdownText(now, next.start)}", Muted)
-                return@Row
-            }
-            when (view) {
-                WeekendView.Empty -> {}
-                is WeekendView.Upcoming -> {
-                    val live = view.live
-                    val next = view.next
-                    if (live != null) {
-                        val (badge, shade) = badgeOf(view, look)
-                        LiveBadge(shade, px * 0.75f, badge)
-                        Spacer(Modifier.width(pxToDp(px * 0.45f)))
-                        Part(shortKind(live.kind), look.colour, FontWeight.Medium)
-                        look.note?.let { Part("  ·  $it", Muted) }
-                        Part("  ·  ${view.race.name}", Muted, modifier = yields)
-                    } else if (next != null) {
-                        Part(view.race.name, look.colour, FontWeight.SemiBold, yields)
-                        Part("  ·  ${shortKind(next.kind)} in ", Muted)
-                        Part(countdownText(now, next.start), look.colour)
-                    } else {
-                        Part(view.race.name, look.colour, FontWeight.SemiBold, yields)
-                    }
+                @Composable
+                fun Places(places: List<Place>) = places.forEach { place ->
+                    Part("  ${place.position} ", Muted)
+                    Part(place.code, if (place.code == look.favourite) look.accent else look.colour, FontWeight.Medium)
                 }
-                is WeekendView.AfterRace -> {
-                    Part(view.result.raceName, look.colour, FontWeight.SemiBold, yields)
+
+                if (top != null) {
+                    // After a race the next weekend is too far off to be worth the room, as with the podium.
+                    val inWeekend = sameWeekend(top)
+                    Part(if (inWeekend) shortKind(top.session.kind) else top.race.name, look.colour, FontWeight.SemiBold, yields)
                     Part("  · ", Muted)
-                    Places(placesOf(view.result))
+                    Places(placesOf(top))
+                    val next = top.next
+                    if (inWeekend && next != null) Part("  ·  ${shortKind(next.kind)} in ${countdownText(now, next.start)}", Muted)
+                    return@Row
+                }
+                when (view) {
+                    WeekendView.Empty -> {}
+                    is WeekendView.Upcoming -> {
+                        val live = view.live
+                        val next = view.next
+                        if (live != null) {
+                            val (badge, shade) = badgeOf(view, look)
+                            LiveBadge(shade, px * 0.75f, badge)
+                            Spacer(Modifier.width(pxToDp(px * 0.45f)))
+                            Part(shortKind(live.kind), look.colour, FontWeight.Medium)
+                            look.note?.let { Part("  ·  $it", Muted) }
+                            Part("  ·  ${view.race.name}", Muted, modifier = yields)
+                        } else if (next != null) {
+                            Part(view.race.name, look.colour, FontWeight.SemiBold, yields)
+                            Part("  ·  ${shortKind(next.kind)} in ", Muted)
+                            Part(countdownText(now, next.start), look.colour)
+                        } else {
+                            Part(view.race.name, look.colour, FontWeight.SemiBold, yields)
+                        }
+                    }
+                    is WeekendView.AfterRace -> {
+                        Part(view.result.raceName, look.colour, FontWeight.SemiBold, yields)
+                        Part("  · ", Muted)
+                        Places(placesOf(view.result))
+                    }
                 }
             }
         }

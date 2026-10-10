@@ -39,6 +39,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.min
 
 object EventWidget : WidgetType {
@@ -92,35 +93,48 @@ object EventWidget : WidgetType {
             }
             val align = settings[Common.ALIGN]
             val upcoming = if (event == null) emptyList() else (listOf(event) + event.later.filter { it.end.isAfter(minute) }).take(settings[COUNT])
-            if (upcoming.size > 1) return@BoxWithConstraints Agenda(upcoming, minute, h24, settings, w, h)
+            if (upcoming.size > 1) return@BoxWithConstraints Agenda(upcoming, minute, h24, settings, w)
             val bar = if (settings[SHOW_COLOUR] && event?.colour != null) Color(event.colour) else null
-            val barWidth = min(h * 0.06f, w * 0.03f)
-            val frame = if (bar != null) {
-                Modifier.drawBehind { drawRoundRect(bar, Offset(0f, h * 0.1f), Size(barWidth, size.height - h * 0.2f), CornerRadius(barWidth / 2)) }.padding(start = pxToDp(barWidth * 2.2f))
-            } else Modifier
-            Column(Modifier.fillMaxSize().then(frame), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
-                val heading = if (event != null && !event.allDay && event.start <= minute) "NOW" else "NEXT"
-                if (settings[SHOW_HEADING]) Text(heading, color = Muted, fontSize = pxToSp(min(h * 0.17f, w * 0.06f)), letterSpacing = 0.08.em, maxLines = 1, textAlign = textAlign(align))
-                Text(
-                    event?.title ?: "No upcoming events",
-                    color = if (event == null) Muted else Color(settings[Common.COLOUR]),
-                    fontSize = pxToSp(min(h * 0.32f, w * 0.11f)), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align),
-                )
-                if (event != null && settings[SHOW_TIME]) {
+            val running = event != null && !event.allDay && event.start <= minute && minute < event.end
+            // The title is what grows; the heading and the time with it, more slowly.
+            Fit(canvasUnit(w, width), listOf(settings, event == null, running, h24), align = alignFraction(align)) { f ->
+                val s = f.scale
+                val titleSize = s.main * 1.6f
+                val barWidth = max(2f, titleSize * 0.14f)
+                val frame = if (bar != null) {
+                    Modifier.drawBehind { drawRoundRect(bar, Offset(0f, size.height * 0.08f), Size(barWidth, size.height * 0.84f), CornerRadius(barWidth / 2)) }.padding(start = pxToDp(barWidth * 2.6f))
+                } else Modifier
+                Column(frame, verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+                    val heading = if (event != null && !event.allDay && event.start <= minute) "NOW" else "NEXT"
+                    if (settings[SHOW_HEADING]) Text(heading, color = Muted, fontSize = pxToSp(s.small * 0.95f), letterSpacing = 0.08.em, maxLines = 1, textAlign = textAlign(align))
                     Text(
-                        whenText(event, minute, h24, settings[SHOW_SOON]) + (event.location.takeIf { settings[SHOW_LOCATION] && it.isNotBlank() }?.let { " · $it" } ?: ""),
-                        color = Muted, fontSize = pxToSp(min(h * 0.21f, w * 0.075f)), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align),
+                        f.sample(event?.title ?: "No upcoming events", 20),
+                        color = if (event == null) Muted else Color(settings[Common.COLOUR]),
+                        fontSize = pxToSp(titleSize), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align),
                     )
-                }
-                if (event != null && settings[SHOW_PROGRESS] && !event.allDay && event.start <= minute && minute < event.end) {
-                    val total = Duration.between(event.start, event.end).toMinutes().coerceAtLeast(1)
-                    val done = (Duration.between(event.start, minute).toMinutes().toFloat() / total).coerceIn(0f, 1f)
-                    val accent = Color(settings[Common.COLOUR])
-                    Spacer(Modifier.height(pxToDp(h * 0.05f)))
-                    Canvas(Modifier.width(pxToDp(min(w * 0.7f, h * 2.6f))).height(pxToDp((h * 0.05f).coerceAtLeast(3f)))) {
-                        val y = size.height / 2
-                        drawLine(Color(0xFF262626), Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
-                        if (done > 0f) drawLine(accent.copy(alpha = 0.85f), Offset(0f, y), Offset(size.width * done, y), size.height, StrokeCap.Round)
+                    if (event != null && settings[SHOW_TIME]) {
+                        Text(
+                            f.sample(whenText(event, minute, h24, settings[SHOW_SOON]) + (event.location.takeIf { settings[SHOW_LOCATION] && it.isNotBlank() }?.let { " · $it" } ?: ""), 30),
+                            color = Muted, fontSize = pxToSp(s.second * 1.05f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align),
+                        )
+                    }
+                    if (event != null && settings[SHOW_TIME] && settings[SHOW_LOCATION] && event.location.isBlank()) {
+                        EditorSlot("Location", s.small * 0.95f)
+                    }
+                    if (event != null && settings[SHOW_PROGRESS] && !running) {
+                        EditorSlot("Progress bar", s.small * 0.95f)
+                    }
+                    if (event != null && settings[SHOW_PROGRESS] && running) {
+                        val total = Duration.between(event.start, event.end).toMinutes().coerceAtLeast(1)
+                        val done = (Duration.between(event.start, minute).toMinutes().toFloat() / total).coerceIn(0f, 1f)
+                        val accent = Color(settings[Common.COLOUR])
+                        Spacer(Modifier.height(pxToDp(s.second * 0.4f * s.space)))
+                        Canvas(Modifier.width(pxToDp(titleSize * 5f)).height(pxToDp((s.second * 0.25f).coerceAtLeast(3f)))) {
+                            val y = size.height / 2
+                            // The rounded ends reach half the bar's height past each end, so the line starts and stops that far in.
+                            drawLine(Color(0xFF262626), Offset(y, y), Offset(size.width - y, y), size.height, StrokeCap.Round)
+                            if (done > 0f) drawLine(accent.copy(alpha = 0.85f), Offset(y, y), Offset(y + (size.width - 2 * y) * done, y), size.height, StrokeCap.Round)
+                        }
                     }
                 }
             }
@@ -152,31 +166,38 @@ object EventWidget : WidgetType {
 
 /** Several events, one to a row: its colour (if asked), when it starts, its title and (if asked) where. */
 @Composable
-private fun Agenda(events: List<EventState.Next>, now: LocalDateTime, h24: Boolean, settings: Settings, w: Float, h: Float) {
+private fun Agenda(events: List<EventState.Next>, now: LocalDateTime, h24: Boolean, settings: Settings, w: Float) {
     val heading = settings[EventWidget.SHOW_HEADING]
-    val row = min(h / (events.size + if (heading) 0.9f else 0f), w * 0.13f)
-    val text = row * 0.58f
+    val align = settings[Common.ALIGN]
     val colour = Color(settings[Common.COLOUR])
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        if (heading) {
-            Text(
-                "UP NEXT", color = Muted, fontSize = pxToSp(text * 0.75f), letterSpacing = 0.08.em, maxLines = 1, textAlign = textAlign(settings[Common.ALIGN]),
-                modifier = Modifier.fillMaxWidth().height(pxToDp(row * 0.9f)),
-            )
-        }
-        events.forEach { event ->
-            Row(Modifier.fillMaxWidth().height(pxToDp(row)), horizontalArrangement = arrangementOf(settings[Common.ALIGN]), verticalAlignment = Alignment.CenterVertically) {
-                if (settings[EventWidget.SHOW_COLOUR]) {
-                    Box(Modifier.width(pxToDp(text * 0.2f)).height(pxToDp(row * 0.62f)).background(Color(event.colour ?: 0xFF8C8C8C.toInt()), RoundedCornerShape(pxToDp(text * 0.1f))))
-                    Spacer(Modifier.width(pxToDp(text * 0.4f)))
-                }
-                Text(agendaTime(event, now, h24), color = Muted, fontSize = pxToSp(text * 0.85f), maxLines = 1, softWrap = false)
-                Spacer(Modifier.width(pxToDp(text * 0.5f)))
-                Text(event.title, color = colour, fontSize = pxToSp(text), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                val where = event.location.takeIf { settings[EventWidget.SHOW_LOCATION] && it.isNotBlank() }
-                if (where != null) {
-                    Spacer(Modifier.width(pxToDp(text * 0.4f)))
-                    Text(where, color = Muted, fontSize = pxToSp(text * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+    // As large as the box allows; in a small box the later events are left off first (the first two always stay).
+    Fit(canvasUnit(w, EventWidget.width), listOf(settings, events.size, h24), levels = events.size - 2, align = alignFraction(align)) { f ->
+        val text = f.scale.main * 1.15f
+        Column(if (f.probing) Modifier else Modifier.fillMaxWidth()) {
+            if (heading) {
+                Text(
+                    "UP NEXT", color = Muted, fontSize = pxToSp(f.scale.small * 0.85f), letterSpacing = 0.08.em, maxLines = 1, textAlign = textAlign(align),
+                    modifier = (if (f.probing) Modifier else Modifier.fillMaxWidth()).padding(bottom = pxToDp(text * 0.3f * f.scale.space)),
+                )
+            }
+            events.take(2 + f.level).forEach { event ->
+                Row(
+                    (if (f.probing) Modifier else Modifier.fillMaxWidth()).padding(vertical = pxToDp(text * 0.25f * f.scale.space)),
+                    horizontalArrangement = arrangementOf(align), verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (settings[EventWidget.SHOW_COLOUR]) {
+                        Box(Modifier.width(pxToDp(text * 0.2f)).height(pxToDp(text * 1.1f)).background(Color(event.colour ?: 0xFF8C8C8C.toInt()), RoundedCornerShape(pxToDp(text * 0.1f))))
+                        Spacer(Modifier.width(pxToDp(text * 0.4f)))
+                    }
+                    Text(agendaTime(event, now, h24), color = Muted, fontSize = pxToSp(text * 0.85f), maxLines = 1, softWrap = false)
+                    Spacer(Modifier.width(pxToDp(text * 0.5f)))
+                    val flexible = if (f.probing) Modifier else Modifier.weight(1f, fill = false)
+                    Text(f.sample(event.title, 16), color = colour, fontSize = pxToSp(text), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = flexible)
+                    val where = event.location.takeIf { settings[EventWidget.SHOW_LOCATION] && it.isNotBlank() }
+                    if (where != null) {
+                        Spacer(Modifier.width(pxToDp(text * 0.4f)))
+                        Text(f.sample(where, 12), color = Muted, fontSize = pxToSp(text * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = flexible)
+                    }
                 }
             }
         }

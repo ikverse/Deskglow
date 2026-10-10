@@ -2,8 +2,10 @@ package com.ikverse.deskglow.widgets
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -14,7 +16,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -140,8 +146,31 @@ val Muted = Color(0xFF8C8C8C)
 @Composable
 internal fun EditorHint(text: String, size: Float) {
     if (!LocalEditing.current) return
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, color = Muted, fontSize = pxToSp(size), maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
+    val box = LocalCanvasBox.current
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // Neither tiny in a thin box nor huge in a big one.
+        val unit = if (box != null) constraints.maxWidth.toFloat() / box.width.coerceAtLeast(1) else 0f
+        val px = if (unit > 0f) size.coerceIn(Fitting.HINT_MIN * unit, Fitting.HINT_MAX * unit) else size
+        Text(text, color = Muted, fontSize = pxToSp(px), maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * A dashed outline labelled [text] in the place of an element whose setting is on but which has no
+ * value to show right now. Editor and previews only; on the display itself nothing is drawn.
+ */
+@Composable
+internal fun EditorSlot(text: String, size: Float, modifier: Modifier = Modifier) {
+    if (!LocalEditing.current) return
+    val line = Muted.copy(alpha = 0.6f)
+    Box(
+        modifier.drawBehind {
+            val stroke = Stroke(width = (size * 0.08f).coerceAtLeast(1f), pathEffect = PathEffect.dashPathEffect(floatArrayOf(size * 0.4f, size * 0.3f)))
+            drawRoundRect(line, cornerRadius = CornerRadius(size * 0.3f), style = stroke)
+        }.padding(horizontal = pxToDp(size * 0.35f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = Muted, fontSize = pxToSp(size * 0.8f), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 

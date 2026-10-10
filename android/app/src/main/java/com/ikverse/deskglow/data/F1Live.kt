@@ -34,7 +34,7 @@ import kotlin.math.abs
 enum class TrackFlag { Clear, Yellow, SafetyCar, Red, VirtualSafetyCar, VscEnding }
 
 /** Where a session stands, in one word: from what the feed says and, before the start, the clock. */
-enum class LivePhase { PreStart, Delayed, Running, SafetyCar, VirtualSafetyCar, Red, Finished, Final }
+enum class LivePhase { PreStart, Delayed, Break, Running, SafetyCar, VirtualSafetyCar, Red, Finished, Final }
 
 /**
  * One car in a classification. [gap] is to the leader and [interval] to the car ahead, as the feed
@@ -145,9 +145,14 @@ data class LiveSession(
             TrackFlag.Red -> LivePhase.Red
             else -> LivePhase.Running
         }
+        betweenParts -> LivePhase.Break
         delayed || (start != null && now.isAfter(start.plusSeconds(DELAY_GRACE_S))) -> LivePhase.Delayed
         else -> LivePhase.PreStart
     }
+
+    /** Qualifying waiting for its next part: one has been run, so the start time long gone is not a delay. */
+    private val betweenParts: Boolean
+        get() = type == "Qualifying" && part != null && (part >= 2 || status == "Finished" || rows.any { it.bestLap.isNotEmpty() })
 
     /** Laps left after the one the leader is on; null where there is no lap count. */
     val lapsToGo: Int? get() = if (lap != null && totalLaps != null) (totalLaps - lap).coerceAtLeast(0) else null
@@ -236,6 +241,12 @@ class LiveTiming {
     private val topics = HashMap<String, JSONObject>()
     private var control: RaceControl? = null
 
+    /**
+     * The part of qualifying that was on when the status last changed: the next part starts a moment
+     * before the status leaves "Finished", so the part now on is not always the one that finished.
+     */
+    private var statusPart: Int? = null
+
     /** Takes in [message]; false when nothing in it is shown anywhere, so there is nothing to redraw. */
     @Synchronized
     fun apply(message: LiveMessage): Boolean {
@@ -246,19 +257,23 @@ class LiveTiming {
         val now = topics[message.topic]
         topics[message.topic] = if (message.full || now == null) message.data else mergeInto(now, message.data)
         if (message.topic == "RaceControlMessages" || message.topic == "SessionInfo") control = null
+        // A snapshot is all of a moment, so its part goes with its status; a later change of part does not.
+        if (message.topic == "SessionStatus" || message.full && message.topic == "TimingData") {
+            statusPart = topics["TimingData"]?.optInt("SessionPart")?.takeIf { it > 0 }
+        }
         return true
     }
 
     @Synchronized
     fun session(): LiveSession? {
         val info = topics["SessionInfo"] ?: return null
-        val news = control ?: readRaceControl(topics["RaceControlMessages"], offsetOf(info.optString("GmtOffset"))).also { control = it }
-        return parseLiveSession(topics, news)
+        val news = control ?: readRaceControl(topics["RaceControlMessages"], offsetOf(info.optString("GmtOffset")), startOf(info)?.minus(MESSAGES_FROM)?.takeIf { topics["SessionStatus"]?.optString("Status") == "Inactive" }).also { control = it }
+        return parseLiveSession(topics, news, statusPart)
     }
 
     /** Whether the session is over for good: checked without building the classification. */
     @Synchronized
-    fun finished(): Boolean = headerOf(topics)?.finished == true
+    fun finished(): Boolean = headerOf(topics, statusPart)?.finished == true
 }
 
 /** What each busy topic keeps: a key to nothing keeps all of it, a key to a map goes on inside it, and "*" is any key. */
@@ -336,26 +351,30 @@ val LITE_TOPICS = listOf("SessionInfo", "SessionStatus", "TrackStatus", "LapCoun
 
 private class Header(val info: JSONObject, val type: String, val status: String, val part: Int?, val finished: Boolean)
 
-private fun headerOf(topics: Map<String, JSONObject>): Header? {
+/** [statusPart] is the part of qualifying that was on when the status last changed, where known. */
+private fun headerOf(topics: Map<String, JSONObject>, statusPart: Int? = null): Header? {
     val info = topics["SessionInfo"] ?: return null
     val type = info.optString("Type")
     val status = topics["SessionStatus"]?.optString("Status").orEmpty()
     val timing = topics["TimingData"]
     val part = timing?.optInt("SessionPart")?.takeIf { it > 0 && type == "Qualifying" }
     val parts = timing?.optJSONArray("NoEntries")?.length()
-    // Without the timing there is no telling which part of qualifying has ended, so only the feed's last word counts.
+    // "Finished" ends every part of qualifying, so it counts only when the last part is known to be the one that ended;
+    // without that, only the feed's last word does.
+    val ended = statusPart ?: part
     val finished = status in FINAL || info.optString("SessionStatus") in FINAL ||
-        (status == "Finished" && (timing != null || type != "Qualifying") && (part == null || parts == null || part >= parts))
+        (status == "Finished" && if (type == "Qualifying") ended != null && parts != null && ended >= parts else true)
     return Header(info, type, status, part, finished)
 }
 
-internal fun parseLiveSession(topics: Map<String, JSONObject>, news: RaceControl? = null): LiveSession? {
-    val header = headerOf(topics) ?: return null
+internal fun parseLiveSession(topics: Map<String, JSONObject>, news: RaceControl? = null, statusPart: Int? = null): LiveSession? {
+    val header = headerOf(topics, statusPart) ?: return null
     val info = header.info
     val type = header.type
     val part = header.part
     val timing = topics["TimingData"] ?: JSONObject()
-    val control = news ?: readRaceControl(topics["RaceControlMessages"], offsetOf(info.optString("GmtOffset")))
+    val scheduled = startOf(info)
+    val control = news ?: readRaceControl(topics["RaceControlMessages"], offsetOf(info.optString("GmtOffset")), scheduled?.minus(MESSAGES_FROM)?.takeIf { header.status == "Inactive" })
     val laps = topics["LapCount"]
     val clock = topics["ExtrapolatedClock"]
     val drivers = topics["DriverList"]
@@ -363,6 +382,8 @@ internal fun parseLiveSession(topics: Map<String, JSONObject>, news: RaceControl
     val appLines = topics["TimingAppData"]?.optJSONObject("Lines")
     val lines = timing.optJSONObject("Lines") ?: JSONObject()
     val noEntries = timing.optJSONArray("NoEntries")
+    // The feed holds the session before until this one starts: its times are not this session's.
+    val leftOver = header.status == "Inactive" && part == null && (type == "Qualifying" || type == "Practice")
 
     val rows = lines.keys().asSequence().mapNotNull { number ->
         val line = lines.optJSONObject(number) ?: return@mapNotNull null
@@ -413,10 +434,10 @@ internal fun parseLiveSession(topics: Map<String, JSONObject>, news: RaceControl
         meeting = shortName(info.optJSONObject("Meeting")?.optString("Name").orEmpty()),
         name = info.optString("Name"),
         type = type,
-        start = runCatching { LocalDateTime.parse(info.getString("StartDate")).toInstant(offsetOf(info.optString("GmtOffset"))) }.getOrNull(),
+        start = scheduled,
         status = header.status,
         finished = header.finished,
-        rows = withLeader,
+        rows = if (leftOver) emptyList() else withLeader,
         flag = when (topics["TrackStatus"]?.optString("Status")) {
             "2" -> TrackFlag.Yellow
             "4" -> TrackFlag.SafetyCar
@@ -441,6 +462,10 @@ internal fun parseLiveSession(topics: Map<String, JSONObject>, news: RaceControl
         cutoff = if (part != null && noEntries != null && part < noEntries.length()) noEntries.optInt(part).takeIf { it > 0 } else null,
     )
 }
+
+/** When the session in [info] is scheduled to start. */
+private fun startOf(info: JSONObject): Instant? =
+    runCatching { LocalDateTime.parse(info.getString("StartDate")).toInstant(offsetOf(info.optString("GmtOffset"))) }.getOrNull()
 
 /** A list in a snapshot, or an object keyed by index when the first news of it came as a change: its [index]th element. */
 private fun elementAt(value: Any?, index: Int): JSONObject? = when (value) {
@@ -481,8 +506,8 @@ private fun qualifyingGaps(line: JSONObject, part: Int, knockedOut: Boolean): Pa
 
 private fun bestLap(line: JSONObject, part: Int?): String {
     if (part == null) return line.optJSONObject("BestLapTime")?.optString("Value").orEmpty()
-    val laps = line.opt("BestLapTimes") ?: return ""
-    return (part - 1 downTo 0).firstNotNullOfOrNull { i -> elementAt(laps, i)?.optString("Value")?.takeIf { it.isNotEmpty() } }.orEmpty()
+    // Only the part now on, as the other cars' gaps are to the fastest of that part.
+    return elementAt(line.opt("BestLapTimes"), part - 1)?.optString("Value").orEmpty()
 }
 
 /** "F47600" to 0xFFF47600. */
@@ -621,6 +646,8 @@ class F1LiveRepository(
         @Volatile var shown: LiveSession? = null
     }
 
+    private val seen = Seen()
+
     private sealed interface Followed {
         /** The session is over (the classification as it stands, with no rows when only the few topics were followed), or null when the window closed first. */
         data class Over(val session: LiveSession?) : Followed
@@ -632,11 +659,22 @@ class F1LiveRepository(
         // The calendar says when sessions are; keep it fetched while this runs.
         launch { calendar.collect {} }
         var result = prefs.f1LiveResult?.let { runCatching { LiveSession.fromJson(it) }.getOrNull() }
-        send(result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
-        val seen = Seen()
+        // The feed stops a few seconds after the last widget leaves and starts again when one returns:
+        // a session on until then is still on, so what was last seen is what shows until the feed says more.
+        val resumed = seen.shown?.takeIf { shown ->
+            val races = when (val s = calendar.value) {
+                is F1State.Ready -> s.data.races
+                is F1State.Failed -> s.last?.races
+                F1State.Loading -> null
+            }
+            val window = races?.let { liveWindowSession(it, Instant.ofEpochMilli(clock())) }
+            window != null && sameSession(shown, window)
+        }
+        send(resumed?.let { F1LiveState.Live(it) } ?: result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
 
         suspend fun keep(session: LiveSession) {
-            if (!(session.key == result?.key && result?.finished == true)) {
+            // A finished result gives way only to a later finished one with its classification ("Finalised" after "Finished").
+            if (!(session.key == result?.key && result?.finished == true) || session.finished && session.rows.isNotEmpty()) {
                 result = session
                 prefs.f1LiveResult = session.toJson()
             }

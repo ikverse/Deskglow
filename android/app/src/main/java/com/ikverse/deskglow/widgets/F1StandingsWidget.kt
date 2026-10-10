@@ -117,13 +117,27 @@ object F1StandingsWidget : WidgetType {
 
             val colour = Color(settings[Common.COLOUR])
             val accent = Color((if (settings[TEAM_ACCENT]) (if (teams) favouriteColour(data, "", favourite) else favouriteColour(data, favourite, "")) else null) ?: settings[ACCENT])
-            // More than five rows in a box well wider than tall: two columns side by side, so ten stay readable.
-            val twoColumns = top.size > 5 && w >= h * 1.25f
-            val (left, right) = if (twoColumns) standingColumns(top) else top to emptyList()
+            val unit = canvasUnit(w, width)
             val columnGap = w * 0.06f
-            val columnW = if (twoColumns) (w - columnGap) / 2 else w
-            val slots = left.size + 1.2f + (if (extra != null) 1.3f else 0f)
-            val row = min(h / slots, columnW * 0.16f)
+            // Rows are left off the bottom until one is tall enough to read; two columns wherever they make the rows taller.
+            fun rowFor(n: Int, two: Boolean): Float {
+                val columnW = if (two) (w - columnGap) / 2 else w
+                val slots = (if (two) (n + 1) / 2 else n) + 1.2f + (if (extra != null) 1.3f else 0f)
+                return min(min(h / slots, columnW * 0.16f), Fitting.LARGEST_ROW * unit)
+            }
+            fun arrange(n: Int): Pair<Boolean, Float> {
+                val one = rowFor(n, false)
+                val two = if (n > 5) rowFor(n, true) else 0f
+                return if (two > one * 1.05f) true to two else false to one
+            }
+            var count = top.size
+            var (twoColumns, row) = arrange(count)
+            while (row < Fitting.SMALLEST_ROW * unit && count > 3) {
+                count--
+                arrange(count).let { twoColumns = it.first; row = it.second }
+            }
+            val shown = top.take(count)
+            val (left, right) = if (twoColumns) standingColumns(shown) else shown to emptyList()
             val text = row * 0.56f
             val leader = entries.first().points
             val mode = settings[VALUE]
@@ -170,7 +184,7 @@ object F1StandingsWidget : WidgetType {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
                 Text(
                     (if (teams) "CONSTRUCTORS" else "DRIVERS") + if (data.round > 0) " · ROUND ${data.round}" else "",
-                    color = Muted, fontSize = pxToSp(text * 0.72f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false,
+                    color = Muted, fontSize = pxToSp(Fitting.second(text, unit) * 0.72f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false,
                     modifier = Modifier.height(pxToDp(row * 1.2f)).padding(top = pxToDp(row * 0.3f)),
                 )
                 if (twoColumns) {
@@ -180,7 +194,7 @@ object F1StandingsWidget : WidgetType {
                         Column(Modifier.weight(1f)) { right.forEach { Line(it) } }
                     }
                 } else {
-                    top.forEach { Line(it) }
+                    shown.forEach { Line(it) }
                 }
                 if (extra != null) {
                     Box(Modifier.fillMaxWidth().height(pxToDp(row * 0.3f)), contentAlignment = Alignment.Center) {

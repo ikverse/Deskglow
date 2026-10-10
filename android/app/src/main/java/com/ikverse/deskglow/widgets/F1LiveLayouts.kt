@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -75,15 +76,20 @@ internal class Board(
 
 @Composable
 internal fun LiveFace(b: Board, w: Float, h: Float) {
+    val unit = canvasUnit(w, F1LiveWidget.width)
     Box(Modifier.fillMaxSize().then(if (b.session.signalLost) Modifier.alpha(0.55f) else Modifier)) {
         when (b.settings[F1LiveWidget.LAYOUT]) {
-            "glance" -> GlanceFace(b, w, h)
-            "focus" -> FocusFace(b, w, h)
-            "line" -> LineFace(b, w, h)
-            else -> TowerFace(b, w, h)
+            "glance" -> GlanceFace(b, unit)
+            "focus" -> FocusFace(b, unit)
+            "line" -> LineFace(b, unit)
+            else -> TowerFace(b, w, h, unit)
         }
     }
 }
+
+/** What a fitted layout is measured afresh for: its settings and the shape of the session, not the text that changes from second to second. */
+private fun fitKey(b: Board, vararg parts: Any?): List<Any?> =
+    listOf(b.settings, b.phase, b.live, b.status.filled, b.session.isRace, b.session.type, b.session.signalLost) + parts
 
 private val Purple = Color(0xFFB45CFF)
 private val DropLine = Color(0xFFF2766B)
@@ -171,6 +177,9 @@ private data class RowSpec(
     val dim: Boolean,
     val tyre: Char?,
     val tyreMuted: Boolean,
+    /** The editor's stand-ins for a switched-on tyre or gain with nothing to show. */
+    val tyreSlot: Boolean,
+    val gainSlot: Boolean,
     val gain: Int,
     val fastest: Boolean,
     val tag: String?,
@@ -206,9 +215,16 @@ private fun TowerRow(spec: RowSpec, colour: Color, accent: Color, row: Float, te
         if (spec.gain != 0) {
             Gained(spec.gain, text)
             Spacer(Modifier.width(pxToDp(text * 0.3f)))
+        } else if (spec.gainSlot) {
+            EditorSlot("▲▼", text * 0.75f)
+            Spacer(Modifier.width(pxToDp(text * 0.3f)))
         }
         spec.tyre?.let {
             TyreMark(it, spec.tyreMuted, text)
+            Spacer(Modifier.width(pxToDp(text * 0.3f)))
+        }
+        if (spec.tyre == null && spec.tyreSlot) {
+            EditorSlot("S", text * 0.75f, Modifier.size(pxToDp(text * 1.35f)))
             Spacer(Modifier.width(pxToDp(text * 0.3f)))
         }
         spec.laps?.let {
@@ -235,31 +251,71 @@ private fun TowerRow(spec: RowSpec, colour: Color, accent: Color, row: Float, te
  * is next. The line the cut-off falls on, in qualifying, is drawn under its last car in.
  */
 @Composable
-private fun TowerFace(b: Board, w: Float, h: Float) {
+private fun TowerFace(b: Board, w: Float, h: Float, unit: Float) {
     val settings = b.settings
     val session = b.session
     val live = b.live
     val showStatus = live && settings[F1LiveWidget.SHOW_FLAG]
+    val editing = LocalEditing.current
     val flagShade = b.status.shade.takeIf { live && settings[F1LiveWidget.BORDER] && b.status.filled }
+    // In the editor a switched-on border with no flag out is drawn faintly, so its place can be seen.
+    val borderHint = editing && flagShade == null && settings[F1LiveWidget.BORDER]
+    val statusSlot = editing && !showStatus && settings[F1LiveWidget.SHOW_FLAG]
     // Room round the edge, so the border has none of the rows against it.
-    val inset = if (flagShade != null) min(w, h) * 0.035f else 0f
-    val top = session.rows.take(settings[F1LiveWidget.ROWS])
-    val extra = session.rows.drop(top.size).firstOrNull { b.followed.isNotEmpty() && it.code == b.followed }
-    val twoColumns = top.size > 5 && w >= h * 1.25f
-    val (left, right) = if (twoColumns) standingColumns(top) else top to emptyList()
+    val inset = if (flagShade != null || borderHint) min(w, h) * 0.035f else 0f
+    val wanted = session.rows.take(settings[F1LiveWidget.ROWS])
+    val followedBelow = session.rows.drop(wanted.size).firstOrNull { b.followed.isNotEmpty() && it.code == b.followed }
     val columnGap = w * 0.06f
-    val columnW = if (twoColumns) (w - columnGap) / 2 else w
     val toAhead = when (settings[F1LiveWidget.GAP]) { "ahead" -> true; "leader" -> false; else -> session.isRace }
     val news = b.news.takeIf { settings[F1LiveWidget.NEWS] }
-    val footer = if (!live) b.next else news
+    val wantedFooter = if (!live) b.next else news
+    val wantedNewsSlot = editing && live && settings[F1LiveWidget.NEWS] && news == null
+
+    // In a small box the news goes first, then the followed car's own row, then rows from the bottom,
+    // until a row is tall enough to read. Two columns wherever they make the rows taller.
+    var footerOn = wantedFooter != null || wantedNewsSlot
+    var count = wanted.size
+    var extraOn = followedBelow != null
+    fun rowFor(n: Int, two: Boolean): Float {
+        val shownRows = wanted.take(n)
+        val cut = session.cutoff?.takeIf { c -> shownRows.any { it.position == c } }
+        val below = extraOn && session.rows.drop(n).any { b.followed.isNotEmpty() && it.code == b.followed }
+        val slots = (if (two) (n + 1) / 2 else n) + 1.4f + (if (showStatus || statusSlot) 1.35f else 0f) + (if (below) 1.3f else 0f) +
+            (if (footerOn) 1f else 0f) + (if (cut != null) 0.2f else 0f)
+        val columnW = if (two) (w - columnGap) / 2 else w
+        return min(min((h - inset * 2) / slots, (columnW - inset * 2) * 0.16f), Fitting.LARGEST_ROW * unit)
+    }
+    fun arrange(): Pair<Boolean, Float> {
+        val one = rowFor(count, false)
+        val two = if (count > 5) rowFor(count, true) else 0f
+        return if (two > one * 1.05f) true to two else false to one
+    }
+    var (twoColumns, row) = arrange()
+    while (row < Fitting.SMALLEST_ROW * unit) {
+        when {
+            footerOn -> footerOn = false
+            extraOn -> extraOn = false
+            count > 3 -> count--
+            else -> break
+        }
+        arrange().let { twoColumns = it.first; row = it.second }
+    }
+    val top = wanted.take(count)
+    val extra = session.rows.drop(count).firstOrNull { extraOn && b.followed.isNotEmpty() && it.code == b.followed }
+    val footer = wantedFooter.takeIf { footerOn }
+    val newsSlot = wantedNewsSlot && footerOn
+    val (left, right) = if (twoColumns) standingColumns(top) else top to emptyList()
     val cutoff = session.cutoff?.takeIf { c -> top.any { it.position == c } }
-    val slots = left.size + 1.4f + (if (showStatus) 1.35f else 0f) + (if (extra != null) 1.3f else 0f) + (if (footer != null) 1f else 0f) + (if (cutoff != null) 0.2f else 0f)
-    val row = min((h - inset * 2) / slots, (columnW - inset * 2) * 0.16f)
     val text = row * 0.56f
+    // The heading, the flag and the news grow more slowly than the rows.
+    val label = Fitting.second(text, unit)
 
     fun gapOf(r: LiveRow) = gapText(if (toAhead) r.interval else r.gap)
     val gapWidth = text * 0.85f * 0.6f * ((top + listOfNotNull(extra)).maxOfOrNull { gapOf(it).length } ?: 0)
     val oneTyre = top.mapNotNull { it.tyre }.distinct().size <= 1
+    val tyreHint = editing && settings[F1LiveWidget.TYRES] && top.none { it.tyre != null }
+    val gainShown = settings[F1LiveWidget.GAINED] && session.isRace && b.started
+    val gainHint = editing && settings[F1LiveWidget.GAINED] && top.none { gainShown && (it.gained ?: 0) != 0 }
 
     fun specOf(r: LiveRow) = RowSpec(
         position = r.position.toString(),
@@ -273,7 +329,9 @@ private fun TowerFace(b: Board, w: Float, h: Float) {
         dim = r.knockedOut || r.out,
         tyre = r.tyre.takeIf { settings[F1LiveWidget.TYRES] },
         tyreMuted = oneTyre,
-        gain = if (settings[F1LiveWidget.GAINED] && session.isRace && b.started) r.gained ?: 0 else 0,
+        tyreSlot = tyreHint,
+        gainSlot = gainHint && r.code == b.me?.code,
+        gain =if (settings[F1LiveWidget.GAINED] && session.isRace && b.started) r.gained ?: 0 else 0,
         fastest = r.fastest && live,
         tag = when {
             r.out -> "OUT"
@@ -299,24 +357,27 @@ private fun TowerFace(b: Board, w: Float, h: Float) {
 
     val frame = if (flagShade != null) {
         Modifier.border(pxToDp((min(w, h) * 0.008f).coerceAtLeast(1.5f)), flagShade, RoundedCornerShape(pxToDp(inset * 1.5f))).padding(pxToDp(inset))
+    } else if (borderHint) {
+        Modifier.border(pxToDp((min(w, h) * 0.008f).coerceAtLeast(1.5f)), Muted.copy(alpha = 0.4f), RoundedCornerShape(pxToDp(inset * 1.5f))).padding(pxToDp(inset))
     } else Modifier
     Column(Modifier.fillMaxSize().then(frame), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().height(pxToDp(row * 1.4f)), verticalAlignment = Alignment.CenterVertically) {
             if (live && b.phase != LivePhase.PreStart && b.phase != LivePhase.Delayed) {
-                LiveBadge(b.accent, text * 0.7f)
-                Spacer(Modifier.width(pxToDp(text * 0.4f)))
+                LiveBadge(b.accent, label * 0.7f)
+                Spacer(Modifier.width(pxToDp(label * 0.4f)))
             }
             Text(
-                session.name.replace("Qualifying", "Quali").uppercase(), color = b.colour, fontSize = pxToSp(text * 0.78f), fontWeight = FontWeight.SemiBold,
+                session.name.replace("Qualifying", "Quali").uppercase(), color = b.colour, fontSize = pxToSp(label * 0.78f), fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.06.em, maxLines = 1, softWrap = false,
             )
-            Spacer(Modifier.width(pxToDp(text * 0.5f)))
+            Spacer(Modifier.width(pxToDp(label * 0.5f)))
             Text(
                 if (live) session.meeting else (if (b.phase == LivePhase.Finished) "Provisional · " else "Result · ") + session.meeting,
-                color = Muted, fontSize = pxToSp(text * 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                color = Muted, fontSize = pxToSp(label * 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
         }
-        if (showStatus) StatusBar(b, text, row, raceFraction(session)?.takeIf { b.started })
+        if (showStatus) StatusBar(b, label, row, raceFraction(session)?.takeIf { b.started })
+        else if (statusSlot) Box(Modifier.fillMaxWidth().height(pxToDp(row * 1.05f)), contentAlignment = Alignment.CenterStart) { EditorSlot("Flag and clock", label * 0.72f) }
         if (session.rows.isEmpty()) {
             Text("Waiting for the timing", color = Muted, fontSize = pxToSp(text * 0.8f), maxLines = 1, modifier = Modifier.padding(vertical = pxToDp(text * 0.5f)))
         } else if (twoColumns) {
@@ -336,9 +397,11 @@ private fun TowerFace(b: Board, w: Float, h: Float) {
         }
         if (footer != null) {
             Box(Modifier.fillMaxWidth().height(pxToDp(row)), contentAlignment = Alignment.CenterStart) {
-                if (live) NewsLine(footer, text * 0.78f)
-                else Text("Next · $footer", color = Muted, fontSize = pxToSp(text * 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (live) NewsLine(footer, label * 0.78f)
+                else Text("Next · $footer", color = Muted, fontSize = pxToSp(label * 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        } else if (newsSlot) {
+            Box(Modifier.fillMaxWidth().height(pxToDp(row)), contentAlignment = Alignment.CenterStart) { EditorSlot("Latest news", label * 0.78f) }
         }
     }
 }
@@ -378,93 +441,137 @@ private fun StatusBar(b: Board, text: Float, row: Float, fraction: Float?) {
 
 // ---- Glance ----
 
-/** The flag, big enough to read across a desk; under it where the session has got to, who leads, and the followed car. */
+/** The parts of a glance that are left out, last first, when the box is too small for them all. */
+private enum class GlancePart { Progress, Followed, Footer }
+
+/**
+ * The flag, big enough to read across a desk; with it where the session has got to, who leads, and the
+ * followed car: under it in a tall box, beside it in a wide one.
+ */
 @Composable
-private fun GlanceFace(b: Board, w: Float, h: Float) {
+private fun GlanceFace(b: Board, unit: Float) {
     val session = b.session
     val status = b.status
-    val unit = min(w * 0.07f, h * 0.05f)
-    val big = min(w * 0.12f, h * 0.1f)
-    val blockH = big * 2.3f
-    val progressH = unit * 2.4f
-    val lineH = unit * 2.7f
-    val newsH = unit * 2f
     val leader = session.rows.firstOrNull()
     val me = b.me?.takeIf { it !== leader }
-    // What does not fit is left out, the least important first.
-    var room = h - blockH - lineH
-    val showProgress = (b.live || b.next != null) && room >= progressH
-    if (showProgress) room -= progressH
-    val showMe = me != null && room >= lineH
-    if (showMe) room -= lineH
     val footer = if (b.live) b.news else b.next?.let { "Next · $it" }
-    val showFooter = footer != null && room >= newsH
+    val newsSlot = footer == null && b.live && b.settings[F1LiveWidget.NEWS] && LocalEditing.current
     val label = if (b.live) status.label else if (b.phase == LivePhase.Finished) "Finished" else "Result"
+    val parts = listOfNotNull(
+        GlancePart.Progress.takeIf { b.live || b.next != null },
+        GlancePart.Followed.takeIf { me != null },
+        GlancePart.Footer.takeIf { footer != null || newsSlot },
+    )
+    Fit(unit, fitKey(b, parts, label, leader != null), arrangements = 2, levels = parts.size) { f ->
+        val s = f.scale
+        val shown = parts.take(f.level)
+        val big = s.main * 1.9f
+        val fill = if (f.probing) Modifier else Modifier.fillMaxWidth()
+        val gap = s.second * 0.4f * s.space
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        Box(
-            Modifier.fillMaxWidth().height(pxToDp(blockH)).then(
-                if (status.filled && b.live) Modifier.background(status.shade, RoundedCornerShape(pxToDp(unit * 0.8f)))
-                else Modifier.border(pxToDp(max(1f, unit * 0.12f)), (if (b.live) status.shade else Muted).copy(alpha = 0.45f), RoundedCornerShape(pxToDp(unit * 0.8f))),
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                label.uppercase(), color = if (status.filled && b.live) Color.Black else if (b.live) status.shade else b.colour,
-                fontSize = pxToSp(big), fontWeight = FontWeight.Bold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false,
-            )
+        @Composable
+        fun Block(modifier: Modifier) {
+            Box(
+                modifier.then(
+                    if (status.filled && b.live) Modifier.background(status.shade, RoundedCornerShape(pxToDp(big * 0.4f)))
+                    else Modifier.border(pxToDp(max(1f, s.unit * 1.2f)), (if (b.live) status.shade else Muted).copy(alpha = 0.45f), RoundedCornerShape(pxToDp(big * 0.4f))),
+                ).padding(horizontal = pxToDp(big * 0.6f), vertical = pxToDp(big * 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label.uppercase(), color = if (status.filled && b.live) Color.Black else if (b.live) status.shade else b.colour,
+                    fontSize = pxToSp(big), fontWeight = FontWeight.Bold, letterSpacing = 0.06.em, maxLines = 1, softWrap = false,
+                )
+            }
         }
-        if (showProgress) {
-            Column(Modifier.fillMaxWidth().height(pxToDp(progressH)), verticalArrangement = Arrangement.Center) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        session.name.replace("Qualifying", "Quali"), color = Muted, fontSize = pxToSp(unit * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+
+        @Composable
+        fun Lines(modifier: Modifier) {
+            Column(modifier) {
+                if (GlancePart.Progress in shown) {
+                    Column(fill.padding(vertical = pxToDp(gap))) {
+                        Row(fill, verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                session.name.replace("Qualifying", "Quali"), color = Muted, fontSize = pxToSp(s.second * 0.95f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = if (f.probing) Modifier else Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(pxToDp(s.second * 0.8f)))
+                            Text(status.detail, color = b.colour, fontSize = pxToSp(s.second * 1.05f), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                        }
+                        raceFraction(session)?.takeIf { b.live && b.started }?.let {
+                            Spacer(Modifier.height(pxToDp(s.second * 0.3f)))
+                            ProgressLine(it, if (status.filled) status.shade else b.accent, max(1.5f, s.second * 0.2f))
+                        }
+                    }
+                }
+                if (leader != null) {
+                    val second = session.rows.getOrNull(1)
+                    val trailing = if (session.isRace) second?.let { gapText(it.gap) }.orEmpty() else leader.gap
+                    val note = when {
+                        b.live -> "leads"
+                        session.isRace -> "won"
+                        session.type == "Qualifying" -> "pole"
+                        else -> "fastest"
+                    }
+                    GlanceLine(driverName(leader, b.names), note, leader.teamColour, trailing, null, b, s, gap, f.probing)
+                }
+                if (GlancePart.Followed in shown && me != null) {
+                    GlanceLine(
+                        driverName(me, b.names), "P${me.position}", me.teamColour, if (session.isRace && b.live) gapText(me.interval) else "",
+                        me.gained?.takeIf { session.isRace && b.started }, b, s, gap, f.probing, strong = true,
                     )
-                    Text(status.detail, color = b.colour, fontSize = pxToSp(unit * 1.05f), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
                 }
-                raceFraction(session)?.takeIf { b.live && b.started }?.let {
-                    Spacer(Modifier.height(pxToDp(unit * 0.3f)))
-                    ProgressLine(it, if (status.filled) status.shade else b.accent, max(1.5f, unit * 0.2f))
+                if (GlancePart.Footer in shown) {
+                    Box(fill.padding(vertical = pxToDp(gap)), contentAlignment = Alignment.CenterStart) {
+                        when {
+                            footer == null -> EditorSlot("Latest news", s.second)
+                            b.live -> NewsLine(f.sample(footer, 26), s.second)
+                            else -> Text(f.sample(footer, 26), color = Muted, fontSize = pxToSp(s.second), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
-        if (leader != null) {
-            val second = session.rows.getOrNull(1)
-            val trailing = if (session.isRace) second?.let { gapText(it.gap) }.orEmpty() else leader.gap
-            val note = when {
-                b.live -> "leads"
-                session.isRace -> "won"
-                session.type == "Qualifying" -> "pole"
-                else -> "fastest"
+
+        if (f.arrangement == 0) {
+            Column(fill) {
+                Block(fill)
+                Spacer(Modifier.height(pxToDp(gap)))
+                Lines(fill)
             }
-            GlanceLine(driverName(leader, b.names), note, leader.teamColour, trailing, null, b, unit, lineH)
-        }
-        if (showMe && me != null) {
-            GlanceLine(driverName(me, b.names), "P${me.position}", me.teamColour, if (session.isRace && b.live) gapText(me.interval) else "", me.gained?.takeIf { session.isRace && b.started }, b, unit, lineH, strong = true)
-        }
-        if (showFooter && footer != null) {
-            Box(Modifier.fillMaxWidth().height(pxToDp(newsH)), contentAlignment = Alignment.CenterStart) {
-                if (b.live) NewsLine(footer, unit) else Text(footer, color = Muted, fontSize = pxToSp(unit), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        } else {
+            Row(fill, verticalAlignment = Alignment.CenterVertically) {
+                Block(Modifier)
+                Spacer(Modifier.width(pxToDp(s.main * 1.2f)))
+                Lines(if (f.probing) Modifier else Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun GlanceLine(name: String, note: String, team: Long?, trailing: String, gain: Int?, b: Board, unit: Float, height: Float, strong: Boolean = false) {
-    Row(Modifier.fillMaxWidth().height(pxToDp(height)), verticalAlignment = Alignment.CenterVertically) {
-        TeamBar(team, false, unit * 0.28f, height * 0.62f)
-        Spacer(Modifier.width(pxToDp(unit * 0.6f)))
-        Text(name, color = if (strong) b.accent else b.colour, fontSize = pxToSp(unit * 1.55f), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-        Spacer(Modifier.width(pxToDp(unit * 0.5f)))
-        Text(note, color = if (strong) b.colour else Muted, fontSize = pxToSp(unit * (if (strong) 1.5f else 1.05f)), fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal, maxLines = 1, softWrap = false)
+private fun GlanceLine(
+    name: String, note: String, team: Long?, trailing: String, gain: Int?, b: Board, s: Scale, gap: Float, probing: Boolean, strong: Boolean = false,
+) {
+    val nameSize = s.main * 1.45f
+    Row((if (probing) Modifier else Modifier.fillMaxWidth()).padding(vertical = pxToDp(gap)), verticalAlignment = Alignment.CenterVertically) {
+        TeamBar(team, false, s.main * 0.26f, nameSize * 0.95f)
+        Spacer(Modifier.width(pxToDp(s.main * 0.55f)))
+        Text(name, color = if (strong) b.accent else b.colour, fontSize = pxToSp(nameSize), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+        Spacer(Modifier.width(pxToDp(s.second * 0.5f)))
+        Text(
+            note, color = if (strong) b.colour else Muted, fontSize = pxToSp(if (strong) s.main * 1.4f else s.second * 1.05f),
+            fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal, maxLines = 1, softWrap = false,
+        )
         if (gain != null) {
-            Spacer(Modifier.width(pxToDp(unit * 0.4f)))
-            Gained(gain, unit * 1.3f)
+            Spacer(Modifier.width(pxToDp(s.second * 0.4f)))
+            Gained(gain, s.second * 1.3f)
         }
-        Spacer(Modifier.weight(1f))
-        Text(trailing, color = Muted, fontSize = pxToSp(unit * 1.05f), maxLines = 1, softWrap = false)
+        if (trailing.isNotEmpty()) {
+            Spacer(Modifier.width(pxToDp(s.second * 0.8f)))
+            if (!probing) Spacer(Modifier.weight(1f))
+            Text(trailing, color = Muted, fontSize = pxToSp(s.second * 1.05f), maxLines = 1, softWrap = false)
+        }
     }
 }
 
@@ -484,69 +591,135 @@ internal fun closingRate(chaser: LiveRow, chased: LiveRow): Double? {
 internal fun gapChangeText(rate: Double): String =
     if (abs(rate) < 0.05) "level" else (if (rate > 0) "−" else "+") + seconds(rate) + "s a lap"
 
-/** The followed car at the centre, with the car ahead above it and the car behind below; in qualifying, its time and where it stands against the cut-off. */
+/** The parts of the focus layout left out, last first, when the box is too small for them all. */
+private enum class FocusPart { Tyre, News }
+
+/**
+ * The followed car at the centre, with the car ahead above it and the car behind below; in qualifying,
+ * its time and where it stands against the cut-off. In a wide box the car sits on the left and the rest
+ * beside it.
+ */
 @Composable
-private fun FocusFace(b: Board, w: Float, h: Float) {
+private fun FocusFace(b: Board, unit: Float) {
     val session = b.session
     val me = b.me
-    val unit = min(w * 0.07f, h * 0.05f)
-    val big = min(w * 0.2f, h * 0.15f)
     if (me == null || b.phase == LivePhase.PreStart || b.phase == LivePhase.Delayed) {
-        FocusWaiting(b, me, unit, big)
+        FocusWaiting(b, me, unit)
         return
     }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+    val editing = LocalEditing.current
+    val ahead = session.rows.firstOrNull { it.position == me.position - 1 }
+    val behind = session.rows.firstOrNull { it.position == me.position + 1 }
+    val raceLike = session.isRace
+    val tyre = me.tyre?.let { t ->
+        listOfNotNull(tyreName(t), me.tyreLaps?.let { "$it laps" }, if (raceLike && me.stops > 0) "${me.stops} stop" + (if (me.stops > 1) "s" else "") else null).joinToString(" · ")
+    }
+    val tyreSlot = tyre == null && b.settings[F1LiveWidget.TYRES] && editing
+    val news = if (b.live) b.news else b.next?.let { "Next · $it" }
+    val newsSlot = news == null && b.live && b.settings[F1LiveWidget.NEWS] && editing
+    val parts = listOfNotNull(FocusPart.Tyre.takeIf { tyre != null || tyreSlot }, FocusPart.News.takeIf { news != null || newsSlot })
+    Fit(unit, fitKey(b, parts, me.code, ahead != null, behind != null, session.cutoff), arrangements = 2, levels = parts.size) { f ->
+        val s = f.scale
+        val shown = parts.take(f.level)
+        val fill = if (f.probing) Modifier else Modifier.fillMaxWidth()
+        val big = s.main * 2.6f
+        val gap = s.second * 0.35f * s.space
+
         // Where the session stands, small, at the top.
-        Row(Modifier.fillMaxWidth().height(pxToDp(unit * 2.4f)), verticalAlignment = Alignment.CenterVertically) {
-            if (b.status.filled && b.live) StateChip(b.status.label.uppercase(), b.status.shade, unit * 0.85f) else Text(
-                if (b.live) b.status.label.ifEmpty { session.name } else "Result", color = Muted, fontSize = pxToSp(unit * 0.95f), maxLines = 1, softWrap = false,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(b.status.detail, color = b.colour, fontSize = pxToSp(unit * 1.05f), maxLines = 1, softWrap = false)
+        @Composable
+        fun Top() {
+            Row(fill.padding(vertical = pxToDp(gap)), verticalAlignment = Alignment.CenterVertically) {
+                if (b.status.filled && b.live) StateChip(b.status.label.uppercase(), b.status.shade, s.small * 0.85f) else Text(
+                    if (b.live) b.status.label.ifEmpty { session.name } else "Result", color = Muted, fontSize = pxToSp(s.small * 0.95f), maxLines = 1, softWrap = false,
+                )
+                Spacer(Modifier.width(pxToDp(s.second * 0.8f)))
+                if (!f.probing) Spacer(Modifier.weight(1f))
+                Text(b.status.detail, color = b.colour, fontSize = pxToSp(s.second * 1.05f), maxLines = 1, softWrap = false)
+            }
         }
-        val ahead = session.rows.firstOrNull { it.position == me.position - 1 }
-        val behind = session.rows.firstOrNull { it.position == me.position + 1 }
-        val raceLike = session.isRace
-        if (raceLike && ahead != null) NeighbourLine(b, ahead, gapText(me.interval), closingRate(me, ahead)?.takeIf { b.live }, behind = false, unit)
+
         // The followed car.
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = pxToDp(unit * 0.5f)).background(b.accent.copy(alpha = 0.12f), RoundedCornerShape(pxToDp(unit * 0.8f))).padding(horizontal = pxToDp(unit), vertical = pxToDp(unit * 0.5f)),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TeamBar(me.teamColour, false, unit * 0.32f, big * 0.95f)
-            Spacer(Modifier.width(pxToDp(unit * 0.8f)))
-            Text("P${me.position}", color = b.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-            Spacer(Modifier.width(pxToDp(unit * 0.7f)))
-            Column {
-                Text(driverName(me, b.names), color = b.accent, fontSize = pxToSp(unit * 1.6f), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-                val gain = me.gained?.takeIf { raceLike && b.started }
-                if (gain != null && gain != 0) Gained(gain, unit * 1.4f)
+        @Composable
+        fun Car() {
+            Row(
+                fill.padding(vertical = pxToDp(gap)).background(b.accent.copy(alpha = 0.12f), RoundedCornerShape(pxToDp(s.main * 0.8f)))
+                    .padding(horizontal = pxToDp(s.main * 0.8f), vertical = pxToDp(s.main * 0.4f)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TeamBar(me.teamColour, false, s.main * 0.3f, big * 0.95f)
+                Spacer(Modifier.width(pxToDp(s.main * 0.7f)))
+                Text("P${me.position}", color = b.colour, fontSize = pxToSp(big), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                Spacer(Modifier.width(pxToDp(s.main * 0.6f)))
+                Column {
+                    Text(driverName(me, b.names), color = b.accent, fontSize = pxToSp(s.main * 1.5f), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                    val gain = me.gained?.takeIf { raceLike && b.started }
+                    if (gain != null && gain != 0) Gained(gain, s.second * 1.4f)
+                }
             }
         }
-        if (raceLike && behind != null) NeighbourLine(b, behind, gapText(behind.interval), closingRate(behind, me)?.takeIf { b.live }, behind = true, unit)
-        if (!raceLike) QualifyingFocus(b, me, unit)
+
         // Its tyre, then the news.
-        val tyre = me.tyre?.let { t ->
-            listOfNotNull(tyreName(t), me.tyreLaps?.let { "$it laps" }, if (raceLike && me.stops > 0) "${me.stops} stop" + (if (me.stops > 1) "s" else "") else null).joinToString(" · ")
-        }
-        if (tyre != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = pxToDp(unit * 0.4f))) {
-                TyreMark(me.tyre!!, false, unit)
-                Spacer(Modifier.width(pxToDp(unit * 0.5f)))
-                Text(tyre, color = Muted, fontSize = pxToSp(unit), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        @Composable
+        fun Extras() {
+            if (FocusPart.Tyre in shown) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = pxToDp(gap))) {
+                    if (tyre != null) {
+                        TyreMark(me.tyre!!, false, s.second)
+                        Spacer(Modifier.width(pxToDp(s.second * 0.5f)))
+                        Text(tyre, color = Muted, fontSize = pxToSp(s.second), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    } else EditorSlot("Tyre", s.second)
+                }
+            }
+            if (FocusPart.News in shown) {
+                Box(fill.padding(vertical = pxToDp(gap))) {
+                    when {
+                        news == null -> EditorSlot("Latest news", s.second)
+                        b.live -> NewsLine(f.sample(news, 26), s.second)
+                        else -> Text(f.sample(news, 26), color = Muted, fontSize = pxToSp(s.second), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
         }
-        val news = if (b.live) b.news else b.next?.let { "Next · $it" }
-        if (news != null && h > unit * 22f) {
-            Spacer(Modifier.height(pxToDp(unit * 0.5f)))
-            if (b.live) NewsLine(news, unit) else Text(news, color = Muted, fontSize = pxToSp(unit), maxLines = 1, overflow = TextOverflow.Ellipsis)
+
+        @Composable
+        fun Ahead() {
+            if (raceLike && ahead != null) NeighbourLine(b, ahead, gapText(me.interval), closingRate(me, ahead)?.takeIf { b.live }, behind = false, s, gap, f.probing)
+        }
+
+        @Composable
+        fun Behind() {
+            if (raceLike && behind != null) NeighbourLine(b, behind, gapText(behind.interval), closingRate(behind, me)?.takeIf { b.live }, behind = true, s, gap, f.probing)
+            if (!raceLike) QualifyingFocus(b, me, s, f)
+        }
+
+        if (f.arrangement == 0) {
+            Column(fill) {
+                Top()
+                Ahead()
+                Car()
+                Behind()
+                Extras()
+            }
+        } else {
+            Row(fill, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Top()
+                    Car()
+                }
+                Spacer(Modifier.width(pxToDp(s.main * 1.2f)))
+                Column(if (f.probing) Modifier else Modifier.weight(1f)) {
+                    Ahead()
+                    Behind()
+                    Extras()
+                }
+            }
         }
     }
 }
 
 /** A car beside the followed one: its place and name, the gap, and how the gap is changing; the change lit green when it favours the followed car, red when it does not. */
 @Composable
-private fun NeighbourLine(b: Board, row: LiveRow, gap: String, rate: Double?, behind: Boolean, unit: Float) {
+private fun NeighbourLine(b: Board, row: LiveRow, gap: String, rate: Double?, behind: Boolean, s: Scale, space: Float, probing: Boolean) {
     // Ahead: the followed car closing is good. Behind: that car closing is not.
     val change = rate?.let(::gapChangeText) ?: if (b.live && row.catching) "closing" else ""
     val closing = (rate ?: if (row.catching) 1.0 else 0.0) > 0.05
@@ -555,25 +728,27 @@ private fun NeighbourLine(b: Board, row: LiveRow, gap: String, rate: Double?, be
         behind -> Loss
         else -> Gain
     }
-    Row(Modifier.fillMaxWidth().height(pxToDp(unit * 2.4f)), verticalAlignment = Alignment.CenterVertically) {
-        TeamBar(row.teamColour, false, unit * 0.22f, unit * 1.4f)
-        Spacer(Modifier.width(pxToDp(unit * 0.6f)))
-        Text(driverName(row, b.names), color = b.colour, fontSize = pxToSp(unit * 1.2f), maxLines = 1, softWrap = false)
-        Spacer(Modifier.width(pxToDp(unit * 0.5f)))
-        Text("P${row.position}", color = Muted, fontSize = pxToSp(unit), maxLines = 1, softWrap = false)
-        Spacer(Modifier.weight(1f))
+    Row((if (probing) Modifier else Modifier.fillMaxWidth()).padding(vertical = pxToDp(space)), verticalAlignment = Alignment.CenterVertically) {
+        TeamBar(row.teamColour, false, s.second * 0.22f, s.second * 1.4f)
+        Spacer(Modifier.width(pxToDp(s.second * 0.6f)))
+        Text(driverName(row, b.names), color = b.colour, fontSize = pxToSp(s.second * 1.2f), maxLines = 1, softWrap = false)
+        Spacer(Modifier.width(pxToDp(s.second * 0.5f)))
+        Text("P${row.position}", color = Muted, fontSize = pxToSp(s.second), maxLines = 1, softWrap = false)
+        Spacer(Modifier.width(pxToDp(s.second * 0.8f)))
+        if (!probing) Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
-            Text(gap, color = b.colour, fontSize = pxToSp(unit * 1.15f), maxLines = 1, softWrap = false)
-            if (change.isNotEmpty()) Text(change, color = shade, fontSize = pxToSp(unit * 0.8f), maxLines = 1, softWrap = false)
+            Text(gap, color = b.colour, fontSize = pxToSp(s.second * 1.15f), maxLines = 1, softWrap = false)
+            if (change.isNotEmpty()) Text(change, color = shade, fontSize = pxToSp(s.second * 0.8f), maxLines = 1, softWrap = false)
         }
     }
 }
 
 /** Qualifying and practice: the car's best lap, and its margin to the cut-off or its gap to the fastest. */
 @Composable
-private fun QualifyingFocus(b: Board, me: LiveRow, unit: Float) {
+private fun QualifyingFocus(b: Board, me: LiveRow, s: Scale, f: Fitted) {
     val session = b.session
-    Spacer(Modifier.height(pxToDp(unit * 0.4f)))
+    val unit = s.second
+    Spacer(Modifier.height(pxToDp(unit * 0.4f * s.space)))
     if (me.bestLap.isNotEmpty()) Text(me.bestLap, color = b.colour, fontSize = pxToSp(unit * 1.5f), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
     val margin = session.cutoffMargin(me)
     if (session.cutoff != null && margin != null) {
@@ -585,7 +760,10 @@ private fun QualifyingFocus(b: Board, me: LiveRow, unit: Float) {
         )
         val out = session.dropZone().take(6)
         if (out.isNotEmpty()) {
-            Text("Drop zone: " + out.joinToString(" ") { driverName(it, b.names) }, color = Muted, fontSize = pxToSp(unit * 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = pxToDp(unit * 0.4f)))
+            Text(
+                f.sample("Drop zone: " + out.joinToString(" ") { driverName(it, b.names) }, 24), color = Muted, fontSize = pxToSp(unit * 0.85f), maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = pxToDp(unit * 0.4f * s.space)),
+            )
         }
     } else if (me.gap.isNotEmpty() && me.position > 1) {
         Text("${gapText(me.gap)} to the fastest", color = Muted, fontSize = pxToSp(unit), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -593,44 +771,72 @@ private fun QualifyingFocus(b: Board, me: LiveRow, unit: Float) {
     me.laps?.takeIf { session.type == "Practice" }?.let { Text("$it laps run", color = Muted, fontSize = pxToSp(unit), maxLines = 1, softWrap = false) }
 }
 
-/** Before the start, and while it is delayed: what is awaited, and where the followed car starts. */
+/** Before the start, and while it is delayed: what is awaited, and where the followed car starts; side by side in a wide box. */
 @Composable
-private fun FocusWaiting(b: Board, me: LiveRow?, unit: Float, big: Float) {
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        Text(b.session.name.replace("Qualifying", "Quali"), color = Muted, fontSize = pxToSp(unit * 1.1f), maxLines = 1, softWrap = false)
-        Text(b.status.label, color = b.status.shade.takeIf { b.status.filled } ?: b.colour, fontSize = pxToSp(unit * 2.4f), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-        if (b.status.detail.isNotEmpty()) Text(b.status.detail, color = b.colour, fontSize = pxToSp(unit * 1.3f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (me != null) {
-            Spacer(Modifier.height(pxToDp(unit)))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TeamBar(me.teamColour, false, unit * 0.3f, big * 0.6f)
-                Spacer(Modifier.width(pxToDp(unit * 0.7f)))
-                Text(driverName(me, b.names), color = b.accent, fontSize = pxToSp(unit * 1.6f), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-                Spacer(Modifier.width(pxToDp(unit * 0.6f)))
-                Text("starts P${me.grid ?: me.position}", color = Muted, fontSize = pxToSp(unit * 1.1f), maxLines = 1, softWrap = false)
+private fun FocusWaiting(b: Board, me: LiveRow?, unit: Float) {
+    val sky = when {
+        b.session.raining -> "Raining" + (b.session.trackTemp?.let { " · track ${it.toInt()}°" } ?: "")
+        b.session.rainRisk != null -> "Rain risk ${b.session.rainRisk}%"
+        else -> null
+    }
+    Fit(unit, fitKey(b, me?.code, sky != null, b.status.detail.isNotEmpty()), arrangements = if (me != null || sky != null) 2 else 1, levels = if (sky != null) 1 else 0) { f ->
+        val s = f.scale
+
+        @Composable
+        fun State() {
+            Column {
+                Text(b.session.name.replace("Qualifying", "Quali"), color = Muted, fontSize = pxToSp(s.second * 1.1f), maxLines = 1, softWrap = false)
+                Text(b.status.label, color = b.status.shade.takeIf { b.status.filled } ?: b.colour, fontSize = pxToSp(s.main * 2.4f), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                if (b.status.detail.isNotEmpty()) Text(b.status.detail, color = b.colour, fontSize = pxToSp(s.second * 1.3f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        val sky = when {
-            b.session.raining -> "Raining" + (b.session.trackTemp?.let { " · track ${it.toInt()}°" } ?: "")
-            b.session.rainRisk != null -> "Rain risk ${b.session.rainRisk}%"
-            else -> null
+
+        @Composable
+        fun Driver() {
+            Column {
+                if (me != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TeamBar(me.teamColour, false, s.main * 0.3f, s.main * 1.5f)
+                        Spacer(Modifier.width(pxToDp(s.main * 0.7f)))
+                        Text(driverName(me, b.names), color = b.accent, fontSize = pxToSp(s.main * 1.6f), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                        Spacer(Modifier.width(pxToDp(s.second * 0.6f)))
+                        Text("starts P${me.grid ?: me.position}", color = Muted, fontSize = pxToSp(s.second * 1.1f), maxLines = 1, softWrap = false)
+                    }
+                }
+                if (sky != null && f.level >= 1) {
+                    Text(f.sample(sky, 24), color = Muted, fontSize = pxToSp(s.second), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = pxToDp(s.second * 0.5f * s.space)))
+                }
+            }
         }
-        if (sky != null) Text(sky, color = Muted, fontSize = pxToSp(unit), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = pxToDp(unit * 0.5f)))
+
+        if (f.arrangement == 0) {
+            Column {
+                State()
+                Spacer(Modifier.height(pxToDp(s.second * s.space)))
+                Driver()
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                State()
+                Spacer(Modifier.width(pxToDp(s.main * 1.5f)))
+                Driver()
+            }
+        }
     }
 }
 
 // ---- One line ----
 
-/** Everything on one line: the state, where the session has got to, who leads, and the followed car. */
+/** Everything on one line: the state, where the session has got to, who leads, and the followed car. In a taller strip, on two lines. */
 @Composable
-private fun LineFace(b: Board, w: Float, h: Float) {
+private fun LineFace(b: Board, unit: Float) {
     val session = b.session
-    val px = min(h * 0.4f, w * 0.05f)
     val leader = session.rows.firstOrNull()
     val me = b.me?.takeIf { it !== leader }
     val short = when (b.phase) {
         LivePhase.PreStart -> "SOON"
         LivePhase.Delayed -> "DELAYED"
+        LivePhase.Break -> "BREAK"
         LivePhase.Running -> if (b.status.filled) "YELLOW" else "LIVE"
         LivePhase.SafetyCar -> "SC"
         LivePhase.VirtualSafetyCar -> "VSC"
@@ -638,28 +844,71 @@ private fun LineFace(b: Board, w: Float, h: Float) {
         LivePhase.Finished -> "FINISH"
         LivePhase.Final -> "FINAL"
     }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Fit(unit, fitKey(b, short, me?.code, leader != null), arrangements = 2, levels = if (me != null) 1 else 0) { f ->
+        val px = f.scale.main
+        val twoLines = f.arrangement == 1
+
+        @Composable
+        fun RowScope.State() {
             if (session.signalLost) StateChip("NO SIGNAL", Muted, px * 0.8f) else StateChip(short, if (b.status.filled) b.status.shade else if (b.live && b.phase == LivePhase.Running) b.accent else Muted, px * 0.8f)
             if (b.status.detail.isNotEmpty()) {
                 Spacer(Modifier.width(pxToDp(px * 0.5f)))
                 Text(b.status.detail, color = b.colour, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+            } else if (b.settings[F1LiveWidget.SHOW_FLAG]) {
+                Spacer(Modifier.width(pxToDp(px * 0.5f)))
+                EditorSlot("Flag and clock", px * 0.75f)
             }
+        }
+
+        @Composable
+        fun RowScope.Who() {
             if (leader != null) {
-                Text("  ·  ", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+                if (!twoLines) Text("  ·  ", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
                 Text(driverName(leader, b.names), color = b.colour, fontSize = pxToSp(px), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
-                Text(if (b.live) " leads" else " won", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+                val note = when {
+                    b.live -> "leads"
+                    session.isRace -> "won"
+                    session.type == "Qualifying" -> "pole"
+                    else -> "fastest"
+                }
+                Text(" $note", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
             }
-            if (me != null) {
-                Text("  ·  ", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+            if (me != null && f.level >= 1) {
+                if (leader != null || !twoLines) Text("  ·  ", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
                 Text(
                     driverName(me, b.names) + " P${me.position}", color = b.accent, fontSize = pxToSp(px), fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = if (f.probing) Modifier else Modifier.weight(1f, fill = false),
                 )
-                me.gained?.takeIf { session.isRace && b.started && it != 0 }?.let {
+                val gain = me.gained?.takeIf { session.isRace && b.started && it != 0 }
+                if (gain != null) {
                     Spacer(Modifier.width(pxToDp(px * 0.3f)))
-                    Gained(it, px)
+                    Gained(gain, px)
+                } else if (b.settings[F1LiveWidget.GAINED]) {
+                    Spacer(Modifier.width(pxToDp(px * 0.3f)))
+                    EditorSlot("▲▼", px * 0.75f)
                 }
+            }
+            if (b.live && b.settings[F1LiveWidget.NEWS]) {
+                if (b.news != null) {
+                    Text("  ·  ", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+                    Text(b.news, color = Amber, fontSize = pxToSp(px), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                } else {
+                    Spacer(Modifier.width(pxToDp(px * 0.5f)))
+                    EditorSlot("Latest news", px * 0.75f)
+                }
+            }
+        }
+
+        if (twoLines) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) { State() }
+                Spacer(Modifier.height(pxToDp(px * 0.35f * f.scale.space)))
+                Row(verticalAlignment = Alignment.CenterVertically) { Who() }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                State()
+                Who()
             }
         }
     }

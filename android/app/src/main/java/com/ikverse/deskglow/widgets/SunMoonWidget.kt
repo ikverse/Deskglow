@@ -35,6 +35,7 @@ import java.time.LocalDateTime
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -92,35 +93,58 @@ private fun SunMoonFace(settings: Settings, rise: LocalDateTime, set: LocalDateT
     val colour = Color(settings[Common.COLOUR])
     val accent = Color(settings[SunMoonWidget.ACCENT])
     val moon = settings[SunMoonWidget.SHOW_MOON]
-    val moonSize = min(h * 0.6f, w * 0.26f)
     val riseText = sunTime(rise, h24)
     val setText = sunTime(set, h24)
     val leftText = daylightText(rise, set, now)
-    // The words under the arc share the arc's width: the daylight left is dropped first, then the type shrinks.
-    val room = w - (if (moon) moonSize + h * 0.14f else 0f)
-    var small = min(h * 0.17f, w * 0.05f)
     val times = settings[SunMoonWidget.SHOW_TIMES]
-    val timesWidth = if (times) (riseText.length + setText.length) * 0.5f * small else 0f
-    val showLeft = settings[SunMoonWidget.SHOW_LEFT] && timesWidth + (leftText.length + 2) * 0.4f * small <= room
-    if (timesWidth > room) small *= room / timesWidth
+    val wantsLeft = settings[SunMoonWidget.SHOW_LEFT]
     val daylight = daylightFraction(rise, set, now)
-    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.Center) {
-            SunArc(daylight, accent, Modifier.weight(1f).fillMaxWidth())
-            Spacer(Modifier.height(pxToDp(small * 0.3f)))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                if (times) Text(riseText, color = colour, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
-                if (showLeft) Text(leftText, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, softWrap = false)
-                if (times) Text(setText, color = colour, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+    // The moon beside the arc in a wide box, above it in a tall one; the daylight left is the first thing left out.
+    Fit(canvasUnit(w, SunMoonWidget.width), listOf(settings, h24), arrangements = if (moon) 2 else 1, levels = if (wantsLeft) 1 else 0, align = 0.5f) { f ->
+        val s = f.scale
+        val small = s.second
+        val showLeft = wantsLeft && f.level >= 1
+        // The arc is as wide as the words under it need, and never narrower than its own size.
+        val words = (if (times) (riseText.length + setText.length) * 0.56f * small else 0f) +
+            (if (showLeft) (leftText.length * 0.5f + 2f) * small * 0.95f else 0f)
+        val arcW = max(s.main * 10f, words)
+        val arcH = s.main * 4.6f
+        val moonSize = arcH * 1.1f
+
+        @Composable
+        fun Arc() {
+            Column {
+                SunArc(daylight, accent, Modifier.width(pxToDp(arcW)).height(pxToDp(arcH)))
+                Spacer(Modifier.height(pxToDp(small * 0.3f * s.space)))
+                Row(Modifier.width(pxToDp(arcW)), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    if (times) Text(riseText, color = colour, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+                    if (showLeft) Text(leftText, color = Muted, fontSize = pxToSp(small * 0.95f), maxLines = 1, softWrap = false)
+                    if (times) Text(setText, color = colour, fontSize = pxToSp(small), maxLines = 1, softWrap = false)
+                }
             }
         }
-        if (moon) {
+
+        @Composable
+        fun MoonPart() {
             val phase = Moon.phase(phoneNow.atZone(java.time.ZoneId.systemDefault()).toInstant())
-            Spacer(Modifier.width(pxToDp(h * 0.14f)))
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 MoonDisc(phase, colour, Modifier.size(pxToDp(moonSize)))
                 Spacer(Modifier.height(pxToDp(small * 0.25f)))
                 Text("${Moon.illumination(phase)}%", color = Muted, fontSize = pxToSp(small * 0.9f), maxLines = 1, softWrap = false)
+            }
+        }
+
+        when {
+            !moon -> Arc()
+            f.arrangement == 0 -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Arc()
+                Spacer(Modifier.width(pxToDp(s.main * 1.4f)))
+                MoonPart()
+            }
+            else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                MoonPart()
+                Spacer(Modifier.height(pxToDp(small * 0.6f * s.space)))
+                Arc()
             }
         }
     }
