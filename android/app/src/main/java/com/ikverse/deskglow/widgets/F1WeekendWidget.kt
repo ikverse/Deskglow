@@ -544,7 +544,7 @@ internal fun shortKind(kind: String) = kind.replace("Qualifying", "Quali")
 
 /** The circuit as one closed line in [colour], as large as [modifier]'s box allows and centred in it. */
 @Composable
-private fun TrackOutline(track: F1Track, colour: Color, modifier: Modifier, strokeShare: Float = 0.035f) {
+internal fun TrackOutline(track: F1Track, colour: Color, modifier: Modifier, strokeShare: Float = 0.035f) {
     Canvas(modifier) {
         val stroke = (min(size.width, size.height) * strokeShare).coerceAtLeast(1.5f)
         val spanW = if (track.aspect >= 1f) 1f else track.aspect

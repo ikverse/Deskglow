@@ -545,7 +545,7 @@ class DataParsingTest {
     fun `a saved result comes back as it was`() {
         val s = snapshotOf(sprintQuali).session()!!
         val back = LiveSession.fromJson(s.toJson())
-        assertEquals(s.copy(flag = TrackFlag.Clear, part = null, remaining = null, clockAt = null, clockRunning = false), back)
+        assertEquals(s.copy(flag = TrackFlag.Clear, part = null, remaining = null, clockAt = null, clockRunning = false, circuit = null), back)
     }
 
     @Test

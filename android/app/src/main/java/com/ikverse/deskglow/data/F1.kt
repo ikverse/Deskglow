@@ -15,6 +15,8 @@ import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -55,12 +57,47 @@ data class F1Data(
  * A circuit's outline for one race: points in a box whose longer side is 1, turned the way the
  * track is usually drawn, with y running down the screen. [aspect] is the box's width over its height.
  */
-data class F1Track(val season: Int, val round: Int, val points: List<Pair<Float, Float>>, val aspect: Float) {
+data class F1Track(
+    val season: Int,
+    val round: Int,
+    val points: List<Pair<Float, Float>>,
+    val aspect: Float,
+    /** The numbered corners, in the same box as [points]; none in an outline saved before they were kept. */
+    val corners: List<F1Corner> = emptyList(),
+) {
     fun isFor(race: F1Race) = season == seasonOf(race) && round == race.round
+
+    /** How far along the line each point is, from the first, as a share of the whole lap. */
+    private val along: FloatArray by lazy {
+        val out = FloatArray(points.size + 1)
+        for (i in points.indices) {
+            val (x0, y0) = points[i]
+            val (x1, y1) = points[(i + 1) % points.size]
+            out[i + 1] = out[i] + hypot(x1 - x0, y1 - y0)
+        }
+        val total = out.last().takeIf { it > 0f } ?: 1f
+        FloatArray(out.size) { out[it] / total }
+    }
+
+    /**
+     * The point [fraction] of the way round the lap, taking the first point as the line the lap starts at.
+     * Wraps: 1.25 is a quarter of the way round.
+     */
+    fun pointAt(fraction: Float): Pair<Float, Float> {
+        if (points.size < 2) return points.firstOrNull() ?: (0f to 0f)
+        val f = fraction - floor(fraction)
+        val i = (along.indexOfFirst { it > f } - 1).coerceIn(0, points.size - 1)
+        val span = (along[i + 1] - along[i]).takeIf { it > 0f } ?: 1f
+        val t = ((f - along[i]) / span).coerceIn(0f, 1f)
+        val (x0, y0) = points[i]
+        val (x1, y1) = points[(i + 1) % points.size]
+        return (x0 + (x1 - x0) * t) to (y0 + (y1 - y0) * t)
+    }
 
     fun toJson(): String = JSONObject()
         .put("season", season).put("round", round).put("aspect", aspect.toDouble())
         .put("points", JSONArray().apply { points.forEach { (x, y) -> put(x.toDouble()); put(y.toDouble()) } })
+        .put("corners", JSONArray().apply { corners.forEach { put(JSONObject().put("n", it.number).put("x", it.x.toDouble()).put("y", it.y.toDouble())) } })
         .toString()
 
     companion object {
@@ -68,9 +105,33 @@ data class F1Track(val season: Int, val round: Int, val points: List<Pair<Float,
             val j = JSONObject(text)
             val flat = j.getJSONArray("points")
             val points = (0 until flat.length() / 2).map { flat.getDouble(it * 2).toFloat() to flat.getDouble(it * 2 + 1).toFloat() }
-            return F1Track(j.getInt("season"), j.getInt("round"), points, j.getDouble("aspect").toFloat())
+            val corners = j.optJSONArray("corners")?.let { a ->
+                (0 until a.length()).map { a.getJSONObject(it) }.map { F1Corner(it.getInt("n"), it.getDouble("x").toFloat(), it.getDouble("y").toFloat()) }
+            }.orEmpty()
+            return F1Track(j.getInt("season"), j.getInt("round"), points, j.getDouble("aspect").toFloat(), corners)
         }
+
+        /** A plain ring, for when a circuit's outline cannot be had: the cars still go round it in order. */
+        fun ring(): F1Track = F1Track(0, 0, (0 until 72).map { i ->
+            val a = i / 72.0 * 2 * Math.PI
+            (0.5 + 0.5 * sin(a)).toFloat() to (0.5 - 0.5 * cos(a)).toFloat()
+        }, 1f)
     }
+}
+
+/** A numbered corner of a circuit, where it is in its outline's box. */
+data class F1Corner(val number: Int, val x: Float, val y: Float)
+
+/**
+ * The outline of the circuit F1's live feed calls [key], from MultiViewer, which files outlines by
+ * season; the season before stands in when this one's is not up yet. Null when neither can be had.
+ */
+fun fetchCircuit(http: Http, key: Int, season: Int): F1Track? {
+    for (year in listOf(season, season - 1)) {
+        val body = runCatching { String(http.get("${F1Repository.MULTIVIEWER}/circuits/$key/$year")) }.getOrNull() ?: continue
+        runCatching { parseTrack(body, season, 0) }.getOrNull()?.let { return it }
+    }
+    return null
 }
 
 private fun seasonOf(race: F1Race) = race.first.start.atZone(ZoneOffset.UTC).year
@@ -314,7 +375,16 @@ internal fun parseTrack(body: String, season: Int, round: Int): F1Track? {
     val height = turned.maxOf { it.second } - top
     val side = max(width, height).takeIf { it > 0 } ?: return null
     val points = turned.map { (x, y) -> ((x - left) / side).toFloat() to ((y - top) / side).toFloat() }
-    return F1Track(season, round, points, (width / max(height, side * 0.01)).toFloat())
+    val corners = j.optJSONArray("corners")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty().mapNotNull { c ->
+        val at = c.optJSONObject("trackPosition") ?: return@mapNotNull null
+        val x = at.optDouble("x")
+        val y = at.optDouble("y")
+        if (x.isNaN() || y.isNaN()) return@mapNotNull null
+        val tx = x * cos(angle) - y * sin(angle)
+        val ty = -(x * sin(angle) + y * cos(angle))
+        F1Corner(c.optInt("number"), ((tx - left) / side).toFloat(), ((ty - top) / side).toFloat())
+    }.filter { it.number > 0 }
+    return F1Track(season, round, points, (width / max(height, side * 0.01)).toFloat(), corners)
 }
 
 private const val TRACK_POINTS = 240

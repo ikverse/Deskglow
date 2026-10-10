@@ -1,5 +1,6 @@
 package com.ikverse.deskglow.widgets
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,14 +22,24 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
+import com.ikverse.deskglow.data.F1Corner
+import com.ikverse.deskglow.data.F1Track
 import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.LiveRow
 import com.ikverse.deskglow.data.LiveSession
@@ -58,6 +70,8 @@ internal class Board(
     val next: String?,
     /** The latest news in words, when there is some and it is fresh. */
     val news: String?,
+    /** The circuit's outline, for the track map; null when there is none to be had. */
+    val track: F1Track? = null,
 ) {
     val status: Status = if (session.signalLost) {
         Status("No signal", session.signalAt?.let { "${Duration.between(it, now).toMinutes().coerceAtLeast(1)} min ago" }.orEmpty(), Muted, false)
@@ -82,6 +96,7 @@ internal fun LiveFace(b: Board, w: Float, h: Float) {
             "glance" -> GlanceFace(b, unit)
             "focus" -> FocusFace(b, unit)
             "line" -> LineFace(b, unit)
+            "track" -> TrackFace(b, w, h, unit)
             else -> TowerFace(b, w, h, unit)
         }
     }
@@ -912,4 +927,263 @@ private fun LineFace(b: Board, unit: Float) {
             }
         }
     }
+}
+
+// ---- Track map ----
+
+/** [track] turned clockwise by [degrees] (0, 90, 180 or 270), still in a box whose longer side is 1. */
+internal fun turned(track: F1Track, degrees: Int): F1Track {
+    val quarter = Math.floorMod(degrees / 90, 4)
+    if (quarter == 0) return track
+    val spanW = if (track.aspect >= 1f) 1f else track.aspect
+    val spanH = if (track.aspect >= 1f) 1f / track.aspect else 1f
+    fun turn(x: Float, y: Float): Pair<Float, Float> = when (quarter) {
+        1 -> (spanH - y) to x
+        2 -> (spanW - x) to (spanH - y)
+        else -> y to (spanW - x)
+    }
+    return track.copy(
+        points = track.points.map { (x, y) -> turn(x, y) },
+        aspect = if (quarter == 2) track.aspect else 1f / track.aspect,
+        corners = track.corners.map { c -> turn(c.x, c.y).let { (x, y) -> F1Corner(c.number, x, y) } },
+    )
+}
+
+/** Where [track] sits in a [width] by [height] box when drawn as [TrackOutline] draws it: its scale, and where a point of it lands. */
+private class MapFit(track: F1Track, width: Float, height: Float, strokeShare: Float) {
+    val stroke = (min(width, height) * strokeShare).coerceAtLeast(1.5f)
+    private val spanW = if (track.aspect >= 1f) 1f else track.aspect
+    private val spanH = if (track.aspect >= 1f) 1f / track.aspect else 1f
+    val scale = min((width - 2 * stroke) / spanW, (height - 2 * stroke) / spanH)
+    private val dx = (width - spanW * scale) / 2
+    private val dy = (height - spanH * scale) / 2
+    val centre = Offset(width / 2, height / 2)
+    fun at(point: Pair<Float, Float>) = Offset(dx + point.first * scale, dy + point.second * scale)
+}
+
+/** One car as the map draws it. */
+private class MapCar(val row: LiveRow, val where: Offset, val big: Boolean, val faded: Boolean, val named: Boolean)
+
+/**
+ * The cars on the circuit's outline, each at the last mini-sector the timing put it through and on
+ * from there at its pace; under a header with the session and the flag, with the pits (or the top 3,
+ * or the cars round the followed one) beside the map in a wide box and under it in a tall one.
+ */
+@Composable
+private fun TrackFace(b: Board, w: Float, h: Float, unit: Float) {
+    val settings = b.settings
+    val live = b.live
+    val editing = LocalEditing.current
+    val turn = settings[F1LiveWidget.TRACK_TURN]
+    val track = remember(b.track, turn) { turned(b.track ?: F1Track.ring(), turn.toIntOrNull() ?: 0) }
+    val flagShade = b.status.shade.takeIf { live && b.status.filled }
+    val border = flagShade?.takeIf { settings[F1LiveWidget.BORDER] }
+    val borderHint = editing && border == null && settings[F1LiveWidget.BORDER]
+    val inset = if (border != null || borderHint) min(w, h) * 0.035f else 0f
+    val text = Fitting.second(min(w, h) * 0.065f, unit)
+    val side = settings[F1LiveWidget.TRACK_SIDE]
+    val wide = w > h * 1.15f
+    val news = b.news.takeIf { live && settings[F1LiveWidget.NEWS] }
+    val newsSlot = editing && live && settings[F1LiveWidget.NEWS] && news == null
+
+    val frame = when {
+        border != null -> Modifier.border(pxToDp((min(w, h) * 0.008f).coerceAtLeast(1.5f)), border, RoundedCornerShape(pxToDp(inset * 1.5f))).padding(pxToDp(inset))
+        borderHint -> Modifier.border(pxToDp((min(w, h) * 0.008f).coerceAtLeast(1.5f)), Muted.copy(alpha = 0.4f), RoundedCornerShape(pxToDp(inset * 1.5f))).padding(pxToDp(inset))
+        else -> Modifier
+    }
+    Column(Modifier.fillMaxSize().then(frame)) {
+        MapHeader(b, text)
+        if (wide) {
+            Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                TrackMap(b, track, Modifier.weight(1f).fillMaxHeight(), text)
+                if (side != "none") {
+                    Spacer(Modifier.width(pxToDp(text * 0.6f)))
+                    MapSide(b, side, text, Modifier.width(pxToDp(w * 0.28f)))
+                }
+            }
+        } else {
+            TrackMap(b, track, Modifier.fillMaxWidth().weight(1f), text)
+            if (side != "none") MapSide(b, side, text, Modifier.fillMaxWidth().padding(top = pxToDp(text * 0.4f)))
+        }
+        if (news != null) {
+            Box(Modifier.fillMaxWidth().padding(top = pxToDp(text * 0.4f))) { NewsLine(news, text * 0.85f) }
+        } else if (newsSlot) {
+            Box(Modifier.fillMaxWidth().padding(top = pxToDp(text * 0.4f))) { EditorSlot("Latest news", text * 0.85f) }
+        }
+    }
+}
+
+/** The session, the live badge, and the flag as a chip with the lap or the clock beside it. */
+@Composable
+private fun MapHeader(b: Board, text: Float) {
+    val live = b.live
+    val showFlag = live && b.settings[F1LiveWidget.SHOW_FLAG]
+    Row(Modifier.fillMaxWidth().height(pxToDp(text * 1.8f)), verticalAlignment = Alignment.CenterVertically) {
+        if (live && b.started) {
+            LiveBadge(b.accent, text * 0.6f)
+            Spacer(Modifier.width(pxToDp(text * 0.4f)))
+        }
+        Text(
+            if (live) b.session.name.replace("Qualifying", "Quali").uppercase() else (if (b.phase == LivePhase.Finished) "Provisional · " else "Result · ") + b.session.meeting,
+            color = b.colour, fontSize = pxToSp(text * 0.75f), fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.weight(1f))
+        if (showFlag) {
+            if (b.status.filled) {
+                StateChip(b.status.label.uppercase(), b.status.shade, text * 0.6f)
+                Spacer(Modifier.width(pxToDp(text * 0.4f)))
+            }
+            Text(
+                b.status.detail.ifEmpty { if (b.status.filled) "" else b.status.label }, color = b.colour, fontSize = pxToSp(text * 0.75f),
+                fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false,
+            )
+        } else if (live && LocalEditing.current && b.settings[F1LiveWidget.SHOW_FLAG]) {
+            EditorSlot("Flag and clock", text * 0.7f)
+        }
+    }
+}
+
+/** The outline, and on it the start line, the corner numbers and the cars. */
+@Composable
+private fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) {
+    val settings = b.settings
+    val session = b.session
+    val strokeShare = when (settings[F1LiveWidget.TRACK_WIDTH]) { "thin" -> 0.018f; "bold" -> 0.05f; else -> 0.03f }
+    val flagShade = b.status.shade.takeIf { b.live && b.status.filled && settings[F1LiveWidget.TRACK_FLAG] }
+    val lineColour = flagShade ?: b.colour.copy(alpha = 0.28f)
+    val measurer = rememberTextMeasurer()
+    val carShare = when (settings[F1LiveWidget.CAR_SIZE]) { "small" -> 0.022f; "large" -> 0.042f; else -> 0.03f }
+    val highlight = settings[F1LiveWidget.TRACK_HIGHLIGHT]
+    val labels = settings[F1LiveWidget.TRACK_LABELS]
+    val density = LocalDensity.current
+
+    fun highlighted(r: LiveRow) = when (highlight) {
+        "driver" -> b.followed.isNotEmpty() && r.code == b.followed
+        "team" -> b.followed.isNotEmpty() && r.code == b.followed || teamMatches(b.team, r.team)
+        else -> false
+    }
+    fun named(r: LiveRow) = when (labels) {
+        "me" -> r.code == b.followed
+        "leader" -> r.code == b.followed || r.position == 1
+        "top3" -> r.position <= 3
+        "all" -> true
+        else -> false
+    }
+    val dim = settings[F1LiveWidget.TRACK_DIM] && session.rows.any(::highlighted)
+    val lapMs = session.typicalLapMs
+    // Only cars out on the circuit, and only while the timing is still hearing from them.
+    val running = if (!b.live) emptyList() else session.rows.filter { r ->
+        val spot = r.spot
+        spot != null && !r.inPit && !r.out && !r.knockedOut && Duration.between(spot.at, b.now) < Duration.ofMillis(lapMs * 2)
+    }
+    val cornerStyle = TextStyle(color = Muted, fontSize = with(density) { (text * 0.55f).toSp() })
+
+    Box(modifier) {
+        TrackOutline(track, lineColour, Modifier.fillMaxSize(), strokeShare)
+        Canvas(Modifier.fillMaxSize()) {
+            val fit = MapFit(track, size.width, size.height, strokeShare)
+            if (fit.scale <= 0f) return@Canvas
+            if (settings[F1LiveWidget.START_LINE]) {
+                val start = fit.at(track.pointAt(0f))
+                val ahead = fit.at(track.pointAt(0.005f))
+                val along = (ahead - start).let { d -> d / d.getDistance().coerceAtLeast(0.001f) }
+                val across = Offset(-along.y, along.x) * (fit.stroke * 1.8f)
+                drawLine(b.colour, start - across, start + across, strokeWidth = (fit.stroke * 0.45f).coerceAtLeast(1f), cap = StrokeCap.Round)
+            }
+            if (settings[F1LiveWidget.CORNERS]) {
+                track.corners.forEach { c ->
+                    val at = fit.at(c.x to c.y)
+                    val out = (at - fit.centre).let { d -> d / d.getDistance().coerceAtLeast(0.001f) } * (fit.stroke * 2.6f)
+                    val laid = measurer.measure(c.number.toString(), cornerStyle)
+                    drawText(laid, topLeft = at + out - Offset(laid.size.width / 2f, laid.size.height / 2f))
+                }
+            }
+            val radius = min(size.width, size.height) * carShare
+            val cars = running.mapNotNull { r ->
+                val fraction = r.lapFraction(b.now, r.lastLapMs ?: lapMs) ?: return@mapNotNull null
+                val big = highlighted(r)
+                MapCar(r, fit.at(track.pointAt(fraction)), big, dim && !big, named(r))
+            }.sortedWith(compareBy({ it.big }, { -it.row.position }))
+            cars.forEach { car ->
+                val r = if (car.big) radius * 1.45f else radius
+                val alpha = if (car.faded) 0.3f else 1f
+                drawCircle(Color.Black.copy(alpha = alpha), r * 1.25f, car.where)
+                drawCircle(Color(car.row.teamColour ?: 0xFF8C8C8C).copy(alpha = alpha), r, car.where)
+                if (car.big) drawCircle(b.colour.copy(alpha = 0.9f * alpha), r * 1.25f, car.where, style = Stroke(width = (r * 0.18f).coerceAtLeast(1f)))
+            }
+            cars.filter { it.named }.forEach { car ->
+                val me = car.row.code == b.followed
+                val style = TextStyle(
+                    color = (if (me) b.accent else b.colour).copy(alpha = if (car.faded) 0.45f else 1f),
+                    fontSize = (text * (if (labels == "all") 0.6f else 0.75f)).toSp(), fontWeight = if (me) FontWeight.Bold else FontWeight.Medium,
+                )
+                val laid = measurer.measure(driverName(car.row, b.names), style)
+                val r = if (car.big) radius * 1.45f else radius
+                drawText(laid, topLeft = car.where + Offset(r * 1.3f, -r * 1.1f - laid.size.height / 2f))
+            }
+        }
+        if (b.live && running.isEmpty()) {
+            Text(
+                if (session.rows.isEmpty()) "Waiting for the timing" else "Cars show once they are out on track", color = Muted, fontSize = pxToSp(text * 0.7f),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+    }
+}
+
+/** Beside the map: the cars in the pits and out, the top 3, or the cars either side of the followed one. */
+@Composable
+private fun MapSide(b: Board, side: String, text: Float, modifier: Modifier) {
+    val session = b.session
+    val px = text * 0.8f
+    Column(modifier, verticalArrangement = Arrangement.Center) {
+        when (side) {
+            "top3" -> session.rows.take(3).forEachIndexed { i, r -> MapRow(b, r, if (i == 0) (if (session.isRace) "" else r.gap) else gapText(r.gap), px) }
+            "around" -> {
+                val me = b.me
+                if (me == null) EditorSlot("Around my driver", px)
+                else {
+                    session.rows.firstOrNull { it.position == me.position - 1 }?.let { MapRow(b, it, "", px) }
+                    MapRow(b, me, if (session.isRace && me.position > 1) gapText(me.interval) else "", px)
+                    session.rows.firstOrNull { it.position == me.position + 1 }?.let { MapRow(b, it, gapText(it.interval), px) }
+                }
+            }
+            else -> {
+                val pit = if (b.live) session.rows.filter { it.inPit && !it.out } else emptyList()
+                val out = session.rows.filter { it.out }
+                if (pit.isEmpty() && out.isEmpty()) EditorSlot("Pit and out", px)
+                if (pit.isNotEmpty()) MapList("In pit", pit, b, px)
+                if (out.isNotEmpty()) MapList("Out", out, b, px)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapRow(b: Board, r: LiveRow, trailing: String, px: Float) {
+    val me = r.code == b.followed
+    Row(Modifier.fillMaxWidth().padding(vertical = pxToDp(px * 0.15f)), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "${r.position}", color = Muted, fontSize = pxToSp(px * 0.85f), maxLines = 1, softWrap = false, textAlign = TextAlign.End,
+            modifier = Modifier.width(pxToDp(px * 1.3f)),
+        )
+        Spacer(Modifier.width(pxToDp(px * 0.4f)))
+        TeamBar(r.teamColour, false, px * 0.2f, px * 0.95f)
+        Spacer(Modifier.width(pxToDp(px * 0.4f)))
+        Text(
+            driverName(r, b.names), color = if (me) b.accent else b.colour, fontSize = pxToSp(px), fontWeight = if (me) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+        )
+        if (trailing.isNotEmpty()) {
+            Spacer(Modifier.weight(1f))
+            Text(trailing, color = Muted, fontSize = pxToSp(px * 0.85f), maxLines = 1, softWrap = false)
+        }
+    }
+}
+
+@Composable
+private fun MapList(title: String, rows: List<LiveRow>, b: Board, px: Float) {
+    Text(title, color = Muted, fontSize = pxToSp(px * 0.75f), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = pxToDp(px * 0.3f)))
+    Text(rows.joinToString(" ") { driverName(it, b.names) }, color = b.colour, fontSize = pxToSp(px), maxLines = 2, overflow = TextOverflow.Ellipsis)
 }

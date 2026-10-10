@@ -354,20 +354,23 @@ class F1LiveTest {
     // ---- what is thrown away on arrival ----
 
     @Test
-    fun `mini-sectors and speed traps are dropped as they arrive, and a message with nothing else is ignored`() {
+    fun `of the mini-sectors only whether each is timed is kept, speed traps are dropped, and a message with nothing else is ignored`() {
         val timing = LiveTiming()
         val full = json(
-            """{"Withheld":false,"Lines":{"1":{"Position":"1","RacingNumber":"1","Line":1,"Sectors":[{"Segments":[{"Status":2064}]}],"Speeds":{"I1":{"Value":"300"}},"LastLapTime":{"Value":"1:33.000","Status":2049,"OverallFastest":true}}}}""",
+            """{"Withheld":false,"Lines":{"1":{"Position":"1","RacingNumber":"1","Line":1,"Sectors":[{"Value":"28.1","PersonalFastest":true,"Segments":[{"Status":2064}]}],"Speeds":{"I1":{"Value":"300"}},"LastLapTime":{"Value":"1:33.000","Status":2049,"OverallFastest":true}}}}""",
         )
         assertTrue(timing.apply(LiveMessage("TimingData", full, full = true)))
         val line = full.getJSONObject("Lines").getJSONObject("1")
-        assertFalse(line.has("Sectors"))
+        val sector = line.getJSONArray("Sectors").getJSONObject(0)
+        assertEquals(listOf("Segments"), sector.keys().asSequence().toList())
+        assertEquals(2064, sector.getJSONArray("Segments").getJSONObject(0).getInt("Status"))
         assertFalse(line.has("Speeds"))
         assertFalse(line.has("RacingNumber"))
         assertFalse(line.getJSONObject("LastLapTime").has("Status"))
         assertEquals("1:33.000", line.getJSONObject("LastLapTime").getString("Value"))
-        // A change with only mini-sectors in it is nothing to redraw.
-        assertFalse(timing.apply(LiveMessage("TimingData", json("""{"Lines":{"1":{"Sectors":{"0":{"Segments":{"0":{"Status":2048}}}}}}}"""), full = false)))
+        // A car timed through a mini-sector has moved on the map.
+        assertTrue(timing.apply(LiveMessage("TimingData", json("""{"Lines":{"1":{"Sectors":{"0":{"Segments":{"0":{"Status":2048}}}}}}}"""), full = false)))
+        assertFalse(timing.apply(LiveMessage("TimingData", json("""{"Lines":{"1":{"Sectors":{"0":{"PersonalFastest":false}}}}}"""), full = false)))
         assertFalse(timing.apply(LiveMessage("Heartbeat", json("""{"Utc":"2026-10-10T09:06:07Z"}"""), full = false)))
         assertFalse(timing.apply(LiveMessage("DriverList", json("""{"1":{"Line":3}}"""), full = false)))
         assertTrue(timing.apply(LiveMessage("TimingData", json("""{"Lines":{"1":{"Position":"2","Sectors":{"0":{"Value":"28.1"}}}}}"""), full = false)))

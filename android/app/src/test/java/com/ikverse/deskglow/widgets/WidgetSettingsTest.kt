@@ -219,6 +219,30 @@ class WidgetSettingsTest {
     }
 
     @Test
+    fun `the track map's own choices show only with the track map, and the tower's tyres and gains leave with it`() {
+        val tower = F1LiveWidget.fields(F1LiveWidget.defaults)
+        val map = F1LiveWidget.fields(F1LiveWidget.defaults.with(F1LiveWidget.LAYOUT, "track"))
+        val layout = tower.filterIsInstance<LayoutField>().single()
+        assertTrue("track" in layout.options.map { it.first })
+        val own = listOf("Car labels", "Highlight", "Dim other cars", "Car size", "Track width", "Turn the map", "Beside the map")
+        own.forEach { label ->
+            assertTrue(label, map.any { it.label == label })
+            assertTrue(label, tower.none { it.label == label })
+        }
+        val show = map.filterIsInstance<ShowField>().single().items.map { it.second }
+        assertEquals(listOf("Flag and clock", "Flag border", "Latest news", "Start line", "Corner numbers", "Track in flag colour"), show)
+        assertTrue("Tyres" in tower.filterIsInstance<ShowField>().single().items.map { it.second })
+        val defaults = F1LiveWidget.resolve(Settings())
+        assertEquals("me", defaults[F1LiveWidget.TRACK_LABELS])
+        assertEquals("driver", defaults[F1LiveWidget.TRACK_HIGHLIGHT])
+        assertEquals("pit", defaults[F1LiveWidget.TRACK_SIDE])
+        assertEquals("0", defaults[F1LiveWidget.TRACK_TURN])
+        assertEquals(true, defaults[F1LiveWidget.START_LINE])
+        assertEquals(false, defaults[F1LiveWidget.CORNERS])
+        assertEquals(true, defaults[F1LiveWidget.TRACK_FLAG])
+    }
+
+    @Test
     fun `the moon's phase is worked out to within a few hours of the real ones`() {
         fun near(expected: Double, at: String) {
             val phase = Moon.phase(java.time.Instant.parse(at))
