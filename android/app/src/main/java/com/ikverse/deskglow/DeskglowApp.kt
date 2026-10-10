@@ -123,6 +123,19 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
         prefs.setLastPage(orientation, (if (last > page) last - 1 else last).coerceAtMost(count - 2))
     }
 
+    /**
+     * Moves screen [from] of one orientation to position [to]; the screens between the two each shift by one.
+     * The remembered screen follows its content. Anything out of range, or a move to the same place, does nothing.
+     */
+    fun movePage(orientation: Orientation, from: Int, to: Int) {
+        val count = prefs.pageCount(orientation).value
+        if (from == to || from !in 0 until count || to !in 0 until count) return
+        val layouts = (0 until count).map { layoutsFor(orientation, it).layout.value }.toMutableList()
+        layouts.add(to, layouts.removeAt(from))
+        layouts.forEachIndexed { i, layout -> layoutsFor(orientation, i).update(layout) }
+        prefs.setLastPage(orientation, pageAfterMove(prefs.lastPage(orientation), from, to))
+    }
+
     /** Named pairs of layouts the user saved, one file each. */
     val snapshots by lazy { SnapshotRepository(File(app.filesDir, "snapshots")) }
     private val locationFinder = LocationFinder(app)
@@ -133,6 +146,14 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     val fontLibrary = FontLibrary(app, prefs, http)
     val fonts = FontResolver(app, fontLibrary)
     val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather, prayer, f1, f1Live)
+}
+
+/** Where the screen at [page] ends up when screen [from] is moved to [to]: the moved one lands on [to], those it passes shift by one. */
+fun pageAfterMove(page: Int, from: Int, to: Int): Int = when {
+    page == from -> to
+    from < to && page in from + 1..to -> page - 1
+    to < from && page in to until from -> page + 1
+    else -> page
 }
 
 /**

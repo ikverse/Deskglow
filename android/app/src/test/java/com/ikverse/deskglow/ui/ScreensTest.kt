@@ -19,6 +19,7 @@ import com.ikverse.deskglow.FakeFontsHttp
 import com.ikverse.deskglow.display.LiveDisplay
 import com.ikverse.deskglow.graph
 import com.ikverse.deskglow.model.Box
+import com.ikverse.deskglow.pageAfterMove
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
@@ -101,6 +102,80 @@ class ScreensTest {
         graph.deletePage(portrait, 1)
         graph.deletePage(portrait, 0)
         assertEquals(1, graph.prefs.pageCount(portrait).value)
+    }
+
+    /** Three screens that differ from each other: the stock layout, then the first two of its widgets, then the first. */
+    private fun threeDistinctScreens(): List<Layout> {
+        val stock = graph.layouts.layout.value
+        graph.addPage(portrait)
+        graph.addPage(portrait)
+        graph.layoutsFor(portrait, 1).update(Layout(stock.items.take(2)))
+        graph.layoutsFor(portrait, 2).update(Layout(stock.items.take(1)))
+        return graph.pagesOf(portrait)
+    }
+
+    @Test
+    fun `moving a screen later puts it there, and the ones it passes each shift up`() {
+        val (a, b, c) = threeDistinctScreens()
+        graph.movePage(portrait, 0, 2)
+        assertEquals(listOf(b, c, a), graph.pagesOf(portrait))
+    }
+
+    @Test
+    fun `moving a screen earlier puts it there, and the ones it passes each shift down`() {
+        val (a, b, c) = threeDistinctScreens()
+        graph.movePage(portrait, 2, 0)
+        assertEquals(listOf(c, a, b), graph.pagesOf(portrait))
+        graph.movePage(portrait, 1, 2)
+        assertEquals(listOf(c, b, a), graph.pagesOf(portrait))
+    }
+
+    @Test
+    fun `moving a screen to the place it is in, or to one that does not exist, changes nothing`() {
+        val screens = threeDistinctScreens()
+        graph.movePage(portrait, 1, 1)
+        graph.movePage(portrait, 0, 3)
+        graph.movePage(portrait, -1, 1)
+        graph.movePage(portrait, 5, 0)
+        assertEquals(screens, graph.pagesOf(portrait))
+        assertEquals(3, graph.prefs.pageCount(portrait).value)
+    }
+
+    @Test
+    fun `moving the screens of one orientation leaves the other alone`() {
+        threeDistinctScreens()
+        graph.addPage(landscape, copyOf = 0)
+        val landscapeScreens = graph.pagesOf(landscape)
+        graph.movePage(portrait, 0, 2)
+        assertEquals(landscapeScreens, graph.pagesOf(landscape))
+    }
+
+    @Test
+    fun `the remembered screen follows its content when screens are moved`() {
+        threeDistinctScreens()
+        graph.prefs.setLastPage(portrait, 1)
+        graph.movePage(portrait, 0, 2)
+        assertEquals(0, graph.prefs.lastPage(portrait))
+        graph.movePage(portrait, 0, 1)
+        assertEquals(1, graph.prefs.lastPage(portrait))
+        graph.movePage(portrait, 1, 2)
+        assertEquals(2, graph.prefs.lastPage(portrait))
+        graph.prefs.setLastPage(portrait, 1)
+        graph.movePage(portrait, 2, 0)
+        assertEquals(2, graph.prefs.lastPage(portrait))
+    }
+
+    @Test
+    fun `a screen's new place is the moved one's target, and the ones it passes shift by one`() {
+        assertEquals(3, pageAfterMove(1, from = 1, to = 3))
+        assertEquals(1, pageAfterMove(2, from = 1, to = 3))
+        assertEquals(2, pageAfterMove(3, from = 1, to = 3))
+        assertEquals(0, pageAfterMove(0, from = 1, to = 3))
+        assertEquals(4, pageAfterMove(4, from = 1, to = 3))
+        assertEquals(1, pageAfterMove(3, from = 3, to = 1))
+        assertEquals(3, pageAfterMove(2, from = 3, to = 1))
+        assertEquals(2, pageAfterMove(1, from = 3, to = 1))
+        assertEquals(0, pageAfterMove(0, from = 3, to = 1))
     }
 
     @Test

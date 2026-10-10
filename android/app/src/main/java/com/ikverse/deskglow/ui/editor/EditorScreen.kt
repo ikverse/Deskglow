@@ -8,6 +8,7 @@ import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -20,6 +21,7 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +53,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,6 +66,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -99,12 +103,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.display.WidgetBody
@@ -113,6 +120,7 @@ import com.ikverse.deskglow.layout.Corner
 import com.ikverse.deskglow.layout.other
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
+import com.ikverse.deskglow.pageAfterMove
 import com.ikverse.deskglow.store.MAX_PAGES
 import com.ikverse.deskglow.ui.Chip
 import com.ikverse.deskglow.ui.EaseOutStrong
@@ -158,6 +166,11 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
         onSelect = { requestedPage = it },
         onAdd = { if (pageCount < MAX_PAGES) addingPage = true },
         onDelete = { deletingPage = true },
+        // The editor stays on the screen it was showing, wherever that screen ends up.
+        onMove = { from, to ->
+            graph.movePage(orientation, from, to)
+            requestedPage = pageAfterMove(page, from, to)
+        },
     )
     HoldOrientation(orientation)
     val view = LocalView.current
@@ -283,13 +296,14 @@ private fun LandscapeEditor(state: EditorState, graph: AppGraph, pages: PageActi
     }
 }
 
-/** What the screen switcher shows and does: which screen is open, and how to switch, add or delete one. */
+/** What the screen switcher shows and does: which screen is open, and how to switch, add, delete or move one. */
 private class PageActions(
     val count: Int,
     val current: Int,
     val onSelect: (Int) -> Unit,
     val onAdd: () -> Unit,
     val onDelete: () -> Unit,
+    val onMove: (from: Int, to: Int) -> Unit,
 )
 
 /**
@@ -711,7 +725,7 @@ private fun TopBar(state: EditorState, pages: PageActions, onDone: () -> Unit, o
     }
 }
 
-/** "Portrait · Screen 1 ▾": tap for the list of screens, and to add or delete one. */
+/** "Portrait · Screen 1 ▾": tap for the list of screens, to put them in another order, and to add or delete one. */
 @Composable
 private fun ScreenSwitcher(state: EditorState, pages: PageActions) {
     var open by remember { mutableStateOf(false) }
@@ -733,14 +747,7 @@ private fun ScreenSwitcher(state: EditorState, pages: PageActions) {
             GlyphIcon(Glyph.ChevronDown, tint = Palette.Muted, size = 16.dp, weight = 2.2f)
         }
         DropdownMenu(open, { open = false }, containerColor = Palette.Raised) {
-            for (i in 0 until pages.count) {
-                DropdownMenuItem(
-                    text = { Text("Screen ${i + 1}", color = if (i == pages.current) Palette.Select else Palette.Ink) },
-                    onClick = { open = false; pages.onSelect(i) },
-                    leadingIcon = { if (i == pages.current) GlyphIcon(Glyph.Check, tint = Palette.Select, size = 18.dp, weight = 2.2f) else Spacer(Modifier.size(18.dp)) },
-                    modifier = Modifier.testTag("screen ${i + 1}"),
-                )
-            }
+            ScreenRows(state, pages) { open = false; pages.onSelect(it) }
             HorizontalDivider(color = Palette.Rule)
             if (pages.count < MAX_PAGES) {
                 DropdownMenuItem(
@@ -759,6 +766,107 @@ private fun ScreenSwitcher(state: EditorState, pages: PageActions) {
                 )
             }
         }
+    }
+}
+
+private val SCREEN_ROW = 48.dp
+
+/**
+ * The list of screens. Tap one to open it; hold one and drag it up or down to put it somewhere else in
+ * the order. The others slide out of the way as it passes, and the screens are only rewritten when it is
+ * let go. While it is held every row is numbered by the place it would take, so the list reads as it will.
+ */
+@Composable
+private fun ScreenRows(state: EditorState, pages: PageActions, onPick: (Int) -> Unit) {
+    val rowPx = with(LocalDensity.current) { SCREEN_ROW.toPx() }
+    val latest by rememberUpdatedState(pages)
+    var held by remember { mutableIntStateOf(-1) }
+    var drag by remember { mutableFloatStateOf(0f) }
+    // The place the held screen would take if it were let go with the finger [dragged] px from where it started.
+    fun slotAt(dragged: Float) = (held + (dragged / rowPx).roundToInt()).coerceIn(0, latest.count - 1)
+    val target = if (held < 0) -1 else slotAt(drag)
+    for (i in 0 until pages.count) {
+        val lifted = i == held
+        val slot = if (held < 0) i else pageAfterMove(i, held, target)
+        ScreenRow(
+            number = slot + 1,
+            current = i == pages.current,
+            lifted = lifted,
+            offset = if (lifted) drag.coerceIn(-held * rowPx, (pages.count - 1 - held) * rowPx) else (slot - i) * rowPx,
+            sliding = held >= 0,
+            tag = "screen ${i + 1}",
+            onTap = { onPick(i) },
+            onLift = { held = i; drag = 0f; state.haptic(Haptic.Centre) },
+            onDrag = { dy ->
+                val before = slotAt(drag)
+                drag += dy
+                if (slotAt(drag) != before) state.haptic(Haptic.Step)
+            },
+            onDrop = {
+                val from = held
+                val to = slotAt(drag)
+                held = -1
+                drag = 0f
+                if (from >= 0 && to != from) latest.onMove(from, to)
+            },
+            onCancel = { held = -1; drag = 0f },
+        )
+    }
+}
+
+/** One screen in the list: its number, a tick if it is the one being edited, and the hold-to-drag gesture. */
+@Composable
+private fun ScreenRow(
+    number: Int,
+    current: Boolean,
+    lifted: Boolean,
+    /** How far the row is drawn from its place: where the finger has taken it when held, or one row out of the way. */
+    offset: Float,
+    /** Whether rows animate to their offsets: while a screen is held, but not when it is let go and the list takes its new order. */
+    sliding: Boolean,
+    tag: String,
+    onTap: () -> Unit,
+    onLift: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDrop: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val tap by rememberUpdatedState(onTap)
+    val lift by rememberUpdatedState(onLift)
+    val dragBy by rememberUpdatedState(onDrag)
+    val drop by rememberUpdatedState(onDrop)
+    val cancel by rememberUpdatedState(onCancel)
+    val slid by animateFloatAsState(offset, if (sliding) tween(150, easing = EaseOutStrong) else snap(), label = "screen row slide")
+    val scale by animateFloatAsState(if (lifted) 1.04f else 1f, tween(120, easing = EaseOutStrong), label = "screen row lift")
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .zIndex(if (lifted) 1f else 0f)
+            .graphicsLayer { translationY = if (lifted) offset else slid; scaleX = scale; scaleY = scale }
+            .then(if (lifted) Modifier.clip(shape).background(Palette.Edge).border(1.dp, Palette.EdgeStrong, shape) else Modifier)
+            .height(SCREEN_ROW)
+            .padding(horizontal = 12.dp)
+            // A hold that is let go without moving is not a tap, so the empty long-press keeps it from opening the screen.
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { }, onTap = { tap() }) }
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { lift() },
+                    onDrag = { change, amount -> change.consume(); dragBy(amount.y) },
+                    onDragEnd = { drop() },
+                    onDragCancel = { cancel() },
+                )
+            }
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                onClick(label = "Open screen $number") { tap(); true }
+            }
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(18.dp)) { if (current) GlyphIcon(Glyph.Check, tint = Palette.Select, size = 18.dp, weight = 2.2f) }
+        Spacer(Modifier.width(12.dp))
+        Text("Screen $number", color = if (current) Palette.Select else Palette.Ink, style = MaterialTheme.typography.bodyLarge)
     }
 }
 

@@ -309,6 +309,74 @@ class EditorScreenTest {
         assertEquals(1, graph.prefs.pageCount(Orientation.Portrait).value)
     }
 
+    /** Three different screens, with the editor on the first. */
+    private fun threeScreens(): List<Layout> {
+        val stock = layout
+        graph.addPage(Orientation.Portrait)
+        graph.addPage(Orientation.Portrait)
+        graph.layoutsFor(Orientation.Portrait, 1).update(Layout(stock.items.take(2)))
+        graph.layoutsFor(Orientation.Portrait, 2).update(Layout(stock.items.take(1)))
+        compose.waitForIdle()
+        return graph.pagesOf(Orientation.Portrait)
+    }
+
+    @Test
+    fun `holding a screen in the switcher and dragging it down puts it later in the order, and the editor stays on it`() {
+        val (a, b, c) = threeScreens()
+        val row = with(compose.density) { 48.dp.toPx() }
+        compose.onNodeWithTag("screens").performClick()
+        compose.onNodeWithTag("screen 1").performTouchInput {
+            down(center)
+            advanceEventTime(800) // past the hold
+            moveBy(Offset(0f, 2 * row))
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals(listOf(b, c, a), graph.pagesOf(Orientation.Portrait))
+        compose.onNodeWithText("Portrait · Screen 3").assertIsDisplayed()
+    }
+
+    @Test
+    fun `dragging a screen up moves it earlier, and a drag too short to pass its neighbour changes nothing`() {
+        val (a, b, c) = threeScreens()
+        val row = with(compose.density) { 48.dp.toPx() }
+        compose.onNodeWithTag("screens").performClick()
+        compose.onNodeWithTag("screen 3").performTouchInput {
+            down(center)
+            advanceEventTime(800)
+            moveBy(Offset(0f, -0.4f * row))
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals(listOf(a, b, c), graph.pagesOf(Orientation.Portrait))
+        compose.onNodeWithTag("screen 3").performTouchInput {
+            down(center)
+            advanceEventTime(800)
+            moveBy(Offset(0f, -1 * row))
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals(listOf(a, c, b), graph.pagesOf(Orientation.Portrait))
+        // The editor was on the first screen, which did not move.
+        compose.onNodeWithText("Portrait · Screen 1").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a tap on a screen in the switcher still opens it, and a hold let go in place does not`() {
+        threeScreens()
+        compose.onNodeWithTag("screens").performClick()
+        compose.onNodeWithTag("screen 2").performTouchInput {
+            down(center)
+            advanceEventTime(800)
+            up()
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Portrait · Screen 1").assertIsDisplayed()
+        compose.onNodeWithTag("screen 2").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Portrait · Screen 2").assertIsDisplayed()
+    }
+
     @Test
     fun `the pill's duplicate copies the widget, and Undo takes the copy away`() {
         val before = layout
