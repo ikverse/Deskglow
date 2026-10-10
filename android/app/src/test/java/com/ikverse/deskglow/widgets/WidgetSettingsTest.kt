@@ -257,4 +257,22 @@ class WidgetSettingsTest {
         assertEquals("3 PM", hourLabel(LocalDateTime.of(2026, 10, 10, 15, 0), h24 = false))
         assertEquals("15", hourLabel(LocalDateTime.of(2026, 10, 10, 15, 0), h24 = true))
     }
+
+    @Test
+    fun `the stat can show the charger, the health and the charge cycles`() {
+        val battery = BatteryState(80, ChargeStatus.Charging, true, 4100, 335, 500, null, plugSource = 2, healthCode = 2, cycles = 212)
+        assertEquals(Triple("USB", "", "Charger"), StatWidget.reading("charger", battery))
+        assertEquals(Triple("Good", "", "Health"), StatWidget.reading("health", battery))
+        assertEquals(Triple("212", "", "Cycles"), StatWidget.reading("cycles", battery))
+        assertEquals("—", StatWidget.reading("cycles", battery.copy(cycles = null)).first)
+        assertEquals("Wireless", StatWidget.chargerName(4))
+        assertEquals("Wall", StatWidget.chargerName(1))
+        assertEquals("Dock", StatWidget.chargerName(8))
+        assertEquals("None", StatWidget.chargerName(0))
+        assertEquals("Hot", StatWidget.healthName(3))
+        assertEquals("Cold", StatWidget.healthName(7))
+        assertEquals("—", StatWidget.healthName(0))
+        val metrics = StatWidget.fields(StatWidget.defaults).filterIsInstance<ChoiceField>().single { it.label == "Shows" }.options.map { it.first }
+        assertTrue(metrics.containsAll(listOf("charger", "health", "cycles")))
+    }
 }

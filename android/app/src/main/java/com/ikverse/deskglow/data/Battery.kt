@@ -80,6 +80,9 @@ internal fun batteryState(intent: Intent, rawCurrent: Int, timeToFullMs: Long): 
         temperatureTenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0),
         currentMa = normaliseCurrent(rawCurrent),
         timeToFullMs = timeToFullMs.takeIf { it > 0 && status == ChargeStatus.Charging },
+        plugSource = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0),
+        healthCode = intent.getIntExtra(BatteryManager.EXTRA_HEALTH, 0),
+        cycles = intent.getIntExtra("android.os.extra.CYCLE_COUNT", -1).takeIf { it >= 0 },
     )
 }
 

@@ -48,6 +48,12 @@ data class BatteryState(
     val currentMa: Int? = null,
     /** Time until full in ms while charging; null when Android does not know. */
     val timeToFullMs: Long? = null,
+    /** Android's code for what the phone is plugged into: 0 nothing, 1 wall, 2 USB, 4 wireless, 8 dock. */
+    val plugSource: Int = 0,
+    /** Android's battery health code: 2 good, 3 overheated, 4 dead, 5 over voltage, 6 failure, 7 cold. */
+    val healthCode: Int = 0,
+    /** Charge cycles, from phones that report them (Android 14 and later); null otherwise. */
+    val cycles: Int? = null,
 ) {
     val temperatureC: Double get() = temperatureTenths / 10.0
     val volts: Double get() = voltageMv / 1000.0
@@ -55,7 +61,7 @@ data class BatteryState(
 }
 
 /** One app with unread notifications, and its small status-bar icon. */
-data class NotifiedApp(val packageName: String, val icon: ImageBitmap?)
+data class NotifiedApp(val packageName: String, val icon: ImageBitmap?, /** How many notifications the app has up. */ val count: Int = 1)
 
 sealed interface NotificationState {
     data object NoAccess : NotificationState

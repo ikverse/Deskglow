@@ -42,6 +42,7 @@ object StatWidget : WidgetType {
     private val METRICS = listOf(
         "temp" to "Temperature", "voltage" to "Voltage", "power" to "Power",
         "current" to "Current", "time" to "Time to full", "level" to "Battery level",
+        "charger" to "Charger", "health" to "Battery health", "cycles" to "Charge cycles",
     )
 
     override val id = "stat"
@@ -69,7 +70,30 @@ object StatWidget : WidgetType {
         "current" -> Triple(battery.currentMa?.toString() ?: "—", "mA", "Current")
         "level" -> Triple(battery.level.toString(), "%", "Battery")
         "time" -> Triple(timeToFull(battery), "", "To full")
+        "charger" -> Triple(chargerName(battery.plugSource), "", "Charger")
+        "health" -> Triple(healthName(battery.healthCode), "", "Health")
+        "cycles" -> Triple(battery.cycles?.toString() ?: "—", "", "Cycles")
         else -> Triple(String.format(Locale.US, "%.1f", battery.temperatureC), "°C", "Temp")
+    }
+
+    /** What the phone is plugged into: "Wall", "USB", "Wireless", "Dock" or "None". */
+    fun chargerName(plugSource: Int): String = when {
+        plugSource and 4 != 0 -> "Wireless"
+        plugSource and 8 != 0 -> "Dock"
+        plugSource and 2 != 0 -> "USB"
+        plugSource and 1 != 0 -> "Wall"
+        else -> "None"
+    }
+
+    /** The battery's health in a word, or a dash where the phone does not say. */
+    fun healthName(code: Int): String = when (code) {
+        2 -> "Good"
+        3 -> "Hot"
+        4 -> "Dead"
+        5 -> "Over volt"
+        6 -> "Fault"
+        7 -> "Cold"
+        else -> "—"
     }
 
     private fun timeToFull(battery: BatteryState): String {
