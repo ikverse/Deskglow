@@ -28,7 +28,7 @@ fun hasCalendarAccess(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
 /** One calendar entry as stored: times in ms; all-day entries are kept in UTC by Android. */
-data class CalendarEntry(val title: String, val beginMs: Long, val endMs: Long, val allDay: Boolean)
+data class CalendarEntry(val title: String, val beginMs: Long, val endMs: Long, val allDay: Boolean, val colour: Int? = null, val location: String = "")
 
 /**
  * The next calendar event. Looked up when the screen appears, again whenever the calendar changes,
@@ -78,6 +78,8 @@ private fun query(context: Context, now: Long): List<CalendarEntry> {
         CalendarContract.Instances.BEGIN,
         CalendarContract.Instances.END,
         CalendarContract.Instances.ALL_DAY,
+        CalendarContract.Instances.CALENDAR_COLOR,
+        CalendarContract.Instances.EVENT_LOCATION,
     )
     val entries = ArrayList<CalendarEntry>()
     context.contentResolver.query(
@@ -89,15 +91,21 @@ private fun query(context: Context, now: Long): List<CalendarEntry> {
                 beginMs = cursor.getLong(1),
                 endMs = cursor.getLong(2),
                 allDay = cursor.getInt(3) == 1,
+                colour = if (cursor.isNull(4)) null else cursor.getInt(4) or 0xFF000000.toInt(),
+                location = cursor.getString(5).orEmpty().trim(),
             )
         }
     }
     return entries
 }
 
+/** How many events after the first an agenda can use. */
+private const val MAX_LATER = 4
+
 /**
  * The event to show: the earliest timed event that has not ended, or failing that the earliest
- * all-day one that has not ended. All-day entries are stored at UTC midnights and are read as dates.
+ * all-day one that has not ended; with the ones after it, timed before all-day, for an agenda.
+ * All-day entries are stored at UTC midnights and are read as dates.
  */
 internal fun nextEvent(entries: List<CalendarEntry>, nowMs: Long, zone: ZoneId): EventState {
     fun local(ms: Long, allDay: Boolean): LocalDateTime =
@@ -105,8 +113,11 @@ internal fun nextEvent(entries: List<CalendarEntry>, nowMs: Long, zone: ZoneId):
         else LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone)
 
     val nowLocal = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
-    val timed = entries.filter { !it.allDay && it.endMs > nowMs }.minByOrNull { it.beginMs }
-    val allDay = entries.filter { it.allDay && local(it.endMs, true) > nowLocal }.minByOrNull { it.beginMs }
-    val pick = timed ?: allDay ?: return EventState.None
-    return EventState.Next(pick.title, local(pick.beginMs, pick.allDay), local(pick.endMs, pick.allDay), pick.allDay)
+    val timed = entries.filter { !it.allDay && it.endMs > nowMs }.sortedBy { it.beginMs }
+    val allDay = entries.filter { it.allDay && local(it.endMs, true) > nowLocal }.sortedBy { it.beginMs }
+    val ordered = timed + allDay
+    fun event(e: CalendarEntry, later: List<EventState.Next> = emptyList()) =
+        EventState.Next(e.title, local(e.beginMs, e.allDay), local(e.endMs, e.allDay), e.allDay, e.colour, e.location, later)
+    val first = ordered.firstOrNull() ?: return EventState.None
+    return event(first, ordered.drop(1).take(MAX_LATER).map { event(it) })
 }

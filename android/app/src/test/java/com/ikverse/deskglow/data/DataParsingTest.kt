@@ -609,4 +609,30 @@ class DataParsingTest {
         )
         assertNull(without.sunrise)
     }
+
+    @Test
+    fun `the agenda lists the events after the first, timed before all-day, with colour and place`() {
+        val zone = ZoneOffset.UTC
+        val now = LocalDateTime.of(2026, 10, 7, 20, 5).toInstant(zone).toEpochMilli()
+        fun ms(h: Int, d: Int = 7) = LocalDateTime.of(2026, 10, d, h, 0).toInstant(zone).toEpochMilli()
+        val entries = listOf(
+            CalendarEntry("Dentist", ms(9, 8), ms(10, 8), false, 0xFF4285F4.toInt(), "Maadi"),
+            CalendarEntry("Team call", ms(20), ms(21), false, 0xFF0B8043.toInt(), ""),
+            CalendarEntry("Holiday", ms(0, 8), ms(0, 9), true, null, ""),
+            CalendarEntry("Gym", ms(7, 8), ms(8, 8), false),
+            CalendarEntry("Old", ms(8), ms(9), false),
+        )
+        val first = nextEvent(entries, now, zone) as EventState.Next
+        // The one under way first, as the single-event layout always showed.
+        assertEquals("Team call", first.title)
+        assertEquals(0xFF0B8043.toInt(), first.colour)
+        assertEquals(listOf("Gym", "Dentist", "Holiday"), first.later.map { it.title })
+        assertEquals("Maadi", first.later[1].location)
+        assertEquals(true, first.later[2].allDay)
+        assertEquals(emptyList<Any>(), first.later[0].later)
+        // Only four after the first.
+        val many = (1..9).map { CalendarEntry("E$it", ms(20 + it % 3, 8 + it), ms(21, 8 + it), false) }
+        assertEquals(4, (nextEvent(many, now, zone) as EventState.Next).later.size)
+        assertEquals(EventState.None, nextEvent(listOf(entries.last()), now, zone))
+    }
 }
