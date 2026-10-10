@@ -85,10 +85,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 /**
- * The display itself, as both the screen saver and "Start now" show it. It always opens on the first
- * screen; two fingers swiping sideways move between screens, and a swipe shows which screen is open
- * for a few seconds so the dots do not stay lit. Double-tapping closes it ([onExit]) and triple-tapping
- * closes it into the app ([onOpenApp]); a single tap does nothing.
+ * The display itself, as both the screen saver and "Start now" show it. It opens on the screen it was
+ * last left on (each orientation remembers its own). Two fingers swiping sideways move between screens,
+ * and a swipe shows which screen is open for a few seconds so the dots do not stay lit. Double-tapping
+ * closes it ([onExit]) and triple-tapping closes it into the app ([onOpenApp]); a single tap does nothing.
  *
  * [onSwiping] is told when a swipe starts (true) and, a moment after it, when the screen can rest again
  * (false), so the phone can run its panel fast only while something is moving. With the setting on,
