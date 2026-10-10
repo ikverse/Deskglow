@@ -275,4 +275,34 @@ class WidgetSettingsTest {
         val metrics = StatWidget.fields(StatWidget.defaults).filterIsInstance<ChoiceField>().single { it.label == "Shows" }.options.map { it.first }
         assertTrue(metrics.containsAll(listOf("charger", "health", "cycles")))
     }
+
+    @Test
+    fun `a widget's own favourite wins, blank follows Home, and none follows nobody`() {
+        assertEquals("HAM", com.ikverse.deskglow.data.effectiveFavourite("HAM", "VER"))
+        assertEquals("VER", com.ikverse.deskglow.data.effectiveFavourite("", "VER"))
+        assertEquals("", com.ikverse.deskglow.data.effectiveFavourite("none", "VER"))
+        assertEquals("", com.ikverse.deskglow.data.effectiveFavourite("", ""))
+    }
+
+    @Test
+    fun `the followed team's colour comes from the team, or from the team the driver drives for`() {
+        val data = com.ikverse.deskglow.F1Samples.data
+        val mclaren = com.ikverse.deskglow.data.teamColour("mclaren").toInt()
+        assertEquals(mclaren, com.ikverse.deskglow.data.favouriteColour(data, "NOR", ""))
+        assertEquals(mclaren, com.ikverse.deskglow.data.favouriteColour(data, "", "mclaren"))
+        // A team named outright beats the driver's.
+        assertEquals(com.ikverse.deskglow.data.teamColour("ferrari").toInt(), com.ikverse.deskglow.data.favouriteColour(data, "NOR", "ferrari"))
+        assertNull(com.ikverse.deskglow.data.favouriteColour(data, "", ""))
+        assertNull(com.ikverse.deskglow.data.favouriteColour(data, "XXX", ""))
+    }
+
+    @Test
+    fun `the F1 favourite choices offer my driver, none, and every driver`() {
+        for ((widget, label) in listOf(F1WeekendWidget to "Favourite driver", F1LiveWidget to "Favourite driver")) {
+            val field = widget.fields(widget.resolve(Settings())).filterIsInstance<ChoiceField>().single { it.label == label }
+            assertEquals(listOf("", "none"), field.options.take(2).map { it.first })
+        }
+        val teams = F1StandingsWidget.fields(F1StandingsWidget.resolve(Settings(mapOf("table" to "constructors")))).filterIsInstance<ChoiceField>().single { it.label == "Favourite team" }
+        assertEquals(listOf("", "none"), teams.options.take(2).map { it.first })
+    }
 }

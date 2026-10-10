@@ -66,6 +66,7 @@ fun HomeScreen(
     val portraitScreens by graph.prefs.pageCount(Orientation.Portrait).collectAsStateWithLifecycle()
     val landscapeScreens by graph.prefs.pageCount(Orientation.Landscape).collectAsStateWithLifecycle()
     val city by graph.prefs.city.collectAsStateWithLifecycle()
+    val f1 by graph.prefs.f1Favourite.collectAsStateWithLifecycle()
     val auto by graph.prefs.autoLocation.collectAsStateWithLifecycle()
     val detected by graph.prefs.detectedCity.collectAsStateWithLifecycle()
     val brightness by graph.prefs.brightness.collectAsStateWithLifecycle()
@@ -123,6 +124,7 @@ fun HomeScreen(
                 { go(Screen.Brightness) },
             )
             Chip(shownCity?.label?.substringBefore(',') ?: "Set weather city", { go(Screen.City) })
+            Chip(f1.driver.takeIf { it.isNotEmpty() }?.let { "F1 · $it" } ?: "My F1 driver", { go(Screen.F1) })
         }
 
         Card {

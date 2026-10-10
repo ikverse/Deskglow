@@ -33,7 +33,7 @@ import com.ikverse.deskglow.graph
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.ui.editor.EditorScreen
 
-enum class Screen { Home, Editor, EditorLandscape, AutoStart, Permissions, City, Brightness, Snapshots, About }
+enum class Screen { Home, Editor, EditorLandscape, AutoStart, Permissions, City, F1, Brightness, Snapshots, About }
 
 /** The editors draw edge to edge; every other screen stays inside the system bars. */
 private val Screen.isEditor: Boolean get() = this == Screen.Editor || this == Screen.EditorLandscape
@@ -93,6 +93,7 @@ fun App() {
                         Screen.AutoStart -> AutoStartScreen { screen = Screen.Home }
                         Screen.Permissions -> PermissionsScreen { screen = Screen.Home }
                         Screen.City -> CityScreen(graph) { screen = Screen.Home }
+                        Screen.F1 -> F1Screen(graph) { screen = Screen.Home }
                         Screen.Brightness -> BrightnessScreen(graph) { screen = Screen.Home }
                         Screen.Snapshots -> SnapshotsScreen(graph) { screen = Screen.Home }
                         Screen.About -> AboutScreen { screen = Screen.Home }

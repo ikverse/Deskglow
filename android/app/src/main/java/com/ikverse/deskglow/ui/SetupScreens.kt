@@ -10,12 +10,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.BuildConfig
+import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.hasCalendarAccess
 import com.ikverse.deskglow.data.hasLocationAccess
 import com.ikverse.deskglow.data.hasNotificationAccess
@@ -224,6 +225,40 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
         }
         if (current != null) AppButton("Remove city", { graph.prefs.setCity(null) }, kind = ButtonKind.Danger)
         Small("Weather data by Open-Meteo.com. Only a position rounded to about a kilometre is sent, never your name or anything else.")
+    }
+}
+
+/** The driver and the team the F1 widgets follow, set once for all of them. */
+@Composable
+fun F1Screen(graph: AppGraph, onBack: () -> Unit) {
+    val favourite by graph.prefs.f1Favourite.collectAsStateWithLifecycle()
+    ScreenFrame("My F1 driver and team", onBack) {
+        Small("Set them once and every F1 widget follows them. A widget can still pick its own, or none.")
+        SectionLabel("Driver")
+        Card {
+            val drivers = listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }
+            drivers.forEachIndexed { i, (code, label) ->
+                OptionRow(label, favourite.driver == code) { graph.prefs.setF1Driver(code) }
+                if (i < drivers.lastIndex) Rule()
+            }
+        }
+        SectionLabel("Team")
+        Card {
+            val teams = listOf("" to "None") + F1Roster.teams
+            teams.forEachIndexed { i, (id, name) ->
+                OptionRow(name, favourite.team == id) { graph.prefs.setF1Team(id) }
+                if (i < teams.lastIndex) Rule()
+            }
+        }
+        Small("The names are the current season's, as the championship table lists them. Not affiliated with Formula 1.")
+    }
+}
+
+@Composable
+private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().pressable { onClick() }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = Type.Body, color = if (selected) Palette.Select else Palette.Ink, modifier = Modifier.weight(1f))
+        if (selected) Text("✓", fontSize = Type.Body, color = Palette.Select)
     }
 }
 

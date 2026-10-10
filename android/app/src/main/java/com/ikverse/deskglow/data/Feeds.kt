@@ -3,6 +3,7 @@ package com.ikverse.deskglow.data
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.ImageBitmap
 import com.ikverse.deskglow.store.City
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -35,6 +36,12 @@ interface Feeds {
 }
 
 val LocalFeeds = staticCompositionLocalOf<Feeds> { error("No feeds provided") }
+
+/** The F1 driver (a three-letter code) and team (an id) the owner follows, set once on the Home screen. */
+data class F1Favourite(val driver: String = "", val team: String = "")
+
+/** What the F1 widgets follow when they have no choice of their own. Nothing, unless something provides it. */
+val LocalF1Favourite = staticCompositionLocalOf<StateFlow<F1Favourite>> { MutableStateFlow(F1Favourite()) }
 
 enum class ChargeStatus { Charging, Full, Discharging, NotCharging, Unknown }
 
