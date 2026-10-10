@@ -76,4 +76,12 @@ class WidgetSettingsTest {
         val names = Widgets.all.flatMap { it.fields(it.resolve(Settings())) }.filterIsInstance<ColourField>().map { it.label }.toSet()
         assertEquals(setOf("Colour", "Accent colour"), names)
     }
+
+    @Test
+    fun `a clock saved with the old seconds switch keeps showing digits, and one without it shows none`() {
+        assertEquals("digits", ClockWidget.resolve(Settings(mapOf("seconds" to true)))[ClockWidget.SECONDS_MODE])
+        assertEquals("none", ClockWidget.resolve(Settings(mapOf("seconds" to false)))[ClockWidget.SECONDS_MODE])
+        assertEquals("none", ClockWidget.resolve(Settings())[ClockWidget.SECONDS_MODE])
+        assertEquals("line", ClockWidget.resolve(Settings(mapOf("seconds" to true, "secondsMode" to "line")))[ClockWidget.SECONDS_MODE])
+    }
 }

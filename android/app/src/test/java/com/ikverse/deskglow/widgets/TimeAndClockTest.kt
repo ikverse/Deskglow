@@ -122,4 +122,28 @@ class TimeAndClockTest {
         assertEquals("1h 44m", StatWidget.reading("time", charging).first)
         assertEquals("—", StatWidget.reading("power", charging).first)
     }
+
+    @Test
+    fun `a leading zero on a 12-hour clock, and the AM or PM marker`() {
+        val morning = evening.withHour(8)
+        assertEquals("8:05", TimeText.parts(morning, h24 = false, seconds = false, arabicDigits = false).text)
+        assertEquals("08:05", TimeText.parts(morning, h24 = false, seconds = false, arabicDigits = false, leadingZero = true).text)
+        assertEquals("٠٨:٠٥", TimeText.parts(morning, h24 = false, seconds = false, arabicDigits = true, leadingZero = true).text)
+        assertEquals("AM", TimeText.meridiem(morning, arabic = false))
+        assertEquals("PM", TimeText.meridiem(evening, arabic = false))
+        assertEquals("ص", TimeText.meridiem(morning, arabic = true))
+        assertEquals("م", TimeText.meridiem(evening, arabic = true))
+    }
+
+    @Test
+    fun `the day alone, the day and month alone, and the Hijri date`() {
+        assertEquals("Wednesday", TimeText.date(wednesday, "day", arabic = false, arabicDigits = false))
+        assertEquals("7 October", TimeText.date(wednesday, "daymonth", arabic = false, arabicDigits = false))
+        assertEquals("الأربعاء", TimeText.date(wednesday, "day", arabic = true, arabicDigits = true))
+        assertEquals("٧ أكتوبر", TimeText.date(wednesday, "daymonth", arabic = true, arabicDigits = true))
+        // 7 October 2026 falls late in Rabi' al-Thani 1448 (Umm al-Qura).
+        assertTrue(TimeText.date(wednesday, "hijri", arabic = false, arabicDigits = false).contains("1448"))
+        assertTrue(TimeText.date(wednesday, "hijri", arabic = true, arabicDigits = true).contains("١٤٤٨"))
+        assertTrue(TimeText.date(wednesday, "hijri", arabic = true, arabicDigits = false).contains("1448"))
+    }
 }

@@ -486,6 +486,22 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `the clock with seconds as a line, a leading zero and AM or PM, and the date in capitals or Hijri`() {
+        val clock = com.ikverse.deskglow.widgets.ClockWidget
+        val date = com.ikverse.deskglow.widgets.DateWidget
+        val items = listOf(
+            WidgetItem("c1", clock.id, Box(8, 8, 396, 72), true, clock.defaults.with(clock.SECONDS_MODE, "line")),
+            WidgetItem("c2", clock.id, Box(8, 96, 396, 72), true, clock.defaults.with(clock.SECONDS_MODE, "digits").with(clock.AMPM, true).with(clock.LEADING_ZERO, true)),
+            WidgetItem("c3", clock.id, Box(8, 184, 396, 72), true, clock.defaults.with(clock.AMPM, true).with(clock.SECONDS_MODE, "line").with(com.ikverse.deskglow.widgets.Common.ALIGN, "left")),
+            WidgetItem("d1", date.id, Box(8, 272, 396, 28), true, date.defaults.with(date.CASE, "upper")),
+            WidgetItem("d2", date.id, Box(8, 312, 396, 28), true, date.defaults.with(date.FORMAT, "hijri")),
+            WidgetItem("d3", date.id, Box(8, 352, 396, 28), true, date.defaults.with(date.FORMAT, "day").with(date.CASE, "upper")),
+        )
+        show(Layout(items))
+        save("clock-and-date-options")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)
