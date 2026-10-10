@@ -4,6 +4,9 @@ import com.ikverse.deskglow.store.AppPrefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -11,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
@@ -380,7 +384,7 @@ class F1LiveRepository(
             }
             val window = races?.let { liveWindowSession(it, now) }
             if (races != null && window != null && window.start != done) {
-                val outcome = runCatching { follow(races, window) { send(F1LiveState.Live(it)) } }
+                val outcome = runCatching { showAtMostEverySecond { show -> follow(races, window, show) } }
                 outcome.exceptionOrNull()?.let { if (it is CancellationException) throw it }
                 if (outcome.isFailure) {
                     // Dropped: try again, the screen keeps what it shows meanwhile.
@@ -407,6 +411,27 @@ class F1LiveRepository(
             delay(CHECK_MS)
         }
     }.flowOn(io)
+
+    /**
+     * Runs [follow] with a `show` that puts a session on screen at most once a second: the feed sends
+     * several messages a second, and a redraw per message is work the eye cannot use. The newest session
+     * always arrives within a second, and the last one is not lost when [follow] ends.
+     */
+    private suspend fun <T> ProducerScope<F1LiveState>.showAtMostEverySecond(follow: suspend (suspend (LiveSession) -> Unit) -> T): T {
+        val pending = Channel<LiveSession>(Channel.CONFLATED)
+        val sender = launch {
+            for (session in pending) {
+                send(F1LiveState.Live(session))
+                delay(SHOW_EVERY_MS)
+            }
+        }
+        try {
+            return follow { pending.trySend(it) }
+        } finally {
+            sender.cancelAndJoin()
+            if (isActive) pending.tryReceive().getOrNull()?.let { send(F1LiveState.Live(it)) }
+        }
+    }
 
     /**
      * Follows the feed through the session of [window], passing it to [show] from when it starts, until
@@ -476,6 +501,7 @@ class F1LiveRepository(
     companion object {
         const val OPENF1 = "https://api.openf1.org/v1"
         const val CHECK_MS = 60_000L
+        const val SHOW_EVERY_MS = 1_000L
         const val RETRY_MS = 15_000L
         const val STALE_MS = 30_000L
         const val CATCH_UP_MS = 10 * 60_000L

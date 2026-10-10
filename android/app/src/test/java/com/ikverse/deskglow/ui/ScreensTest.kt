@@ -164,6 +164,44 @@ class ScreensTest {
         assertEquals(false, openedApp)
     }
 
+    private fun showInRoom(dark: Boolean) = compose.setContent {
+        DeskglowTheme {
+            com.ikverse.deskglow.display.WidgetHost(graph) { LiveDisplay(onExit = {}, onOpenApp = {}, dark = dark, blankAfterMs = 5_000) }
+        }
+    }
+
+    @Test
+    fun `a dark room with no touch fades the display to black, and a touch brings it back`() {
+        graph.prefs.setBlankInDark(true)
+        showInRoom(dark = true)
+        compose.mainClock.advanceTimeBy(4_000)
+        compose.onNodeWithTag("blanked", useUnmergedTree = true).assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(3_000)
+        compose.waitForIdle()
+        compose.onNodeWithTag("blanked", useUnmergedTree = true).assertExists()
+        compose.onRoot().performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        compose.onNodeWithTag("blanked", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `the display never blanks in a lit room, or with the setting off`() {
+        graph.prefs.setBlankInDark(true)
+        showInRoom(dark = false)
+        compose.mainClock.advanceTimeBy(8_000)
+        compose.waitForIdle()
+        compose.onNodeWithTag("blanked", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a dark room does not blank a display whose setting is off`() {
+        showInRoom(dark = true)
+        compose.mainClock.advanceTimeBy(8_000)
+        compose.waitForIdle()
+        compose.onNodeWithTag("blanked", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     @Test
     fun `a triple tap opens the app instead of just closing`() {
         show()

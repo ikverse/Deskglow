@@ -172,9 +172,13 @@ object StatWidget : WidgetType {
         return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "${minutes}m"
     }
 
+    /** Power, current and the time to full change between Android's battery broadcasts, so they need the polling feed. */
+    private fun needsPolling(metric: String) = metric == "power" || metric == "current" || metric == "time"
+
     @Composable
     override fun Content(settings: Settings) {
-        val battery by LocalFeeds.current.battery.collectAsStateWithLifecycle()
+        val feeds = LocalFeeds.current
+        val battery by (if (needsPolling(settings[METRIC])) feeds.batteryPower else feeds.battery).collectAsStateWithLifecycle()
         val (value, unit, label) = reading(settings[METRIC], battery)
         val align = settings[Common.ALIGN]
         BoxWithConstraints(Modifier.fillMaxSize()) {

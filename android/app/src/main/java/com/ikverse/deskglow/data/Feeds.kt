@@ -16,7 +16,10 @@ interface Feeds {
     val minute: StateFlow<LocalDateTime>
     /** The time, updated every second. Only a clock showing seconds reads this. */
     val second: StateFlow<LocalDateTime>
+    /** Level, status, voltage and temperature, updated only when Android reports a change. */
     val battery: StateFlow<BatteryState>
+    /** The same, plus the current (and so the power) re-read every few seconds. Only widgets that show it read this. */
+    val batteryPower: StateFlow<BatteryState>
     val notifications: StateFlow<NotificationState>
     val media: StateFlow<MediaState>
     val nextEvent: StateFlow<EventState>

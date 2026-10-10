@@ -231,6 +231,8 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
 fun BrightnessScreen(graph: AppGraph, onBack: () -> Unit) {
     val brightness by graph.prefs.brightness.collectAsStateWithLifecycle()
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
+    val coverOff by graph.prefs.coverOff.collectAsStateWithLifecycle()
+    val blankInDark by graph.prefs.blankInDark.collectAsStateWithLifecycle()
     ScreenFrame("Brightness and burn-in", onBack) {
         Small("How bright the display is while it shows.")
         Card {
@@ -270,6 +272,24 @@ fun BrightnessScreen(graph: AppGraph, onBack: () -> Unit) {
                     Small("Moves the whole layout a few pixels every minute, so hours of the same white digits cannot mark the screen.")
                 }
                 Switch(checked = burnIn, onCheckedChange = graph.prefs::setBurnIn)
+            }
+        }
+        Section {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Body("Turn off when covered")
+                    Small("The screen goes off while the phone lies face down or is covered, and comes back on when it is clear. Needs a proximity sensor.")
+                }
+                Switch(checked = coverOff, onCheckedChange = graph.prefs::setCoverOff)
+            }
+        }
+        Section {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Body("Blank in a dark room")
+                    Small("With Match the room's light: after 10 minutes in the dark with no touch the screen fades to black. A touch, or the light coming on, brings it back.")
+                }
+                Switch(checked = blankInDark, onCheckedChange = graph.prefs::setBlankInDark)
             }
         }
     }

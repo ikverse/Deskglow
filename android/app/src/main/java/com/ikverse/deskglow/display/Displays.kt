@@ -3,6 +3,7 @@ package com.ikverse.deskglow.display
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.PowerManager
 import android.service.dreams.DreamService
 import android.view.View
 import android.view.Window
@@ -11,6 +12,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -38,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -84,18 +88,46 @@ import kotlin.math.abs
  * screen; two fingers swiping sideways move between screens, and a swipe shows which screen is open
  * for a few seconds so the dots do not stay lit. Double-tapping closes it ([onExit]) and triple-tapping
  * closes it into the app ([onOpenApp]); a single tap does nothing.
+ *
+ * [onSwiping] is told when a swipe starts (true) and, a moment after it, when the screen can rest again
+ * (false), so the phone can run its panel fast only while something is moving. With the setting on,
+ * [dark] (the room is dark) for [blankAfterMs] without a touch fades the display to black; a touch or
+ * the light coming back undoes it.
  */
 @Composable
-internal fun LiveDisplay(onExit: () -> Unit, onOpenApp: () -> Unit) {
+internal fun LiveDisplay(
+    onExit: () -> Unit,
+    onOpenApp: () -> Unit,
+    dark: Boolean = false,
+    onSwiping: (Boolean) -> Unit = {},
+    blankAfterMs: Long = BLANK_AFTER_MS,
+) {
     val graph = androidx.compose.ui.platform.LocalContext.current.graph
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
+    val blankInDark by graph.prefs.blankInDark.collectAsStateWithLifecycle()
     var swipes by remember { mutableIntStateOf(0) }
     var showDots by remember { mutableStateOf(false) }
+    var touches by remember { mutableIntStateOf(0) }
+    var blank by remember { mutableStateOf(false) }
     LaunchedEffect(swipes) {
         if (swipes == 0) return@LaunchedEffect
         showDots = true
         delay(3_000)
         showDots = false
+    }
+    LaunchedEffect(swipes) {
+        if (swipes == 0) return@LaunchedEffect
+        onSwiping(true)
+        delay(SWIPE_FAST_MS)
+        onSwiping(false)
+    }
+    val goesBlank = dark && blankInDark
+    LaunchedEffect(goesBlank, touches) {
+        blank = false
+        if (goesBlank) {
+            delay(blankAfterMs)
+            blank = true
+        }
     }
     WidgetHost(graph) {
         // The window's own shape picks the canvas, so a phone on a dock shows the landscape layout
@@ -107,6 +139,13 @@ internal fun LiveDisplay(onExit: () -> Unit, onOpenApp: () -> Unit) {
             val shown = page.coerceIn(0, pageCount - 1)
             Box(
                 Modifier.fillMaxSize()
+                    // Only notes that the screen was touched, so a blanked display wakes; it takes nothing from the gestures below.
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            touches++
+                        }
+                    }
                     .twoFingerSwipe { direction ->
                         page = (shown + direction).coerceIn(0, pageCount - 1)
                         graph.prefs.setLastPage(orientation, page)
@@ -136,10 +175,21 @@ internal fun LiveDisplay(onExit: () -> Unit, onOpenApp: () -> Unit) {
                         }
                     }
                 }
+                if (blankInDark) {
+                    val veil by animateFloatAsState(if (blank) 1f else 0f, tween(if (blank) BLANK_FADE_MS else 150), label = "veil")
+                    if (blank || veil > 0f) Box(Modifier.fillMaxSize().testTag("blanked").drawBehind { drawRect(Color.Black, alpha = veil) })
+                }
             }
         }
     }
 }
+
+/** How long a room has to stay dark, untouched, before the display fades to black (when that is switched on). */
+internal const val BLANK_AFTER_MS = 10 * 60_000L
+private const val BLANK_FADE_MS = 2_000
+
+/** How long the panel stays fast after a swipe starts: the slide is a third of a second, and the dots a little more. */
+private const val SWIPE_FAST_MS = 1_000L
 
 /** How far two fingers must travel sideways together before it counts as a swipe to another screen. */
 private val SWIPE_DISTANCE = 64.dp
@@ -226,11 +276,41 @@ private fun Context.chosenBrightness(): Brightness {
     return if (brightness.mode == BrightnessMode.Auto && !hasLightSensor(this)) brightness.copy(mode = BrightnessMode.Dim) else brightness
 }
 
-/** Keeps [window]'s brightness matched to the room's light for as long as this is running. */
-private suspend fun followRoomLight(context: Context, window: Window) {
-    lightLevels(context).collect { level ->
-        window.attributes = window.attributes.apply { screenBrightness = level }
+/** The brightness level at or below which a room counts as dark: about a lux and a half, a bedroom with the lights off. */
+private const val DARK_LEVEL = 0.05f
+
+/**
+ * Keeps [window]'s brightness matched to the room's light for as long as this is running, and tells
+ * [onDark] whether the room is dark (false again once this stops). The same sensor reading serves both.
+ */
+private suspend fun followRoomLight(context: Context, window: Window, onDark: (Boolean) -> Unit = {}) {
+    try {
+        lightLevels(context).collect { level ->
+            window.attributes = window.attributes.apply { screenBrightness = level }
+            onDark(level <= DARK_LEVEL)
+        }
+    } finally {
+        onDark(false)
     }
+}
+
+/**
+ * Holds Android's proximity screen-off lock, so the screen goes off while the phone is covered or face
+ * down and comes back when it is clear. Null if the owner has switched it off or the phone has no
+ * proximity sensor. The timeout is only a backstop for a lock that is somehow never released.
+ */
+private fun Context.holdCoverOff(): PowerManager.WakeLock? {
+    if (!graph.prefs.coverOff.value) return null
+    val power = getSystemService(PowerManager::class.java) ?: return null
+    if (!power.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) return null
+    return power.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "Deskglow:cover").apply {
+        setReferenceCounted(false)
+        acquire(12 * 60 * 60 * 1000L)
+    }
+}
+
+private fun PowerManager.WakeLock?.letGo() {
+    if (this?.isHeld == true) release()
 }
 
 /**
@@ -242,6 +322,8 @@ class DeskglowDream : DreamService() {
     private val owner = ViewOwner()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var lightJob: Job? = null
+    private var roomDark by mutableStateOf(false)
+    private var coverLock: PowerManager.WakeLock? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -259,29 +341,43 @@ class DeskglowDream : DreamService() {
         setContentView(ComposeView(this).also { view ->
             owner.attach(view)
             view.setContent {
-                DeskglowTheme { LiveDisplay(onExit = ::finish, onOpenApp = { openApp(); finish() }) }
+                DeskglowTheme {
+                    LiveDisplay(
+                        onExit = ::finish,
+                        onOpenApp = { openApp(); finish() },
+                        dark = roomDark,
+                        onSwiping = { fast -> window?.setRefreshRate(this, fast) },
+                    )
+                }
             }
         })
         window?.let(::hideSystemBars)
+        window?.setRefreshRate(this, fast = false)
     }
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
         window?.let(::hideSystemBars) // again now the window is on screen: some phones only honour it then
+        window?.setRefreshRate(this, fast = false)
         owner.resume()
+        coverLock.letGo()
+        coverLock = holdCoverOff()
         val window = window
         if (window != null && chosenBrightness().mode == BrightnessMode.Auto) {
-            lightJob = scope.launch { followRoomLight(this@DeskglowDream, window) }
+            lightJob = scope.launch { followRoomLight(this@DeskglowDream, window) { roomDark = it } }
         }
     }
 
     override fun onDreamingStopped() {
         lightJob?.cancel()
+        coverLock.letGo()
+        coverLock = null
         owner.pause()
         super.onDreamingStopped()
     }
 
     override fun onDetachedFromWindow() {
+        coverLock.letGo()
         scope.cancel()
         owner.destroy()
         super.onDetachedFromWindow()
@@ -293,6 +389,9 @@ class DeskglowDream : DreamService() {
  * tap closes it back to whatever was open before; a triple tap closes it into the app. Back closes it too.
  */
 class DisplayActivity : ComponentActivity() {
+    private var roomDark by mutableStateOf(false)
+    private var coverLock: PowerManager.WakeLock? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -301,12 +400,33 @@ class DisplayActivity : ComponentActivity() {
             window.attributes = window.attributes.apply { screenBrightness = level }
         }
         if (brightness.mode == BrightnessMode.Auto) {
-            lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { followRoomLight(this@DisplayActivity, window) } }
+            lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { followRoomLight(this@DisplayActivity, window) { roomDark = it } } }
         }
         hideSystemBars(window)
+        window.setRefreshRate(this, fast = false)
         setContent {
-            DeskglowTheme { LiveDisplay(onExit = ::finish, onOpenApp = { openApp(); finish() }) }
+            DeskglowTheme {
+                LiveDisplay(
+                    onExit = ::finish,
+                    onOpenApp = { openApp(); finish() },
+                    dark = roomDark,
+                    onSwiping = { fast -> window.setRefreshRate(this, fast) },
+                )
+            }
         }
+    }
+
+    // Held only while this is the screen being shown, so covering the phone in another app is never affected.
+    override fun onResume() {
+        super.onResume()
+        coverLock.letGo()
+        coverLock = holdCoverOff()
+    }
+
+    override fun onPause() {
+        coverLock.letGo()
+        coverLock = null
+        super.onPause()
     }
 }
 

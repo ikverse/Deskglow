@@ -6,6 +6,9 @@
     <!-- Optional, for the Next event widget. Asked for only from the Permissions screen. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
+    <!-- Lets the display turn the screen off while the phone is covered or face down (the proximity sensor). Granted automatically. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- Optional, for the weather city. City-level only, read once per refresh and never in the background. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
