@@ -128,6 +128,9 @@ class PrayerRepository(
         /** Aladhan's methods offered in the widget, as (number, name). */
         val METHODS = listOf(
             5 to "Egyptian General Authority", 3 to "Muslim World League", 4 to "Umm al-Qura, Makkah", 2 to "ISNA (North America)",
+            1 to "Karachi", 8 to "Gulf Region", 9 to "Kuwait", 10 to "Qatar", 16 to "Dubai (experimental)",
+            13 to "Diyanet, Turkey (experimental)", 17 to "JAKIM, Malaysia", 20 to "Kemenag, Indonesia", 11 to "Singapore",
+            19 to "Algeria", 18 to "Tunisia", 21 to "Morocco", 23 to "Jordan", 15 to "Moonsighting Committee",
         )
     }
 }

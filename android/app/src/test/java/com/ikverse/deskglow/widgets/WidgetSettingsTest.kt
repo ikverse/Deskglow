@@ -163,4 +163,34 @@ class WidgetSettingsTest {
         assertEquals(Color(0xFFFF6B4A), tintFor(40.0, base))
         assertEquals(Color(0xFFFFB347), tintFor(30.0, base))
     }
+
+    @Test
+    fun `prayer times and the alarm keep an old switch's meaning`() {
+        assertEquals("row", PrayerWidget.resolve(Settings())[PrayerWidget.VIEW])
+        assertEquals("next", PrayerWidget.resolve(Settings(mapOf("showAll" to false)))[PrayerWidget.VIEW])
+        assertEquals("arc", PrayerWidget.resolve(Settings(mapOf("showAll" to false, "view" to "arc")))[PrayerWidget.VIEW])
+        assertEquals("bar", AlarmWidget.resolve(Settings())[AlarmWidget.TIME_LEFT])
+        assertEquals("none", AlarmWidget.resolve(Settings(mapOf("showBar" to false)))[AlarmWidget.TIME_LEFT])
+        assertEquals("ring", AlarmWidget.resolve(Settings(mapOf("showBar" to false, "timeLeft" to "ring")))[AlarmWidget.TIME_LEFT])
+        assertEquals("always", AlarmWidget.resolve(Settings())[AlarmWidget.WITHIN])
+    }
+
+    @Test
+    fun `the alarm can be worded as sleep`() {
+        val now = LocalDateTime.of(2026, 10, 7, 23, 5)
+        val alarm = LocalDateTime.of(2026, 10, 8, 6, 30)
+        assertEquals("in 7 h 25 m · Tomorrow", AlarmWidget.whenText(now, alarm))
+        assertEquals("7 h 25 m of sleep · Tomorrow", AlarmWidget.whenText(now, alarm, sleep = true))
+    }
+
+    @Test
+    fun `the prayer calculation methods are real, distinct and include the default`() {
+        val ids = com.ikverse.deskglow.data.PrayerRepository.METHODS.map { it.first }
+        assertEquals(ids.size, ids.toSet().size)
+        assertTrue(5 in ids)
+        // Aladhan's own numbers: 1 Karachi, 8 Gulf Region, 16 Dubai, 20 Kemenag.
+        assertEquals("Karachi", com.ikverse.deskglow.data.PrayerRepository.METHODS.first { it.first == 1 }.second)
+        assertEquals("Gulf Region", com.ikverse.deskglow.data.PrayerRepository.METHODS.first { it.first == 8 }.second)
+        assertTrue(ids.all { it in 0..23 })
+    }
 }

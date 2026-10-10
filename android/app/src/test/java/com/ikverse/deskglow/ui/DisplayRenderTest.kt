@@ -538,6 +538,26 @@ class DisplayRenderTest {
     }
 
     @Test
+    fun `prayer times as a sun arc and the alarm as a ring, or as sleep`() {
+        feeds.prayers.value = PrayerState.Ready(cairo, tonight)
+        feeds.alarm.value = AlarmState(LocalDateTime.of(2026, 10, 8, 6, 30))
+        feeds.minute.value = LocalDateTime.of(2026, 10, 7, 20, 5)
+        feeds.second.value = LocalDateTime.of(2026, 10, 7, 20, 5, 9)
+        val prayer = PrayerWidget
+        val alarm = AlarmWidget
+        val items = listOf(
+            WidgetItem("p1", prayer.id, Box(8, 8, 396, 130), true, prayer.defaults.with(prayer.VIEW, "arc")),
+            WidgetItem("p2", prayer.id, Box(8, 150, 396, 130), true, prayer.defaults.with(prayer.VIEW, "arc").with(com.ikverse.deskglow.widgets.Common.ARABIC, true)),
+            WidgetItem("p3", prayer.id, Box(8, 292, 196, 130), true, prayer.defaults.with(prayer.VIEW, "arc")),
+            WidgetItem("a1", alarm.id, Box(8, 434, 260, 72), true, alarm.defaults.with(alarm.TIME_LEFT, "ring")),
+            WidgetItem("a2", alarm.id, Box(8, 518, 260, 72), true, alarm.defaults.with(alarm.PHRASE, "sleep")),
+            WidgetItem("a3", alarm.id, Box(8, 602, 260, 72), true, alarm.defaults.with(alarm.WITHIN, "6")),
+        )
+        show(Layout(items), editing = true)
+        save("prayer-arc-and-alarm-looks")
+    }
+
+    @Test
     fun `a widget from a newer version is skipped, not a crash`() {
         show(Layout(DefaultLayout.create().items + WidgetItem("w99", "crypto", Box(0, 0, 100, 40))))
         assert(Widgets.find("crypto") == null)
