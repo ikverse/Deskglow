@@ -47,7 +47,10 @@ object WeatherWidget : WidgetType {
     val LAYOUT = TextKey("layout", "side")
     val ICON_STYLE = TextKey("iconStyle", "filled")
     val SIZE = IntKey("size", 100)
+    /** The old switch for the icon; now "none" in [ICON_STYLE], which a saved weather widget is brought to by [migrate]. */
     val SHOW_ICON = FlagKey("showIcon", true)
+    /** The temperature coloured by how warm it is. */
+    val TINT = FlagKey("tint", false)
     val SHOW_CONDITION = FlagKey("showCondition", true)
     val SHOW_RANGE = FlagKey("showRange", true)
     val SHOW_CITY = FlagKey("showCity", true)
@@ -73,13 +76,14 @@ object WeatherWidget : WidgetType {
     override fun fields(settings: Settings) = listOf(
         StyleField("Layout", LAYOUT, StyleKind.Weather),
         ChoiceField("Units", UNITS, listOf("c" to "°C", "f" to "°F")),
-        ChoiceField("Icon style", ICON_STYLE, listOf("filled" to "Filled", "outline" to "Outline")),
+        ChoiceField("Icon", ICON_STYLE, listOf("filled" to "Filled", "outline" to "Outline", "none" to "None")),
         SliderField("Temperature size", SIZE, 60..140, "%"),
+        ToggleField("Tint by temperature", TINT),
         Common.alignField,
         ShowField(
             "Show",
             listOf(
-                SHOW_ICON to "Icon", SHOW_CONDITION to "Condition", SHOW_RANGE to "High and low", SHOW_CITY to "City",
+                SHOW_CONDITION to "Condition", SHOW_RANGE to "High and low", SHOW_CITY to "City",
                 SHOW_FEELS to "Feels like", SHOW_HUMIDITY to "Humidity", SHOW_WIND to "Wind", SHOW_RAIN to "Chance of rain",
             ),
         ),
@@ -87,6 +91,10 @@ object WeatherWidget : WidgetType {
         Common.colourField,
         Common.brightnessField,
     )
+
+    /** The icon switch became "None" in the icon choice: a widget with the icon off keeps it off. */
+    override fun migrate(settings: Settings): Settings =
+        if (settings[SHOW_ICON]) settings else settings.with(SHOW_ICON, true).with(ICON_STYLE, "none")
 
     override fun note(settings: Settings) = "Weather data by Open-Meteo.com. Set your city on the Home screen."
 
@@ -138,6 +146,18 @@ object WeatherWidget : WidgetType {
     }
 }
 
+/** The temperature's colour when tinted: blue in the cold, [base] around 20°, then amber and red in the heat. */
+fun tintFor(celsius: Double, base: Color): Color {
+    val cold = Color(0xFF6EC1FF)
+    val warm = Color(0xFFFFB347)
+    val hot = Color(0xFFFF6B4A)
+    return when {
+        celsius <= 20 -> lerp(cold, base, ((celsius + 5) / 25).toFloat().coerceIn(0f, 1f))
+        celsius <= 30 -> lerp(base, warm, ((celsius - 20) / 10).toFloat().coerceIn(0f, 1f))
+        else -> lerp(warm, hot, ((celsius - 30) / 10).toFloat().coerceIn(0f, 1f))
+    }
+}
+
 /** "14 km/h", or "9 mph" when the widget is in Fahrenheit. */
 fun formatWind(kmh: Double, miles: Boolean): String =
     if (miles) String.format(Locale.US, "%d mph", Math.round(kmh * 0.621371)) else String.format(Locale.US, "%d km/h", Math.round(kmh))
@@ -156,7 +176,8 @@ private class WeatherLook(
     val colour = Color(settings[Common.COLOUR])
     val accent = Color(settings[WeatherWidget.ACCENT])
     val align = settings[Common.ALIGN]
-    val showIcon = settings[WeatherWidget.SHOW_ICON]
+    val showIcon = settings[WeatherWidget.ICON_STYLE] != "none"
+    val numberColour = if (settings[WeatherWidget.TINT]) tintFor(weather.temperatureC, colour) else colour
     val showRange = settings[WeatherWidget.SHOW_RANGE]
     val scale = settings[WeatherWidget.SIZE] / 100f
     val outline = settings[WeatherWidget.ICON_STYLE] == "outline"
@@ -171,8 +192,8 @@ private class WeatherLook(
     fun Temperature(px: Float, weight: FontWeight = FontWeight.Light) {
         val number = Math.round(if (f) weather.temperatureC * 9 / 5 + 32 else weather.temperatureC).toString()
         Row(verticalAlignment = Alignment.Top) {
-            Text(number, color = colour, fontSize = pxToSp(px), fontWeight = weight, maxLines = 1, softWrap = false)
-            Text("°", color = colour.copy(alpha = 0.8f), fontSize = pxToSp(px * 0.5f), fontWeight = weight, maxLines = 1, softWrap = false)
+            Text(number, color = numberColour, fontSize = pxToSp(px), fontWeight = weight, maxLines = 1, softWrap = false)
+            Text("°", color = numberColour.copy(alpha = 0.8f), fontSize = pxToSp(px * 0.5f), fontWeight = weight, maxLines = 1, softWrap = false)
         }
     }
 

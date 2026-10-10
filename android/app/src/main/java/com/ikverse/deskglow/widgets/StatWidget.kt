@@ -3,14 +3,17 @@ package com.ikverse.deskglow.widgets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
@@ -30,7 +33,10 @@ import kotlin.math.min
 
 object StatWidget : WidgetType {
     val METRIC = TextKey("metric", "temp")
+    /** The old switch for the label; now [LABEL_MODE], which a saved stat is brought to by [migrate]. */
     val SHOW_LABEL = FlagKey("showLabel", true)
+    /** "under" the number, "beside" it or "none". */
+    val LABEL_MODE = TextKey("labelMode", "under")
     val ACCENT = ColourKey("accent", 0xFF44B98A.toInt())
 
     private val METRICS = listOf(
@@ -50,7 +56,7 @@ object StatWidget : WidgetType {
     override fun fields(settings: Settings) = listOf(
         ChoiceField("Shows", METRIC, METRICS),
         Common.alignField,
-        ToggleField("Show label", SHOW_LABEL),
+        ChoiceField("Label", LABEL_MODE, listOf("under" to "Under", "beside" to "Beside", "none" to "None")),
         ColourField("Accent colour", ACCENT),
         Common.colourField,
         Common.brightnessField,
@@ -62,7 +68,7 @@ object StatWidget : WidgetType {
         "power" -> Triple(battery.watts?.let { String.format(Locale.US, "%.2f", it) } ?: "—", "W", "Power")
         "current" -> Triple(battery.currentMa?.toString() ?: "—", "mA", "Current")
         "level" -> Triple(battery.level.toString(), "%", "Battery")
-        "time" -> Triple(timeToFull(battery), "", "Estimate")
+        "time" -> Triple(timeToFull(battery), "", "To full")
         else -> Triple(String.format(Locale.US, "%.1f", battery.temperatureC), "°C", "Temp")
     }
 
@@ -76,6 +82,10 @@ object StatWidget : WidgetType {
     /** Power, current and the time to full change between Android's battery broadcasts, so they need the polling feed. */
     private fun needsPolling(metric: String) = metric == "power" || metric == "current" || metric == "time"
 
+    /** The label switch became "Label": a stat with it off shows none, as before. */
+    override fun migrate(settings: Settings): Settings =
+        if (LABEL_MODE.name in settings.values) settings else settings.with(LABEL_MODE, if (settings[SHOW_LABEL]) "under" else "none")
+
     @Composable
     override fun Content(settings: Settings) {
         val feeds = LocalFeeds.current
@@ -85,25 +95,29 @@ object StatWidget : WidgetType {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val w = constraints.maxWidth.toFloat()
             val h = constraints.maxHeight.toFloat()
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
-                val valueSize = min(h * 0.56f, w * 0.22f)
-                Text(
-                    buildAnnotatedString {
-                        append(value)
-                        if (unit.isNotEmpty()) withStyle(SpanStyle(color = Color(settings[ACCENT]), fontSize = pxToSp(valueSize * 0.64f), fontWeight = FontWeight.Normal)) {
-                            append(" $unit")
-                        }
-                    },
-                    color = Color(settings[Common.COLOUR]),
-                    fontSize = pxToSp(valueSize),
-                    fontWeight = FontWeight.Light,
-                    maxLines = 1,
-                    softWrap = false,
-                    textAlign = textAlign(align),
-                )
-                if (settings[SHOW_LABEL]) {
-                    Spacer(Modifier.height(pxToDp(h * 0.06f)))
-                    Text(label, color = Muted, fontSize = pxToSp(min(h * 0.26f, w * 0.11f)), maxLines = 1, textAlign = textAlign(align))
+            val mode = settings[LABEL_MODE]
+            val beside = mode == "beside"
+            val valueSize = min(h * 0.56f, w * (if (beside) 0.15f else 0.22f))
+            val number = buildAnnotatedString {
+                append(value)
+                if (unit.isNotEmpty()) withStyle(SpanStyle(color = Color(settings[ACCENT]), fontSize = pxToSp(valueSize * 0.64f), fontWeight = FontWeight.Normal)) {
+                    append(" $unit")
+                }
+            }
+            val colour = Color(settings[Common.COLOUR])
+            if (beside) {
+                Row(Modifier.fillMaxSize(), horizontalArrangement = arrangementOf(align), verticalAlignment = Alignment.Bottom) {
+                    Text(number, color = colour, fontSize = pxToSp(valueSize), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
+                    Spacer(Modifier.width(pxToDp(h * 0.12f)))
+                    Text(label, color = Muted, fontSize = pxToSp(min(h * 0.26f, w * 0.08f)), maxLines = 1, softWrap = false, modifier = Modifier.padding(bottom = pxToDp(h * 0.1f)))
+                }
+            } else {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = horizontal(align)) {
+                    Text(number, color = colour, fontSize = pxToSp(valueSize), fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, textAlign = textAlign(align))
+                    if (mode == "under") {
+                        Spacer(Modifier.height(pxToDp(h * 0.06f)))
+                        Text(label, color = Muted, fontSize = pxToSp(min(h * 0.26f, w * 0.11f)), maxLines = 1, textAlign = textAlign(align))
+                    }
                 }
             }
         }

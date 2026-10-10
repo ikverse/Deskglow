@@ -32,13 +32,21 @@ import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.IntKey
 import com.ikverse.deskglow.model.Settings
+import com.ikverse.deskglow.model.TextKey
 import kotlin.math.min
 
 object RingWidget : WidgetType {
     val ACCENT = ColourKey("accent", 0xFF44B98A.toInt())
     val THICKNESS = IntKey("thickness", 6)
+    /** The old switch for the status text; now [UNDER], which a saved ring is brought to by [migrate]. */
     val SHOW_LABEL = FlagKey("showLabel", true)
     val SHOW_BOLT = FlagKey("showBolt", true)
+    /** What is written under the number: "status", "time" (to full), "power", "temp" or "none". */
+    val UNDER = TextKey("under", "status")
+    /** "gauge" (three quarters of a circle), "circle" or "segments". */
+    val LAYOUT = TextKey("layout", "gauge")
+    /** Red when the battery is low and amber when it is half, in place of the ring's colour. */
+    val LEVEL_COLOUR = FlagKey("levelColour", false)
 
     override val id = "ring"
     override val label = "Charging ring"
@@ -48,18 +56,28 @@ object RingWidget : WidgetType {
     override val defaults: Settings = Common.base()
 
     override fun fields(settings: Settings) = listOf(
+        LayoutField("Layout", LAYOUT, listOf("gauge" to "Gauge", "circle" to "Circle", "segments" to "Segments")),
+        ChoiceField("Under the number", UNDER, listOf("status" to "Status", "time" to "Time to full", "power" to "Power", "temp" to "Temperature", "none" to "Nothing")),
         ColourField("Accent colour", ACCENT),
         SliderField("Ring thickness", THICKNESS, 3..12),
-        ShowField("Show", listOf(SHOW_LABEL to "Status text", SHOW_BOLT to "Bolt")),
+        ShowField("Options", listOf(SHOW_BOLT to "Bolt", LEVEL_COLOUR to "Colour by level")),
         Common.colourField,
         Common.brightnessField,
     )
 
+    /** The status text switch became "Under the number": a ring with it off shows nothing there, as before. */
+    override fun migrate(settings: Settings): Settings =
+        if (UNDER.name in settings.values) settings else settings.with(UNDER, if (settings[SHOW_LABEL]) "status" else "none")
+
     @Composable
     override fun Content(settings: Settings) {
-        val battery by LocalFeeds.current.battery.collectAsStateWithLifecycle()
+        val feeds = LocalFeeds.current
+        val under = settings[UNDER]
+        // Power and the time to full change between Android's battery broadcasts, so they need the polling feed.
+        val battery by (if (under == "power" || under == "time") feeds.batteryPower else feeds.battery).collectAsStateWithLifecycle()
         val colour = Color(settings[Common.COLOUR])
-        val accent = Color(settings[ACCENT])
+        val accent = Color(settings[ACCENT]).let { if (settings[LEVEL_COLOUR]) levelColour(battery.level, it) else it }
+        val layout = settings[LAYOUT]
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val side = min(constraints.maxWidth, constraints.maxHeight).toFloat()
             Box(Modifier.size(pxToDp(side)), contentAlignment = Alignment.Center) {
@@ -67,10 +85,32 @@ object RingWidget : WidgetType {
                 Canvas(Modifier.fillMaxSize()) {
                     val inset = side * 0.04f + thickness / 2
                     val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
-                    val stroke = Stroke(thickness, cap = StrokeCap.Round)
-                    drawArc(Color(0xFF1B1B1B), 135f, 270f, false, Offset(inset, inset), arcSize, style = stroke)
-                    val sweep = 270f * battery.level.coerceIn(0, 100) / 100f
-                    if (sweep > 0f) drawArc(accent, 135f, sweep, false, Offset(inset, inset), arcSize, style = stroke)
+                    val corner = Offset(inset, inset)
+                    val track = Color(0xFF1B1B1B)
+                    val level = battery.level.coerceIn(0, 100)
+                    when (layout) {
+                        "circle" -> {
+                            val stroke = Stroke(thickness, cap = StrokeCap.Round)
+                            drawArc(track, -90f, 360f, false, corner, arcSize, style = stroke)
+                            if (level > 0) drawArc(accent, -90f, 360f * level / 100f, false, corner, arcSize, style = stroke)
+                        }
+                        "segments" -> {
+                            val count = 20
+                            val step = 270f / count
+                            val gap = step * 0.3f
+                            val lit = Math.round(level / 100f * count)
+                            val stroke = Stroke(thickness, cap = StrokeCap.Butt)
+                            for (i in 0 until count) {
+                                drawArc(if (i < lit) accent else track, 135f + i * step + gap / 2, step - gap, false, corner, arcSize, style = stroke)
+                            }
+                        }
+                        else -> {
+                            val stroke = Stroke(thickness, cap = StrokeCap.Round)
+                            drawArc(track, 135f, 270f, false, corner, arcSize, style = stroke)
+                            val sweep = 270f * level / 100f
+                            if (sweep > 0f) drawArc(accent, 135f, sweep, false, corner, arcSize, style = stroke)
+                        }
+                    }
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     if (settings[SHOW_BOLT] && battery.plugged) {
@@ -78,13 +118,29 @@ object RingWidget : WidgetType {
                         Spacer(Modifier.height(pxToDp(side * 0.024f)))
                     }
                     Text("${battery.level}%", color = colour, fontSize = pxToSp(side * 0.165f), fontWeight = FontWeight.Medium, maxLines = 1)
-                    if (settings[SHOW_LABEL]) {
+                    underText(under, battery)?.let { text ->
                         Spacer(Modifier.height(pxToDp(side * 0.024f)))
-                        Text(statusText(battery), color = Muted, fontSize = pxToSp(side * 0.056f), letterSpacing = 0.06.em, maxLines = 1)
+                        Text(text, color = Muted, fontSize = pxToSp(side * 0.056f), letterSpacing = 0.06.em, maxLines = 1)
                     }
                 }
             }
         }
+    }
+
+    /** What is written under the percentage for the [under] choice; null for nothing. */
+    fun underText(under: String, battery: BatteryState): String? = when (under) {
+        "none" -> null
+        "time" -> StatWidget.reading("time", battery).first.let { if (it == "Full" || it == "—") it.uppercase() else "$it to full" }
+        "power" -> StatWidget.reading("power", battery).let { (value, unit, _) -> if (value == "—") value else "$value $unit" }
+        "temp" -> StatWidget.reading("temp", battery).let { (value, unit, _) -> "$value $unit" }
+        else -> statusText(battery)
+    }
+
+    /** [accent], or red below 20% and amber below 50%. */
+    fun levelColour(level: Int, accent: Color): Color = when {
+        level < 20 -> Color(0xFFE5534B)
+        level < 50 -> Color(0xFFF5B942)
+        else -> accent
     }
 
     private fun statusText(battery: BatteryState) = when (battery.status) {

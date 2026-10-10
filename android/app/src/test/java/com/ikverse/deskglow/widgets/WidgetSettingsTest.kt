@@ -1,10 +1,16 @@
 package com.ikverse.deskglow.widgets
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.graphics.Color
+import com.ikverse.deskglow.data.BatteryState
+import com.ikverse.deskglow.data.ChargeStatus
+import com.ikverse.deskglow.data.EventState
 import com.ikverse.deskglow.model.Settings
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDateTime
 
 class WidgetSettingsTest {
     @Test
@@ -83,5 +89,78 @@ class WidgetSettingsTest {
         assertEquals("none", ClockWidget.resolve(Settings(mapOf("seconds" to false)))[ClockWidget.SECONDS_MODE])
         assertEquals("none", ClockWidget.resolve(Settings())[ClockWidget.SECONDS_MODE])
         assertEquals("line", ClockWidget.resolve(Settings(mapOf("seconds" to true, "secondsMode" to "line")))[ClockWidget.SECONDS_MODE])
+    }
+
+    @Test
+    fun `the ring, the stat and now playing keep an old switch's meaning`() {
+        assertEquals("status", RingWidget.resolve(Settings())[RingWidget.UNDER])
+        assertEquals("none", RingWidget.resolve(Settings(mapOf("showLabel" to false)))[RingWidget.UNDER])
+        assertEquals("power", RingWidget.resolve(Settings(mapOf("showLabel" to false, "under" to "power")))[RingWidget.UNDER])
+        assertEquals("under", StatWidget.resolve(Settings())[StatWidget.LABEL_MODE])
+        assertEquals("none", StatWidget.resolve(Settings(mapOf("showLabel" to false)))[StatWidget.LABEL_MODE])
+        assertEquals("bar", MediaWidget.resolve(Settings())[MediaWidget.PROGRESS_MODE])
+        assertEquals("none", MediaWidget.resolve(Settings(mapOf("showProgress" to false)))[MediaWidget.PROGRESS_MODE])
+        assertEquals("times", MediaWidget.resolve(Settings(mapOf("showProgress" to false, "progressMode" to "times")))[MediaWidget.PROGRESS_MODE])
+    }
+
+    @Test
+    fun `a weather widget with its icon off keeps it off, and the icon can be switched back on`() {
+        val off = WeatherWidget.resolve(Settings(mapOf("showIcon" to false, "iconStyle" to "outline")))
+        assertEquals("none", off[WeatherWidget.ICON_STYLE])
+        assertEquals("filled", WeatherWidget.resolve(off.with(WeatherWidget.ICON_STYLE, "filled"))[WeatherWidget.ICON_STYLE])
+        assertEquals("outline", WeatherWidget.resolve(Settings(mapOf("iconStyle" to "outline")))[WeatherWidget.ICON_STYLE])
+    }
+
+    @Test
+    fun `under the ring's number, by choice`() {
+        val charging = BatteryState(60, ChargeStatus.Charging, true, 4100, 335, 500, 5_400_000L)
+        assertEquals("CHARGING", RingWidget.underText("status", charging))
+        assertEquals("1h 30m to full", RingWidget.underText("time", charging))
+        assertEquals("2.05 W", RingWidget.underText("power", charging))
+        assertEquals("33.5 °C", RingWidget.underText("temp", charging))
+        assertNull(RingWidget.underText("none", charging))
+        assertEquals("FULL", RingWidget.underText("time", charging.copy(status = ChargeStatus.Full)))
+        assertEquals("—", RingWidget.underText("power", charging.copy(currentMa = null)))
+    }
+
+    @Test
+    fun `the ring turns red when low and amber at half, and keeps its colour above`() {
+        val accent = Color(0xFF44B98A)
+        assertEquals(Color(0xFFE5534B), RingWidget.levelColour(19, accent))
+        assertEquals(Color(0xFFF5B942), RingWidget.levelColour(20, accent))
+        assertEquals(Color(0xFFF5B942), RingWidget.levelColour(49, accent))
+        assertEquals(accent, RingWidget.levelColour(50, accent))
+    }
+
+    @Test
+    fun `an event reads in minutes inside the hour, if asked, and otherwise as it always did`() {
+        val now = LocalDateTime.of(2026, 10, 7, 20, 5)
+        val soon = EventState.Next("Call", now.plusMinutes(25), now.plusMinutes(85), false)
+        assertEquals("in 25 min", EventWidget.whenText(soon, now, h24 = false, soon = true))
+        assertEquals("8:30 PM · Today", EventWidget.whenText(soon, now, h24 = false))
+        val running = EventState.Next("Call", now.minusMinutes(20), now.plusMinutes(40), false)
+        assertEquals("ends in 40 min", EventWidget.whenText(running, now, h24 = false, soon = true))
+        val later = EventState.Next("Call", now.plusMinutes(90), now.plusMinutes(150), false)
+        assertEquals("9:35 PM · Today", EventWidget.whenText(later, now, h24 = false, soon = true))
+        val allDay = EventState.Next("Holiday", now.toLocalDate().plusDays(1).atStartOfDay(), now.toLocalDate().plusDays(2).atStartOfDay(), true)
+        assertEquals("All day · Tomorrow", EventWidget.whenText(allDay, now, h24 = false, soon = true))
+    }
+
+    @Test
+    fun `track times read as minutes and seconds, with hours past an hour`() {
+        assertEquals("0:00", mediaTime(0))
+        assertEquals("1:23", mediaTime(83_000))
+        assertEquals("3:45", mediaTime(225_900))
+        assertEquals("1:02:03", mediaTime(3_723_000))
+        assertEquals("0:00", mediaTime(-5))
+    }
+
+    @Test
+    fun `a tinted temperature is blue in the cold, itself at 20 degrees and red in the heat`() {
+        val base = Color.White
+        assertEquals(Color(0xFF6EC1FF), tintFor(-5.0, base))
+        assertEquals(base, tintFor(20.0, base))
+        assertEquals(Color(0xFFFF6B4A), tintFor(40.0, base))
+        assertEquals(Color(0xFFFFB347), tintFor(30.0, base))
     }
 }
