@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -511,6 +512,9 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
     Box(
         Modifier
             .offset { offset }
+            // A widget as wide or tall as the canvas is bigger than the canvas once its chrome is added;
+            // unbounded, or it would be squeezed and look as if there were room left beside it.
+            .wrapContentSize(Alignment.TopStart, unbounded = true)
             .size(with(density) { (item.box.w * unit).toDp() + CHROME * 2 }, with(density) { (item.box.h * unit).toDp() + CHROME * 2 })
             // A widget just added or copied fades in and settles from a touch smaller.
             .graphicsLayer {

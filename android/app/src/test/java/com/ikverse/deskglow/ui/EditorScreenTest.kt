@@ -34,11 +34,13 @@ import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.FakeFeeds
 import com.ikverse.deskglow.FakeFontsHttp
 import com.ikverse.deskglow.display.WidgetHost
+import com.ikverse.deskglow.model.Box
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
+import androidx.compose.ui.unit.width
 import com.ikverse.deskglow.ui.editor.EditorScreen
 import com.ikverse.deskglow.ui.editor.EditorState
 import com.ikverse.deskglow.widgets.ClockWidget
@@ -403,6 +405,24 @@ class EditorScreenTest {
         compose.onNodeWithText("Battery").performClick()
         compose.onNodeWithText("Charging ring").assertIsDisplayed()
         compose.onAllNodesWithText("Weather").assertCountEquals(0)
+    }
+
+    @Test
+    fun `a widget as wide as the canvas is drawn at its full width, not squeezed by its chrome`() {
+        val clock = layout.items.first { it.type == "clock" }
+        val full = clock.copy(id = "full", box = Box(0, 0, Orientation.Portrait.width, 160))
+        val half = clock.copy(id = "half", box = Box(0, 160, Orientation.Portrait.width / 2, 160))
+        graph.addPage(Orientation.Portrait)
+        graph.layoutsFor(Orientation.Portrait, 1).update(Layout(listOf(full, half)))
+        compose.waitForIdle()
+        compose.onNodeWithTag("screens").performClick()
+        compose.onNodeWithTag("screen 2").performClick()
+        compose.waitForIdle()
+        // In dp; each widget's bounds include 16 dp of chrome either side.
+        val fullBounds = compose.onNodeWithTag("widget full").getUnclippedBoundsInRoot()
+        val halfBounds = compose.onNodeWithTag("widget half").getUnclippedBoundsInRoot()
+        assertEquals(halfBounds.left.value, fullBounds.left.value, 0.5f)
+        assertEquals(2 * (halfBounds.width.value - 32f), fullBounds.width.value - 32f, 1f)
     }
 
     @Test
