@@ -13,9 +13,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
@@ -911,7 +913,10 @@ class F1LiveRepository(
                 lastCatchUp = clock()
                 latestResult()?.let { keep(it) }
             }
-            delay(CHECK_MS)
+            // Looked at again in a minute, or as soon as the calendar changes: on starting it is still
+            // loading for a moment, and a session on now should not wait a minute for it.
+            val looked = calendar.value
+            withTimeoutOrNull(CHECK_MS) { calendar.first { it !== looked } }
         }
     }.flowOn(io)
 

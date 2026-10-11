@@ -94,6 +94,22 @@ class F1LiveRepositoryTest {
     }
 
     @Test
+    fun `a calendar still loading on starting does not hold the connection back a minute`() = runBlocking {
+        // Without a saved result the first connection may be the one fetching it; the second follows the session.
+        source = Source(Script(listOf({ started() })), Script(listOf({ started() })))
+        val loading = MutableStateFlow<F1State>(F1State.Loading)
+        val seen = CopyOnWriteArrayList<F1LiveState>()
+        withTimeout(10_000) {
+            val job = launch { repository().updates(loading).collect { seen += it } }
+            delay(500)
+            assertTrue("nothing live before the calendar is known", seen.none { it is F1LiveState.Live })
+            loading.value = F1State.Ready(F1Samples.data)
+            until { seen.any { it is F1LiveState.Live } }
+            job.cancel()
+        }
+    }
+
+    @Test
     fun `a dropped connection shows the last thing seen, as lost, and when it was last heard`() = runBlocking {
         source = Source(
             Script(listOf({ started("Started") }, { Thread.sleep(300); throw IOException("reset") })),
