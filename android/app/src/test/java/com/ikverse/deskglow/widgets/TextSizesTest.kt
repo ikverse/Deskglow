@@ -43,20 +43,47 @@ class TextSizesTest {
     @Composable
     private fun Block(w: Float, h: Float) = with(LocalDensity.current) { Box(Modifier.size(w.toDp(), h.toDp())) }
 
-    /** A main block ten units by four beside a secondary one six by two, fitted into 400 by 200 pixels: wide enough that the width, shared by both, is what limits them; what it was shown at goes to [into]. */
+    /** A main block beside a secondary one, sized in main and secondary units. */
+    private class Shape(val boxW: Float, val boxH: Float, val mainW: Float, val mainH: Float, val secondW: Float, val secondH: Float) {
+        fun width(s: Scale) = s.main * mainW + s.second * secondW
+        fun height(s: Scale) = maxOf(s.main * mainH, s.second * secondH)
+    }
+
+    /** The main block ten by four beside a secondary one six by two, in 400 by 100 pixels: the main block's height is the limit. */
+    private val cramped = Shape(400f, 100f, 10f, 4f, 6f, 2f)
+
+    /** A main block four by four beside a long secondary one twenty by two, in 400 by 200: the secondary one takes most of the width. */
+    private val roomy = Shape(400f, 200f, 4f, 4f, 20f, 2f)
+
+    /** [shape] fitted at [sizes]; what it was shown at goes to [into] under [name]. */
     @Composable
-    private fun Fitted(into: MutableMap<String, Scale>, name: String, sizes: TextSizes?) {
+    private fun Fitted(into: MutableMap<String, Scale>, name: String, sizes: TextSizes?, shape: Shape = cramped) {
         val body = @Composable {
             with(LocalDensity.current) {
-                Box(Modifier.size(400f.toDp(), 200f.toDp())) {
+                Box(Modifier.size(shape.boxW.toDp(), shape.boxH.toDp())) {
                     Fit(1f, name) { f ->
                         if (!f.probing) into[name] = f.scale
-                        Row { Block(f.scale.main * 10, f.scale.main * 4); Block(f.scale.second * 6, f.scale.second * 2) }
+                        Row {
+                            Block(f.scale.main * shape.mainW, f.scale.main * shape.mainH)
+                            Block(f.scale.second * shape.secondW, f.scale.second * shape.secondH)
+                        }
                     }
                 }
             }
         }
         if (sizes == null) body() else CompositionLocalProvider(LocalTextSizes provides sizes) { body() }
+    }
+
+    /** [shape] fitted at each of [sizes], by name. */
+    private fun fitAll(shape: Shape, vararg sizes: Pair<String, TextSizes>): Map<String, Scale> {
+        val shown = mutableMapOf<String, Scale>()
+        compose.setContent { Column { sizes.forEach { (name, s) -> Fitted(shown, name, s, shape) } } }
+        compose.waitForIdle()
+        for ((name, s) in shown) {
+            assertTrue("$name fits across", shape.width(s) <= shape.boxW)
+            assertTrue("$name fits down", shape.height(s) <= shape.boxH)
+        }
+        return shown
     }
 
     @Test
@@ -77,29 +104,37 @@ class TextSizesTest {
     }
 
     @Test
-    fun `each slider grows its own kind of text and the whole still fits the box`() {
-        val shown = mutableMapOf<String, Scale>()
-        compose.setContent {
-            Column {
-                Fitted(shown, "plain", TextSizes(1f, 1f))
-                Fitted(shown, "small", TextSizes(1f, 1.4f))
-                Fitted(shown, "main", TextSizes(1.4f, 1f))
-            }
-        }
-        compose.waitForIdle()
+    fun `a larger main size grows the main text by just that much, taking room from the rest`() {
+        val shown = fitAll(roomy, "plain" to TextSizes(1f, 1f), "main" to TextSizes(1.4f, 1f))
+        val plain = shown.getValue("plain")
+        val main = shown.getValue("main")
+        assertEquals(1.4f, main.main / plain.main, 0.005f)
+        assertTrue(main.second < plain.second)
+        assertTrue(main.second >= plain.second * Fitting.KEEP)
+    }
+
+    @Test
+    fun `a larger main size in a box with no room left still fits it`() {
+        val shown = fitAll(cramped, "plain" to TextSizes(1f, 1f), "main" to TextSizes(1.4f, 1f))
+        assertTrue(shown.getValue("main").main >= shown.getValue("plain").main)
+    }
+
+    @Test
+    fun `a smaller main size shrinks the main text by just that much and leaves the rest`() {
+        val shown = fitAll(roomy, "plain" to TextSizes(1f, 1f), "main" to TextSizes(0.6f, 1f))
+        val plain = shown.getValue("plain")
+        val main = shown.getValue("main")
+        assertEquals(0.6f, main.main / plain.main, 0.005f)
+        assertEquals(plain.second, main.second, 0f)
+    }
+
+    @Test
+    fun `a larger small text size grows the small text and takes its room from the main`() {
+        val shown = fitAll(cramped, "plain" to TextSizes(1f, 1f), "small" to TextSizes(1f, 1.4f))
         val plain = shown.getValue("plain")
         val small = shown.getValue("small")
-        val main = shown.getValue("main")
-        // Each slider makes its own kind larger and the other no larger, as the weather's temperature size does:
-        // the box is the same size, so what one kind gains the other gives up.
         assertTrue(small.second > plain.second * 1.1f)
         assertTrue(small.main <= plain.main)
-        assertTrue(main.main > plain.main)
-        assertTrue(main.second <= plain.second)
-        for (s in listOf(plain, small, main)) {
-            assertTrue("fits across", s.main * 10 + s.second * 6 <= 400f)
-            assertTrue("fits down", s.main * 4 <= 200f)
-        }
     }
 
     @Test
