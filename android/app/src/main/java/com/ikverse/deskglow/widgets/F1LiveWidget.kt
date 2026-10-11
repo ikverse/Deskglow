@@ -127,7 +127,7 @@ object F1LiveWidget : WidgetType {
         // Held back to line up with the TV; the clock is set back with it, so countdowns and cars on the map match what is shown.
         val delaySeconds by LocalBroadcastDelay.current.collectAsStateWithLifecycle()
         val delayMs = if (editing) 0L else delaySeconds * 1000L
-        val held = remember(feeds.f1Live, delayMs) { feeds.f1Live.heldBack(delayMs) }
+        val held = remember(feeds.f1Live, delayMs) { feeds.f1Live.heldBack(delayMs, feeds.f1History) }
         val state by held.collectAsStateWithLifecycle(feeds.f1Live.value)
         val lag = Duration.ofMillis(delayMs)
         val minute by feeds.minute.collectAsStateWithLifecycle()
