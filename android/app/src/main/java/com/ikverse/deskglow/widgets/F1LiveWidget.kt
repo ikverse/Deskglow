@@ -81,7 +81,7 @@ object F1LiveWidget : WidgetType {
     override fun fields(settings: Settings) = buildList {
         val track = settings[LAYOUT] == "track"
         add(LayoutField("Layout", LAYOUT, listOf("tower" to "Tower", "glance" to "Glance", "focus" to "Focus", "line" to "One line", "track" to "Track map")))
-        if (settings[LAYOUT] == "tower") add(SliderField("Rows", ROWS, 3..20))
+        if (settings[LAYOUT] == "tower") add(SliderField("Rows", ROWS, 3..22))
         if (settings[LAYOUT] == "tower") add(ChoiceField("Gap", GAP, listOf("auto" to "Automatic", "leader" to "To the leader", "ahead" to "To the car ahead")))
         if (track) {
             add(ChoiceField("Car labels", TRACK_LABELS, listOf("me" to "My driver", "leader" to "My driver and leader", "top3" to "Top 3", "all" to "Everyone", "none" to "None")))
