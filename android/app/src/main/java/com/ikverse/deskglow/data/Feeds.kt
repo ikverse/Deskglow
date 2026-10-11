@@ -49,6 +49,12 @@ data class F1Favourite(val driver: String = "", val team: String = "")
 /** What the F1 widgets follow when they have no choice of their own. Nothing, unless something provides it. */
 val LocalF1Favourite = staticCompositionLocalOf<StateFlow<F1Favourite>> { MutableStateFlow(F1Favourite()) }
 
+/** The longest broadcast delay that can be set, in seconds. */
+const val MAX_BROADCAST_DELAY = 90
+
+/** Seconds the live F1 widgets hold the timing back, set once for all of them. Zero, unless something provides it. */
+val LocalBroadcastDelay = staticCompositionLocalOf<StateFlow<Int>> { MutableStateFlow(0) }
+
 enum class ChargeStatus { Charging, Full, Discharging, NotCharging, Unknown }
 
 data class BatteryState(

@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
+import com.ikverse.deskglow.data.LocalBroadcastDelay
 import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.fonts.LocalFonts
@@ -45,7 +46,10 @@ import kotlin.math.roundToInt
 /** Gives the widgets their data and fonts. Everything that draws widgets sits inside one of these. */
 @Composable
 fun WidgetHost(graph: AppGraph, content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalFeeds provides graph.feeds, LocalFonts provides graph.fonts, LocalF1Favourite provides graph.prefs.f1Favourite, content = content)
+    CompositionLocalProvider(
+        LocalFeeds provides graph.feeds, LocalFonts provides graph.fonts, LocalF1Favourite provides graph.prefs.f1Favourite,
+        LocalBroadcastDelay provides graph.prefs.broadcastDelay, content = content,
+    )
 }
 
 /**
