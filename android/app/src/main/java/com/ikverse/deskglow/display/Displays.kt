@@ -92,6 +92,8 @@ import kotlin.math.abs
  * last left on (each orientation remembers its own). Two fingers swiping sideways move between screens,
  * and a swipe shows which screen is open for a few seconds so the dots do not stay lit. Double-tapping
  * closes it ([onExit]) and triple-tapping closes it into the app ([onOpenApp]); a single tap does nothing.
+ * Tapping twice with three or four fingers closes it into the layout editor, on the orientation and screen
+ * being shown ([onEdit]).
  *
  * [onSwiping] is told when a swipe starts (true) and, a moment after it, when the screen can rest again
  * (false), so the phone can run its panel fast only while something is moving. With the setting on,
@@ -102,6 +104,7 @@ import kotlin.math.abs
 internal fun LiveDisplay(
     onExit: () -> Unit,
     onOpenApp: () -> Unit,
+    onEdit: (Orientation, Int) -> Unit = { _, _ -> },
     dark: Boolean = false,
     onSwiping: (Boolean) -> Unit = {},
     blankAfterMs: Long = BLANK_AFTER_MS,
@@ -155,6 +158,7 @@ internal fun LiveDisplay(
                         graph.prefs.setLastPage(orientation, page)
                         swipes++
                     })
+                    .multiFingerDoubleTap(rememberUpdatedState { onEdit(orientation, shown) })
                     .doubleOrTripleTap(onDouble = onExit, onTriple = onOpenApp),
             ) {
                 AnimatedContent(
@@ -226,6 +230,48 @@ private fun Modifier.twoFingerSwipe(onSwipeState: State<(direction: Int) -> Unit
     }
 }
 
+/** How many fingers a tap needs to count towards [multiFingerDoubleTap]. */
+private const val EDIT_FINGERS = 3
+
+/**
+ * Calls [onDoubleTap] after two quick taps with [EDIT_FINGERS] or more fingers. A tap is a touch that
+ * stays put and is over within a long-press; the second must start within a double-tap interval of the
+ * first ending. It only watches (the events are not consumed), and the two-finger handling above already
+ * keeps such a touch from counting as a one-finger tap.
+ */
+private fun Modifier.multiFingerDoubleTap(onDoubleTapState: State<() -> Unit>): Modifier = pointerInput(Unit) {
+    val slop = viewConfiguration.touchSlop
+    val longest = viewConfiguration.longPressTimeoutMillis
+    val between = viewConfiguration.doubleTapTimeoutMillis
+    var firstTapEnded = Long.MIN_VALUE
+    awaitEachGesture {
+        val first = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        val started = first.uptimeMillis
+        val origins = mutableMapOf(first.id to first.position)
+        var fingers = 1
+        var stayedPut = true
+        var ended = started
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            fingers = maxOf(fingers, event.changes.count { it.pressed })
+            for (change in event.changes) {
+                val origin = origins.getOrPut(change.id) { change.position }
+                if ((change.position - origin).getDistance() > slop) stayedPut = false
+                ended = maxOf(ended, change.uptimeMillis)
+            }
+        } while (event.changes.any { it.pressed })
+        val isTap = fingers >= EDIT_FINGERS && stayedPut && ended - started <= longest
+        when {
+            !isTap -> firstTapEnded = Long.MIN_VALUE
+            firstTapEnded != Long.MIN_VALUE && started - firstTapEnded <= between -> {
+                firstTapEnded = Long.MIN_VALUE
+                onDoubleTapState.value()
+            }
+            else -> firstTapEnded = ended
+        }
+    }
+}
+
 /**
  * How long a second tap waits for a third. Waiting for the second tap costs nothing, since a single
  * tap does nothing, but this wait is the lag on every double tap. Under about 100 ms a delay feels
@@ -281,8 +327,20 @@ internal fun windowBrightness(brightness: Brightness): Float? = when (brightness
 
 /** Brings the Deskglow app to the front, reusing it if it is already open. */
 internal fun Context.openApp() {
-    startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+    startActivity(appIntent())
 }
+
+/** Brings the Deskglow app to the front already in the layout editor for [orientation]'s screen [page]. */
+internal fun Context.openEditor(orientation: Orientation, page: Int) {
+    startActivity(appIntent().putExtra(EXTRA_EDIT_ORIENTATION, orientation.name).putExtra(EXTRA_EDIT_PAGE, page))
+}
+
+private fun Context.appIntent() =
+    Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
+/** Extras that make the app open straight into the editor: the [Orientation] name and the screen's index. */
+internal const val EXTRA_EDIT_ORIENTATION = "edit_orientation"
+internal const val EXTRA_EDIT_PAGE = "edit_page"
 
 /** The brightness setting, except that Auto on a phone with no light sensor is Dim. */
 internal fun Context.chosenBrightness(): Brightness {
@@ -354,6 +412,7 @@ class DeskglowDream : DreamService() {
                     LiveDisplay(
                         onExit = ::finish,
                         onOpenApp = { openApp(); finish() },
+                        onEdit = { orientation, page -> openEditor(orientation, page); finish() },
                         dark = host?.roomDark?.value ?: false,
                         onSwiping = { fast -> window?.setRefreshRate(this, fast) },
                     )
@@ -386,7 +445,8 @@ class DeskglowDream : DreamService() {
 
 /**
  * "Start now": the display full screen without waiting for the charger, kept on until closed. A double
- * tap closes it back to whatever was open before; a triple tap closes it into the app. Back does
+ * tap closes it back to whatever was open before; a triple tap closes it into the app; a double tap with
+ * three or four fingers closes it into the layout editor. Back does
  * nothing, so a stray swipe from the edge cannot close it.
  */
 class DisplayActivity : ComponentActivity() {
@@ -402,6 +462,7 @@ class DisplayActivity : ComponentActivity() {
                 LiveDisplay(
                     onExit = ::finish,
                     onOpenApp = { openApp(); finish() },
+                    onEdit = { orientation, page -> openEditor(orientation, page); finish() },
                     dark = host.roomDark.value,
                     onSwiping = { fast -> window.setRefreshRate(this, fast) },
                 )
@@ -424,7 +485,8 @@ class DisplayActivity : ComponentActivity() {
 /**
  * The always-on display: [AlwaysOnService] starts this over the lock screen whenever the screen turns
  * off, and it is gone again when the phone is unlocked, a screen saver starts, or it is double-tapped (which
- * leaves the lock screen). A triple tap asks for the unlock and opens the app. Back does nothing.
+ * leaves the lock screen). A triple tap asks for the unlock and opens the app, and a three- or
+ * four-finger double tap asks for it and opens the layout editor. Back does nothing.
  *
  * With "Turn off when covered" on, the screen goes off after the phone has stayed covered for a few
  * seconds (at once if it was already covered when this started, as in a pocket) and back on the
@@ -448,7 +510,8 @@ class AlwaysOnActivity : ComponentActivity() {
             DeskglowTheme {
                 LiveDisplay(
                     onExit = ::finish,
-                    onOpenApp = ::unlockAndOpenApp,
+                    onOpenApp = { unlockThen { openApp() } },
+                    onEdit = { orientation, page -> unlockThen { openEditor(orientation, page) } },
                     dark = host.roomDark.value,
                     onSwiping = { fast -> window.setRefreshRate(this, fast) },
                 )
@@ -456,12 +519,12 @@ class AlwaysOnActivity : ComponentActivity() {
         }
     }
 
-    private fun unlockAndOpenApp() {
+    private fun unlockThen(open: () -> Unit) {
         getSystemService(KeyguardManager::class.java).requestDismissKeyguard(
             this,
             object : KeyguardManager.KeyguardDismissCallback() {
                 override fun onDismissSucceeded() {
-                    openApp()
+                    open()
                     finish()
                 }
             },
@@ -491,8 +554,9 @@ class AlwaysOnActivity : ComponentActivity() {
     }
 
     // Stopped while the screen is still on means the owner went elsewhere: do not linger behind it.
+    // Not when it is only being recreated: the phone rotating from the lock screen's portrait to landscape right as this wakes it.
     override fun onStop() {
-        if (!isFinishing && getSystemService(PowerManager::class.java).isInteractive) finish()
+        if (!isFinishing && !isChangingConfigurations && getSystemService(PowerManager::class.java).isInteractive) finish()
         super.onStop()
     }
 

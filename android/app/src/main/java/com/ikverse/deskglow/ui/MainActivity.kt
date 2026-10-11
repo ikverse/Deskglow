@@ -1,5 +1,6 @@
 package com.ikverse.deskglow.ui
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
+import com.ikverse.deskglow.display.EXTRA_EDIT_ORIENTATION
+import com.ikverse.deskglow.display.EXTRA_EDIT_PAGE
 import com.ikverse.deskglow.display.WidgetHost
 import com.ikverse.deskglow.graph
 import com.ikverse.deskglow.model.Orientation
@@ -47,16 +50,27 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
-        setContent { DeskglowTheme { App() } }
+        // The display opens the editor directly (a three- or four-finger double tap): it names the
+        // orientation and the screen it was showing. Only on a fresh start, so turning the phone
+        // does not send the app back to the editor from wherever it had got to.
+        val edit = if (savedInstanceState == null) intent.editRequest() else null
+        setContent { DeskglowTheme { App(edit?.first ?: Screen.Home, edit?.second ?: 0) } }
     }
 }
 
+/** The editor and screen index the display asked for, or null if this launch did not ask for one. */
+private fun Intent.editRequest(): Pair<Screen, Int>? {
+    val orientation = getStringExtra(EXTRA_EDIT_ORIENTATION)?.let { name -> Orientation.entries.firstOrNull { it.name == name } } ?: return null
+    val screen = if (orientation == Orientation.Portrait) Screen.Editor else Screen.EditorLandscape
+    return screen to getIntExtra(EXTRA_EDIT_PAGE, 0).coerceAtLeast(0)
+}
+
 @Composable
-fun App() {
+fun App(start: Screen = Screen.Home, startPage: Int = 0) {
     val graph = LocalContext.current.graph
-    var screen by rememberSaveable { mutableStateOf(Screen.Home) }
+    var screen by rememberSaveable { mutableStateOf(start) }
     // Which screen of its layout the editor opens on: the one the home preview was showing.
-    var editorPage by rememberSaveable { mutableIntStateOf(0) }
+    var editorPage by rememberSaveable { mutableIntStateOf(startPage) }
     BackHandler(enabled = screen != Screen.Home && !screen.isEditor) { screen = Screen.Home }
     WidgetHost(graph) {
         Box(Modifier.fillMaxSize().background(Palette.Page)) {

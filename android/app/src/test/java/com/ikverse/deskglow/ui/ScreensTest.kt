@@ -48,6 +48,7 @@ class ScreensTest {
     private lateinit var graph: AppGraph
     private var exited = false
     private var openedApp = false
+    private var edited: Pair<Orientation, Int>? = null
 
     @Before
     fun setUp() {
@@ -56,7 +57,7 @@ class ScreensTest {
         graph = AppGraph(context, FakeFontsHttp(), FakeFeeds())
     }
 
-    private fun show() = compose.setContent { DeskglowTheme { com.ikverse.deskglow.display.WidgetHost(graph) { LiveDisplay(onExit = { exited = true }, onOpenApp = { openedApp = true }) } } }
+    private fun show() = compose.setContent { DeskglowTheme { com.ikverse.deskglow.display.WidgetHost(graph) { LiveDisplay(onExit = { exited = true }, onOpenApp = { openedApp = true }, onEdit = { orientation, page -> edited = orientation to page }) } } }
 
     private val portrait = Orientation.Portrait
     private val landscape = Orientation.Landscape
@@ -279,6 +280,70 @@ class ScreensTest {
         compose.waitForIdle()
         assertEquals(true, exited)
         assertEquals(false, openedApp)
+    }
+
+    /** A tap of [fingers] fingers at once, held for [holdMs]. */
+    private fun fingerTap(fingers: Int, holdMs: Long = 50) {
+        compose.onRoot().performTouchInput {
+            repeat(fingers) { down(it, Offset(200f + it * 100f, 600f)) }
+            advanceEventTime(holdMs)
+            repeat(fingers) { up(it) }
+        }
+    }
+
+    @Test
+    fun `a double tap with three fingers opens the editor on the screen being shown`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>().graph
+        app.addPage(portrait)
+        app.prefs.setLastPage(portrait, 1)
+        show()
+        compose.waitForIdle()
+        fingerTap(3)
+        compose.mainClock.advanceTimeBy(100)
+        fingerTap(3)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        assertEquals(portrait to 1, edited)
+        assertEquals(false, exited)
+        assertEquals(false, openedApp)
+    }
+
+    @Test
+    fun `four fingers count as well, and a single three-finger tap does not open the editor`() {
+        show()
+        compose.waitForIdle()
+        fingerTap(3)
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
+        assertNull(edited)
+        fingerTap(4)
+        compose.mainClock.advanceTimeBy(100)
+        fingerTap(4)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        assertEquals(portrait to 0, edited)
+    }
+
+    @Test
+    fun `two-finger taps and slow three-finger touches do not open the editor`() {
+        show()
+        compose.waitForIdle()
+        fingerTap(2)
+        compose.mainClock.advanceTimeBy(100)
+        fingerTap(2)
+        compose.mainClock.advanceTimeBy(500)
+        fingerTap(3, holdMs = 2_000)
+        compose.mainClock.advanceTimeBy(100)
+        fingerTap(3, holdMs = 2_000)
+        compose.mainClock.advanceTimeBy(500)
+        // Two taps too far apart in time are two single taps.
+        fingerTap(3)
+        compose.mainClock.advanceTimeBy(1_500)
+        fingerTap(3)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        assertNull(edited)
+        assertEquals(false, exited)
     }
 
     private fun showInRoom(dark: Boolean) = compose.setContent {
