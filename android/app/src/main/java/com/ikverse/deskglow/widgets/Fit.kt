@@ -67,6 +67,8 @@ object Fitting {
     /** A table row is no shorter than this before rows that can be left out are, and no taller than [LARGEST_ROW]. */
     const val SMALLEST_ROW = 12f
     const val LARGEST_ROW = 34f
+    /** The least share of their size the lesser kinds keep when a larger main size takes their room. */
+    const val KEEP = 0.5f
     /** The most of a table row's height its text takes, however large the main size is set. */
     const val ROW_TEXT = 0.78f
     /** Hints in the editor are set between these. */
@@ -105,7 +107,8 @@ class Fitted(val arrangement: Int, val level: Int, val scale: Scale, val w: Floa
     fun sample(text: String, chars: Int): String = if (probing && text.length > chars) text.take(chars) else text
 }
 
-private class Choice(val arrangement: Int, val level: Int, val u: Float, val space: Float)
+/** [grow] scales the main size and [keep] the lesser kinds, after the search: the main size slider, and what it took from the rest. */
+private class Choice(val arrangement: Int, val level: Int, val u: Float, val space: Float, val grow: Float = 1f, val keep: Float = 1f)
 
 /**
  * Choices already made, shared by every screen: a widget measured once for a box (in the Home preview, say)
@@ -153,8 +156,10 @@ private object MainSlot
  *
  * The choice is kept until the box, [key] or the widget's settings change, so a live widget does not
  * jump about as its text changes length; it is only made again if new text would no longer fit.
- * [unit] is pixels to a canvas unit ([canvasUnit]). The main size is scaled by [LocalTextSizes]' main factor and the
- * lesser kinds by its small one, before measuring, so the choice allows for them. The content is centred upright and set across by
+ * [unit] is pixels to a canvas unit ([canvasUnit]). The lesser kinds are scaled by [LocalTextSizes]' small factor before
+ * measuring, so the choice allows for them. Its main factor is applied to what was chosen: the main size grows by just
+ * that much, taking room from the lesser kinds (down to [Fitting.KEEP] of their size) if it must, and everything shrinks
+ * together only if even that does not fit; below 1 the main size shrinks and the rest stays. The content is centred upright and set across by
  * [align] (0 left, 1 right). Where the box is not fixed in a direction, this takes only what it needs.
  */
 @Composable
@@ -178,15 +183,19 @@ fun Fit(
         val tw = w * Fitting.FILL
         val th = h * Fitting.FILL
 
-        fun scaleAt(u: Float, space: Float): Scale {
+        fun scaleAt(u: Float, space: Float, grow: Float, keep: Float): Scale {
             val main = u * unit
             val reference = Fitting.REFERENCE * unit
             val second = min(Fitting.second(main, unit), max(reference, h * Fitting.SECOND_CAP))
             val small = min(Fitting.small(main, unit), max(reference, h * Fitting.SMALL_CAP))
-            return Scale(main * sizes.main, second * sizes.small, min(small, second) * sizes.small, space, unit)
+            val lesser = sizes.small * keep
+            return Scale(main * grow, second * lesser, min(small, second) * lesser, space, unit)
         }
 
-        fun fitted(a: Int, l: Int, u: Float, space: Float, probing: Boolean) = Fitted(a, l, scaleAt(u, space), w.toFloat(), h.toFloat(), probing)
+        fun fitted(a: Int, l: Int, u: Float, space: Float, probing: Boolean, grow: Float = 1f, keep: Float = 1f) =
+            Fitted(a, l, scaleAt(u, space, grow, keep), w.toFloat(), h.toFloat(), probing)
+
+        fun fitted(c: Choice, probing: Boolean) = fitted(c.arrangement, c.level, c.u, c.space, probing, c.grow, c.keep)
 
         fun size(f: Fitted, slot: Probe): IntSize {
             var sw = 0
@@ -266,15 +275,45 @@ fun Fit(
             return Choice(chosen.arrangement, chosen.level, chosen.u, space)
         }
 
+        /** [chosen] (fitted at a main size of 100%) with the main size slider applied. */
+        fun grown(chosen: Choice): Choice {
+            val m = sizes.main
+            if (m == 1f) return chosen
+            // Smaller: the main size shrinks by just that much and the rest stays as it is.
+            if (m < 1f) return Choice(chosen.arrangement, chosen.level, chosen.u, chosen.space, grow = m)
+            var probe = 0
+            fun fits(grow: Float, keep: Float): Boolean {
+                val s = size(fitted(chosen.arrangement, chosen.level, chosen.u, chosen.space, true, grow, keep), Probe(-3, 0, probe++))
+                return s.width <= tw && s.height <= th
+            }
+            /** The largest value in [lo] to [hi] that [ok] accepts, given that [lo] is. */
+            fun largestOf(lo: Float, hi: Float, ok: (Float) -> Boolean): Float {
+                var a = lo
+                var b = hi
+                repeat(7) {
+                    val mid = (a + b) / 2
+                    if (ok(mid)) a = mid else b = mid
+                }
+                return a
+            }
+            fun choice(grow: Float, keep: Float) = Choice(chosen.arrangement, chosen.level, chosen.u, chosen.space, grow, keep)
+            if (fits(m, 1f)) return choice(m, 1f)
+            // Larger and short of room: the lesser kinds give way, as far as KEEP.
+            if (fits(m, Fitting.KEEP)) return choice(m, largestOf(Fitting.KEEP, 1f) { fits(m, it) })
+            // Even that is too much: everything shrinks together. At 1/m the main size is back at what fitted.
+            val t = largestOf(1f / m, 1f) { fits(m * it, Fitting.KEEP * it) }
+            return choice(m * t, Fitting.KEEP * t)
+        }
+
         val shared = listOf(key, w, h, unit, arrangements, levels, sizes)
         var choice = memo.choice.takeIf { memo.w == w && memo.h == h && memo.key == key && memo.sizes == sizes } ?: FitCache.get(shared)
         if (choice != null) {
             // The text may have changed since: the size stays unless it no longer fits at all.
-            val s = size(fitted(choice.arrangement, choice.level, choice.u, choice.space, true), Probe(-2, 0, 0))
+            val s = size(fitted(choice, true), Probe(-2, 0, 0))
             if (s.width > w || s.height > h) choice = null
         }
         if (choice == null) {
-            choice = search()
+            choice = grown(search())
             FitCache.searched()
             FitCache.put(shared, choice)
         }
@@ -283,7 +322,7 @@ fun Fit(
         memo.key = key
         memo.sizes = sizes
         memo.choice = choice
-        val shown = fitted(choice.arrangement, choice.level, choice.u, choice.space, false)
+        val shown = fitted(choice, false)
         val placeables = subcompose(MainSlot) { content(shown) }.map { it.measure(Constraints(maxWidth = w, maxHeight = h)) }
         val cw = placeables.maxOfOrNull { it.width } ?: 0
         val ch = placeables.maxOfOrNull { it.height } ?: 0
