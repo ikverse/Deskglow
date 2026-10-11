@@ -38,6 +38,10 @@ import com.ikverse.deskglow.model.TextKey
  * One kind of widget. Each lives in its own file and holds everything about itself: its look, its
  * settings and the data it reads. Adding a widget means writing one of these and listing it in
  * [Widgets.all]; nothing else in the app needs to change.
+ *
+ * Every widget gets the "Main size" and "Small text size" sliders ([Common.sizeFields]). Text sized through [Fit]
+ * follows them by itself; text sized by hand reads [LocalTextSizes]. Text laid over a drawing (a ring, a track) goes
+ * through [ClearStack] or [LabelSpace], so it shrinks, moves or is left out rather than covering the drawing.
  */
 interface WidgetType {
     /** Stored in saved layouts, so never renamed. */
@@ -49,6 +53,9 @@ interface WidgetType {
     val width: Int
     val height: Int
     val defaults: Settings
+
+    /** Whether it has small text beside its main text, and so a "Small text size" slider. */
+    val smallText: Boolean get() = true
 
     /** The controls in its settings sheet. May depend on the current settings (Arabic adds a numerals choice). */
     fun fields(settings: Settings): List<Field>
@@ -120,6 +127,17 @@ object Common {
     fun use24Hour(settings: Settings, key: TextKey = TIME_FORMAT): Boolean {
         val phone = DateFormat.is24HourFormat(LocalContext.current)
         return when (settings[key]) { "12" -> false; "24" -> true; else -> phone }
+    }
+
+    /** The main text and art, and the small text, as a percentage of the size the widget fits them to. See [TextSizes]. */
+    val MAIN_SIZE = IntKey("mainSize", 100)
+    val SMALL_SIZE = IntKey("smallSize", 100)
+    val SIZE_RANGE = 60..140
+
+    /** The size sliders the settings sheet adds after a widget's own [WidgetType.fields]. */
+    fun sizeFields(type: WidgetType): List<Field> = buildList {
+        add(SliderField("Main size", MAIN_SIZE, SIZE_RANGE, "%"))
+        if (type.smallText) add(SliderField("Small text size", SMALL_SIZE, SIZE_RANGE, "%"))
     }
 
     val colourField = ColourField("Colour", COLOUR)

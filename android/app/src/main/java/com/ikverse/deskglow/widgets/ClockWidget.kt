@@ -27,6 +27,7 @@ import com.ikverse.deskglow.fonts.LocalFonts
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.Settings
 import com.ikverse.deskglow.model.TextKey
+import kotlin.math.min
 
 object ClockWidget : WidgetType {
     /** A drawn style ("squared", "seg", ...), "thin"/"bold", or a font id. */
@@ -89,14 +90,17 @@ object ClockWidget : WidgetType {
         val parts = TimeText.parts(now, h24, seconds == "digits", arabic, leadingZero = settings[LEADING_ZERO])
         val colour = Color(settings[Common.COLOUR])
         val marker = if (settings[AMPM] && !h24) TimeText.meridiem(now, settings[Common.ARABIC]) else null
+        val sizes = LocalTextSizes.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                    ClockFace(settings[STYLE], parts, colour, arabic, Modifier.weight(1f).fillMaxHeight(), alignFraction(settings[Common.ALIGN]))
+                    // The time already fills what the AM/PM leaves it, so a main size over 100% has no room to grow into;
+                    // a larger AM/PM takes its room from the time.
+                    ClockFace(settings[STYLE], parts, colour, arabic, Modifier.weight(1f).fillMaxHeight(), alignFraction(settings[Common.ALIGN]), min(sizes.main, 1f))
                     if (marker != null) {
-                        Spacer(Modifier.width(pxToDp(h * 0.12f)))
-                        Text(marker, color = Muted, fontSize = pxToSp(h * 0.2f), maxLines = 1, softWrap = false)
+                        Spacer(Modifier.width(pxToDp(h * 0.12f * sizes.small)))
+                        Text(marker, color = Muted, fontSize = pxToSp(h * 0.2f * sizes.small), maxLines = 1, softWrap = false)
                     }
                 }
                 if (seconds == "line") SecondsLine(now.second, colour, h)
@@ -118,10 +122,10 @@ private fun SecondsLine(second: Int, colour: Color, h: Float) {
 
 /** The time in one style. Shared by the widget and the style strip's preview tiles. */
 @Composable
-fun ClockFace(style: String, parts: TimeParts, color: Color, arabicDigits: Boolean, modifier: Modifier = Modifier.fillMaxSize(), align: Float = 0.5f) {
+fun ClockFace(style: String, parts: TimeParts, color: Color, arabicDigits: Boolean, modifier: Modifier = Modifier.fillMaxSize(), align: Float = 0.5f, share: Float = 1f) {
     val art = remember(style, parts) { ClockStyles.build(style, parts) }
     if (art != null) {
-        ArtCanvas(art, color, modifier, align = align)
+        ArtCanvas(art, color, modifier, align = align, share = share)
     } else {
         val fonts = LocalFonts.current
         val typeface = remember(style) { fonts.typeface(if (FontIds.isFont(style)) style else FontIds.THIN) }
@@ -133,6 +137,7 @@ fun ClockFace(style: String, parts: TimeParts, color: Color, arabicDigits: Boole
             sample = if (arabicDigits) "٠١٢٣٤٥٦٧٨٩:" else "0123456789:",
             stableDigits = !arabicDigits,
             align = align,
+            share = share,
         )
     }
 }

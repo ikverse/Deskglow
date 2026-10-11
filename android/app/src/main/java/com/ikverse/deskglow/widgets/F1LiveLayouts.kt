@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -321,9 +323,10 @@ private fun TowerFace(b: Board, w: Float, h: Float, unit: Float) {
     val newsSlot = wantedNewsSlot && footerOn
     val (left, right) = if (twoColumns) standingColumns(top) else top to emptyList()
     val cutoff = session.cutoff?.takeIf { c -> top.any { it.position == c } }
-    val text = row * 0.56f
+    val sizes = LocalTextSizes.current
+    val text = rowText(row, 0.56f, sizes.main)
     // The heading, the flag and the news grow more slowly than the rows.
-    val label = Fitting.second(text, unit)
+    val label = Fitting.second(row * 0.56f, unit) * sizes.small
 
     fun gapOf(r: LiveRow) = gapText(if (toAhead) r.interval else r.gap)
     val gapWidth = text * 0.85f * 0.6f * ((top + listOfNotNull(extra)).maxOfOrNull { gapOf(it).length } ?: 0)
@@ -980,7 +983,11 @@ private fun TrackFace(b: Board, w: Float, h: Float, unit: Float) {
     val border = flagShade?.takeIf { settings[F1LiveWidget.BORDER] }
     val borderHint = editing && border == null && settings[F1LiveWidget.BORDER]
     val inset = if (border != null || borderHint) min(w, h) * 0.035f else 0f
-    val text = Fitting.second(min(w, h) * 0.065f, unit)
+    // The header, the news and the names on the map are the small text; the list beside the map is the main.
+    val sizes = LocalTextSizes.current
+    val base = Fitting.second(min(w, h) * 0.065f, unit)
+    val text = base * sizes.small
+    val listText = base * sizes.main
     val side = settings[F1LiveWidget.TRACK_SIDE]
     val wide = w > h * 1.15f
     val news = b.news.takeIf { live && settings[F1LiveWidget.NEWS] }
@@ -998,12 +1005,12 @@ private fun TrackFace(b: Board, w: Float, h: Float, unit: Float) {
                 TrackMap(b, track, Modifier.weight(1f).fillMaxHeight(), text)
                 if (side != "none") {
                     Spacer(Modifier.width(pxToDp(text * 0.6f)))
-                    MapSide(b, side, text, Modifier.width(pxToDp(w * 0.28f)))
+                    MapSide(b, side, listText, Modifier.width(pxToDp(w * 0.28f)))
                 }
             }
         } else {
             TrackMap(b, track, Modifier.fillMaxWidth().weight(1f), text)
-            if (side != "none") MapSide(b, side, text, Modifier.fillMaxWidth().padding(top = pxToDp(text * 0.4f)))
+            if (side != "none") MapSide(b, side, listText, Modifier.fillMaxWidth().padding(top = pxToDp(listText * 0.4f)))
         }
         if (news != null) {
             Box(Modifier.fillMaxWidth().padding(top = pxToDp(text * 0.4f))) { NewsLine(news, text * 0.85f) }
@@ -1078,26 +1085,44 @@ private fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) 
         spot != null && !r.inPit && !r.out && !r.knockedOut && Duration.between(spot.at, b.now) < Duration.ofMillis(lapMs * 2)
     }
     val cornerStyle = TextStyle(color = Muted, fontSize = with(density) { (text * 0.55f).toSp() })
+    val startLine = settings[F1LiveWidget.START_LINE]
+    val showCorners = settings[F1LiveWidget.CORNERS]
 
-    Box(modifier) {
+    BoxWithConstraints(modifier) {
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        // The outline's paint, and the corner numbers set clear of it, worked out once per size; only the cars move.
+        val still = remember(track, w, h, strokeShare, startLine, showCorners, cornerStyle) {
+            val fit = MapFit(track, w, h, strokeShare)
+            val ink = InkMap.of(w, h)
+            if (fit.scale > 0f) {
+                ink.line(track.points.map(fit::at), fit.stroke, closed = true)
+                if (startLine) startLineEnds(track, fit).let { (a, z) -> ink.line(listOf(a, z), (fit.stroke * 0.45f).coerceAtLeast(1f)) }
+            }
+            val outline = ink.copy()
+            val space = LabelSpace(ink)
+            val corners = if (!showCorners || fit.scale <= 0f) emptyList() else track.corners.mapNotNull { c ->
+                val at = fit.at(c.x to c.y)
+                val out = (at - fit.centre).let { d -> d / d.getDistance().coerceAtLeast(0.001f) } * (fit.stroke * 2.6f)
+                val laid = measurer.measure(c.number.toString(), cornerStyle)
+                // Outside the corner, as it has always been set; inside it if that would touch the line; left out if neither is clear.
+                space.place(
+                    Size(laid.size.width.toFloat(), laid.size.height.toFloat()),
+                    listOf({ size -> at + out - Offset(size.width / 2f, size.height / 2f) }, { size -> at - out - Offset(size.width / 2f, size.height / 2f) }),
+                )?.let { c.number.toString() to it }
+            }
+            MapStill(fit, outline, ink, corners)
+        }
         TrackOutline(track, lineColour, Modifier.fillMaxSize(), strokeShare)
         Canvas(Modifier.fillMaxSize()) {
-            val fit = MapFit(track, size.width, size.height, strokeShare)
+            val fit = still.fit
             if (fit.scale <= 0f) return@Canvas
-            if (settings[F1LiveWidget.START_LINE]) {
-                val start = fit.at(track.pointAt(0f))
-                val ahead = fit.at(track.pointAt(0.005f))
-                val along = (ahead - start).let { d -> d / d.getDistance().coerceAtLeast(0.001f) }
-                val across = Offset(-along.y, along.x) * (fit.stroke * 1.8f)
-                drawLine(b.colour, start - across, start + across, strokeWidth = (fit.stroke * 0.45f).coerceAtLeast(1f), cap = StrokeCap.Round)
+            if (startLine) {
+                val (a, z) = startLineEnds(track, fit)
+                drawLine(b.colour, a, z, strokeWidth = (fit.stroke * 0.45f).coerceAtLeast(1f), cap = StrokeCap.Round)
             }
-            if (settings[F1LiveWidget.CORNERS]) {
-                track.corners.forEach { c ->
-                    val at = fit.at(c.x to c.y)
-                    val out = (at - fit.centre).let { d -> d / d.getDistance().coerceAtLeast(0.001f) } * (fit.stroke * 2.6f)
-                    val laid = measurer.measure(c.number.toString(), cornerStyle)
-                    drawText(laid, topLeft = at + out - Offset(laid.size.width / 2f, laid.size.height / 2f))
-                }
+            still.corners.forEach { (number, p) ->
+                drawText(measurer.measure(number, cornerStyle.copy(fontSize = cornerStyle.fontSize * p.share)), topLeft = p.topLeft)
             }
             val radius = min(size.width, size.height) * carShare
             val cars = running.mapNotNull { r ->
@@ -1105,32 +1130,63 @@ private fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) 
                 val big = highlighted(r)
                 MapCar(r, fit.at(track.pointAt(fraction)), big, dim && !big, named(r))
             }.sortedWith(compareBy({ it.big }, { -it.row.position }))
+            fun MapCar.radius() = if (big) radius * 1.45f else radius
             cars.forEach { car ->
-                val r = if (car.big) radius * 1.45f else radius
+                val r = car.radius()
                 val alpha = if (car.faded) 0.3f else 1f
                 drawCircle(Color.Black.copy(alpha = alpha), r * 1.25f, car.where)
                 drawCircle(Color(car.row.teamColour ?: 0xFF8C8C8C).copy(alpha = alpha), r, car.where)
                 if (car.big) drawCircle(b.colour.copy(alpha = 0.9f * alpha), r * 1.25f, car.where, style = Stroke(width = (r * 0.18f).coerceAtLeast(1f)))
             }
-            cars.filter { it.named }.forEach { car ->
+            // Names kept off the line, the corner numbers, every other car and each other: the followed car's first, then by position.
+            val space = LabelSpace(still.ink.copy())
+            cars.filter { it.named }.sortedWith(compareBy({ it.row.code != b.followed }, { it.row.position })).forEach { car ->
                 val me = car.row.code == b.followed
                 val style = TextStyle(
                     color = (if (me) b.accent else b.colour).copy(alpha = if (car.faded) 0.45f else 1f),
                     fontSize = (text * (if (labels == "all") 0.6f else 0.75f)).toSp(), fontWeight = if (me) FontWeight.Bold else FontWeight.Medium,
                 )
-                val laid = measurer.measure(driverName(car.row, b.names), style)
-                val r = if (car.big) radius * 1.45f else radius
-                drawText(laid, topLeft = car.where + Offset(r * 1.3f, -r * 1.1f - laid.size.height / 2f))
+                val name = driverName(car.row, b.names)
+                val laid = measurer.measure(name, style)
+                val r = car.radius()
+                val placed = space.place(
+                    Size(laid.size.width.toFloat(), laid.size.height.toFloat()),
+                    listOf(
+                        { size -> car.where + Offset(r * 1.3f, -r * 1.1f - size.height / 2f) },
+                        { size -> car.where + Offset(-r * 1.3f - size.width, -r * 1.1f - size.height / 2f) },
+                        { size -> car.where + Offset(r * 1.3f, r * 1.1f - size.height / 2f) },
+                        { size -> car.where + Offset(-r * 1.3f - size.width, r * 1.1f - size.height / 2f) },
+                    ),
+                    required = true,
+                    blocked = { rect -> cars.any { it !== car && rect.touches(it.where, it.radius() * 1.25f) } },
+                ) ?: return@forEach
+                drawText(if (placed.share == 1f) laid else measurer.measure(name, style.copy(fontSize = style.fontSize * placed.share)), topLeft = placed.topLeft)
             }
         }
         if (b.live && running.isEmpty()) {
-            Text(
-                if (session.rows.isEmpty()) "Waiting for the timing" else "Cars show once they are out on track", color = Muted, fontSize = pxToSp(text * 0.7f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomCenter),
+            val waiting = if (session.rows.isEmpty()) "Waiting for the timing" else "Cars show once they are out on track"
+            ClearStack(
+                still.outline,
+                listOf(ClearPart { k -> Text(waiting, color = Muted, fontSize = pxToSp(text * 0.7f * k), maxLines = 1, overflow = TextOverflow.Ellipsis) }),
+                gap = 0f,
+                align = 1f,
+                floor = 0.6f,
             )
         }
     }
 }
+
+/** The ends of the short bar drawn across the line where a lap starts. */
+private fun startLineEnds(track: F1Track, fit: MapFit): Pair<Offset, Offset> {
+    val start = fit.at(track.pointAt(0f))
+    val ahead = fit.at(track.pointAt(0.005f))
+    val along = (ahead - start).let { d -> d / d.getDistance().coerceAtLeast(0.001f) }
+    val across = Offset(-along.y, along.x) * (fit.stroke * 1.8f)
+    return start - across to start + across
+}
+
+/** What a track map keeps between frames: where the outline sits, its paint (alone, and with the corner numbers), and where each corner number went. */
+private class MapStill(val fit: MapFit, val outline: InkMap, val ink: InkMap, val corners: List<Pair<String, Placed>>)
 
 /** Beside the map: the cars in the pits and out, the top 3, or the cars either side of the followed one. */
 @Composable
