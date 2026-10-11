@@ -27,10 +27,11 @@ fun mediaUpdates(context: Context): Flow<MediaState> = callbackFlow {
     val manager = context.getSystemService(MediaSessionManager::class.java)
     val handler = Handler(Looper.getMainLooper())
     var current: MediaController? = null
+    val art = ArtCache()
 
     val controllerCallback = object : MediaController.Callback() {
-        override fun onMetadataChanged(metadata: MediaMetadata?) { current?.let { trySend(trackOf(it)) } }
-        override fun onPlaybackStateChanged(state: PlaybackState?) { current?.let { trySend(trackOf(it)) } }
+        override fun onMetadataChanged(metadata: MediaMetadata?) { current?.let { trySend(trackOf(it, art)) } }
+        override fun onPlaybackStateChanged(state: PlaybackState?) { current?.let { trySend(trackOf(it, art)) } }
         override fun onSessionDestroyed() {
             current = null
             trySend(MediaState.Idle)
@@ -44,7 +45,7 @@ fun mediaUpdates(context: Context): Flow<MediaState> = callbackFlow {
             current = pick
             pick?.registerCallback(controllerCallback, handler)
         }
-        trySend(current?.let(::trackOf) ?: MediaState.Idle)
+        trySend(current?.let { trackOf(it, art) } ?: MediaState.Idle)
     }
 
     val sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { follow(it) }
@@ -55,6 +56,7 @@ fun mediaUpdates(context: Context): Flow<MediaState> = callbackFlow {
         trySend(MediaState.NoAccess)
     }
     awaitClose {
+        art.clear()
         current?.unregisterCallback(controllerCallback)
         runCatching { manager.removeOnActiveSessionsChangedListener(sessionsListener) }
     }
@@ -65,7 +67,7 @@ private fun choose(controllers: List<MediaController>): MediaController? =
     controllers.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
         ?: controllers.firstOrNull { it.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) != null }
 
-private fun trackOf(controller: MediaController): MediaState {
+private fun trackOf(controller: MediaController, cache: ArtCache): MediaState {
     val metadata = controller.metadata ?: return MediaState.Idle
     val title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() } ?: return MediaState.Idle
     val state = controller.playbackState
@@ -78,26 +80,34 @@ private fun trackOf(controller: MediaController): MediaState {
         positionAtElapsedMs = state?.lastPositionUpdateTime ?: 0,
         playing = state?.state == PlaybackState.STATE_PLAYING,
         speed = state?.playbackSpeed ?: 1f,
-        art = artOf(metadata),
+        art = artOf(metadata, cache),
     )
 }
 
 /** The longest side the cover is kept at: plenty for a widget, little enough to hold on to. */
 private const val ART_PX = 240
 
-private var lastSource: Bitmap? = null
-private var lastArt: ImageBitmap? = null
+/** The last cover and its scaled copy, held only for as long as one media flow runs. */
+private class ArtCache {
+    var source: Bitmap? = null
+    var art: ImageBitmap? = null
+
+    fun clear() {
+        source = null
+        art = null
+    }
+}
 
 /** The player's cover (or its nearest stand-in), scaled down once and reused while the player hands over the same picture. */
-private fun artOf(metadata: MediaMetadata): ImageBitmap? {
+private fun artOf(metadata: MediaMetadata, cache: ArtCache): ImageBitmap? {
     val source = listOf(MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON)
         .firstNotNullOfOrNull { key -> metadata.getBitmap(key)?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 } } ?: return null
-    if (source === lastSource) return lastArt
+    if (source === cache.source) return cache.art
     val k = ART_PX.toFloat() / maxOf(source.width, source.height)
     val scaled = if (k >= 1f) source else runCatching {
         Bitmap.createScaledBitmap(source, (source.width * k).toInt().coerceAtLeast(1), (source.height * k).toInt().coerceAtLeast(1), true)
     }.getOrNull() ?: return null
-    lastSource = source
-    lastArt = scaled.asImageBitmap()
-    return lastArt
+    cache.source = source
+    cache.art = scaled.asImageBitmap()
+    return cache.art
 }

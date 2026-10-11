@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,6 +28,10 @@ import org.robolectric.annotation.GraphicsMode
 class FitTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
+
+    /** The shared cache outlives a test, and these tests reuse a key for different content. */
+    @Before
+    fun emptyCache() = FitStats.reset()
 
     /** What the last real (not measuring) pass was handed. */
     private var shown: Fitted? = null

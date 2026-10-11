@@ -335,9 +335,7 @@ internal fun PowerManager.WakeLock?.letGo() {
 class DeskglowDream : DreamService() {
     private val owner = ViewOwner()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var lightJob: Job? = null
-    private var roomDark by mutableStateOf(false)
-    private var coverLock: PowerManager.WakeLock? = null
+    private var host: DisplayHost? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -345,12 +343,9 @@ class DeskglowDream : DreamService() {
         // the charger coming out, or the power button.
         isInteractive = true
         isFullscreen = true
-        val brightness = chosenBrightness()
         // Android's own dim mode for screen savers, or a level of the owner's choosing.
-        isScreenBright = brightness.mode != BrightnessMode.Dim
-        if (brightness.mode == BrightnessMode.Custom) {
-            window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = windowBrightness(brightness) ?: screenBrightness } }
-        }
+        isScreenBright = chosenBrightness().mode != BrightnessMode.Dim
+        val host = window?.let { DisplayHost(this, it) }.also { host = it }
         owner.create()
         setContentView(ComposeView(this).also { view ->
             owner.attach(view)
@@ -359,42 +354,30 @@ class DeskglowDream : DreamService() {
                     LiveDisplay(
                         onExit = ::finish,
                         onOpenApp = { openApp(); finish() },
-                        dark = roomDark,
+                        dark = host?.roomDark?.value ?: false,
                         onSwiping = { fast -> window?.setRefreshRate(this, fast) },
                     )
                 }
             }
         })
-        window?.let(::hideSystemBars)
-        window?.setRefreshRate(this, fast = false)
+        host?.prepare(onlyCustom = true)
     }
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
-        window?.let(::hideSystemBars) // again now the window is on screen: some phones only honour it then
-        window?.setRefreshRate(this, fast = false)
+        host?.prepare(onlyCustom = true) // again now the window is on screen: some phones only honour it then
         owner.resume()
-        DeskglowPresence.started(this)
-        coverLock.letGo()
-        coverLock = holdCoverOff()
-        val window = window
-        if (window != null && chosenBrightness().mode == BrightnessMode.Auto) {
-            lightJob = scope.launch { followRoomLight(this@DeskglowDream, window) { roomDark = it } }
-        }
+        host?.start(scope)
     }
 
     override fun onDreamingStopped() {
-        DeskglowPresence.stopped(this)
-        lightJob?.cancel()
-        coverLock.letGo()
-        coverLock = null
+        host?.stop()
         owner.pause()
         super.onDreamingStopped()
     }
 
     override fun onDetachedFromWindow() {
-        DeskglowPresence.stopped(this)
-        coverLock.letGo()
+        host?.stop()
         scope.cancel()
         owner.destroy()
         super.onDetachedFromWindow()
@@ -407,28 +390,19 @@ class DeskglowDream : DreamService() {
  * nothing, so a stray swipe from the edge cannot close it.
  */
 class DisplayActivity : ComponentActivity() {
-    private var roomDark by mutableStateOf(false)
-    private var coverLock: PowerManager.WakeLock? = null
+    private lateinit var host: DisplayHost
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this) {}
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val brightness = chosenBrightness()
-        windowBrightness(brightness)?.let { level ->
-            window.attributes = window.attributes.apply { screenBrightness = level }
-        }
-        if (brightness.mode == BrightnessMode.Auto) {
-            lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { followRoomLight(this@DisplayActivity, window) { roomDark = it } } }
-        }
-        hideSystemBars(window)
-        window.setRefreshRate(this, fast = false)
+        host = DisplayHost(this, window).also { it.prepare() }
         setContent {
             DeskglowTheme {
                 LiveDisplay(
                     onExit = ::finish,
                     onOpenApp = { openApp(); finish() },
-                    dark = roomDark,
+                    dark = host.roomDark.value,
                     onSwiping = { fast -> window.setRefreshRate(this, fast) },
                 )
             }
@@ -438,15 +412,11 @@ class DisplayActivity : ComponentActivity() {
     // Held only while this is the screen being shown, so covering the phone in another app is never affected.
     override fun onResume() {
         super.onResume()
-        DeskglowPresence.started(this)
-        coverLock.letGo()
-        coverLock = holdCoverOff()
+        host.start(lifecycleScope)
     }
 
     override fun onPause() {
-        DeskglowPresence.stopped(this)
-        coverLock.letGo()
-        coverLock = null
+        host.stop()
         super.onPause()
     }
 }
@@ -461,8 +431,7 @@ class DisplayActivity : ComponentActivity() {
  * moment it is clear.
  */
 class AlwaysOnActivity : ComponentActivity() {
-    private var roomDark by mutableStateOf(false)
-    private var coverLock: PowerManager.WakeLock? = null
+    private lateinit var host: DisplayHost
     private var coverJob: Job? = null
     private var fromOff = false
 
@@ -474,21 +443,13 @@ class AlwaysOnActivity : ComponentActivity() {
         DeskglowPresence.registerAlwaysOn(this)
         onBackPressedDispatcher.addCallback(this) {}
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val brightness = chosenBrightness()
-        windowBrightness(brightness)?.let { level ->
-            window.attributes = window.attributes.apply { screenBrightness = level }
-        }
-        if (brightness.mode == BrightnessMode.Auto) {
-            lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { followRoomLight(this@AlwaysOnActivity, window) { roomDark = it } } }
-        }
-        hideSystemBars(window)
-        window.setRefreshRate(this, fast = false)
+        host = DisplayHost(this, window).also { it.prepare() }
         setContent {
             DeskglowTheme {
                 LiveDisplay(
                     onExit = ::finish,
                     onOpenApp = ::unlockAndOpenApp,
-                    dark = roomDark,
+                    dark = host.roomDark.value,
                     onSwiping = { fast -> window.setRefreshRate(this, fast) },
                 )
             }
@@ -509,22 +470,22 @@ class AlwaysOnActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Always on keeps its own presence bookkeeping, and the cover lock waits on the delay below.
+        host.start(lifecycleScope, presence = false, cover = false)
         if (!graph.prefs.coverOff.value) return
         val first = if (fromOff) 0L else COVER_DELAY_MS
         fromOff = false
         coverJob = lifecycleScope.launch {
             applyCoverDelay(proximityCovered(this@AlwaysOnActivity), COVER_DELAY_MS, first) { off ->
-                coverLock.letGo()
-                coverLock = if (off) holdCoverOff() else null
-                DeskglowPresence.coverHeld = coverLock != null
+                host.setCover(off)
+                DeskglowPresence.coverHeld = host.coverHeld
             }
         }
     }
 
     override fun onPause() {
         coverJob?.cancel()
-        coverLock.letGo()
-        coverLock = null
+        host.stop()
         DeskglowPresence.coverHeld = false
         super.onPause()
     }

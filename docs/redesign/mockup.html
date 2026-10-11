@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskglow redesign mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700&display=swap" rel="stylesheet">
+<style>
+/* The page uses the app's own chrome palette (ui/Theme.kt Palette) and the phone's font. */
+:root {
+  --page: #000000; --sheet: #0F0E0C; --raised: #181614; --rule: #26231F; --edge: #2E2A25;
+  --ink: #EDE6DA; --muted: #8A8378; --sel: #FFB547; --on-acc: #1C1205; --danger: #FF6B5A;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--ink); font-family: Roboto, system-ui, sans-serif; }
+body { font-size: 15px; line-height: 22px; }
+main { max-width: 1120px; margin: 0 auto; padding: 0 16px 64px; }
+h1 { font-size: 24px; font-weight: 500; margin: 28px 0 6px; letter-spacing: .02em; }
+h1 span { color: var(--sel); }
+h2 { font-size: 17px; font-weight: 500; margin: 0 0 4px; }
+p { margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; line-height: 19px; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; }
+
+.toolbar { position: sticky; top: 0; z-index: 5; background: var(--page); border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 0; margin: 14px 0 18px; }
+.toolbar .count { color: var(--muted); font-size: 13px; flex: 1; min-width: 160px; }
+.pbtn { font: 500 15px/24px Roboto, sans-serif; min-height: 44px; padding: 0 18px; border-radius: 14px; border: 1px solid var(--edge);
+  background: var(--raised); color: var(--ink); cursor: pointer; }
+.pbtn.primary { background: var(--sel); border-color: var(--sel); color: var(--on-acc); }
+.pbtn:disabled { color: var(--muted); background: var(--raised); border-color: var(--rule); cursor: default; }
+.copied { font-size: 13px; color: var(--sel); min-width: 0; }
+
+section.block { background: var(--sheet); border: 1px solid var(--rule); border-radius: 18px; padding: 16px; margin-bottom: 14px; }
+.grid { display: flex; flex-wrap: wrap; gap: 18px 16px; margin-top: 14px; }
+.shot { display: flex; flex-direction: column; gap: 6px; }
+.shot .cap { font-size: 13px; line-height: 19px; color: var(--muted); max-width: 100%; }
+.shot .cap b { color: var(--ink); font-weight: 500; }
+
+article.task { background: var(--sheet); border: 1px solid var(--rule); border-radius: 18px; margin-bottom: 14px; overflow: hidden; }
+article.task.on { border-color: var(--sel); }
+.task-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 56px; border-bottom: 1px solid var(--rule); cursor: pointer; }
+.task-head input { width: 20px; height: 20px; accent-color: #FFB547; margin: 0; flex: none; cursor: pointer; }
+.task-head .num { font-weight: 500; min-width: 30px; }
+.task-head .tag { color: var(--muted); font-size: 13px; min-width: 52px; }
+.task-head .title { flex: 1; font-weight: 500; min-width: 0; }
+.task-head .meta { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.task-body { padding: 14px 16px 16px; }
+.pair { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.col { flex: 1 1 300px; min-width: 0; }
+.col h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.col.after h4 { color: var(--sel); }
+.textbox { border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; background: var(--page); }
+.textbox p:last-child { margin: 0; }
+.note { margin-top: 12px; font-size: 13px; line-height: 19px; color: var(--muted); }
+.what { margin: 0 0 12px; }
+
+/* A phone screen, drawn at 1 css px = 1 dp and scaled down as a whole. */
+.frame { position: relative; overflow: hidden; outline: 1px solid var(--rule); background: #000; flex: none; }
+.frame > .dp { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.scr { position: relative; overflow: hidden; background: #000; color: var(--ink); font-family: Roboto, sans-serif;
+  font-size: 15px; line-height: 24px; -webkit-font-smoothing: antialiased; }
+.scr * { box-sizing: border-box; }
+.abs { position: absolute; }
+.row { display: flex; align-items: center; }
+.colf { display: flex; flex-direction: column; }
+.f1 { flex: 1 1 0; min-width: 0; }
+.el { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ic { display: block; flex: none; overflow: visible; }
+.btn { display: flex; align-items: center; justify-content: center; border: 1px solid; border-radius: 14px; padding: 0 18px;
+  font-size: 15px; font-weight: 500; line-height: 24px; }
+.chip { display: inline-flex; align-items: center; min-height: 36px; border-radius: 18px; border: 1px solid; padding: 0 14px;
+  font-size: 13px; line-height: 24px; white-space: nowrap; }
+.card { background: #0F0E0C; border: 1px solid #26231F; border-radius: 18px; overflow: hidden; }
+.rule { height: 1px; background: #26231F; flex: none; }
+.lbl { font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #8A8378; }
+.w { position: absolute; overflow: visible; }
+.wtext { white-space: nowrap; line-height: 1.17; }
+/* On a phone, the landscape screens would be wider than the column. */
+@media (max-width: 600px) { .frame { zoom: 0.75; } .task-head { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Desk<span>glow</span> redesign mockup</h1>
+  <p class="muted">One card per ticket in <code>docs/redesign/TASKS.md</code>, in the same order. Tick the ones you want done; the
+    combined view applies every ticked [UI] task at once, and Copy selection gives you the line to paste back.</p>
+  <p class="muted small">How the screens were drawn: layout, sizes, colours, radii, text and the default widget layout come from the
+    code at 0.6.1 (<code>Palette</code>, <code>Type</code>, <code>Components.kt</code>, each screen file and <code>DefaultLayout</code>),
+    at 1 px per dp. Material components use the Material 3 defaults of the app's Compose BOM (2026.02). The live readings are
+    sample values (10:42, battery 76% charging, 31.4 °C, Cairo 27°), because the audit's phone captures are not in the repo.
+    The drawn clock styles are built from plain boxes, so their letterforms are close to the app's but not identical.</p>
+
+  <div class="toolbar">
+    <span class="count" id="count">Nothing ticked</span>
+    <span class="copied" id="copied" aria-live="polite"></span>
+    <button class="pbtn" id="clear" type="button">Clear</button>
+    <button class="pbtn primary" id="copy" type="button">Copy selection</button>
+  </div>
+
+  <section class="block" id="combined">
+    <h2>Combined after</h2>
+    <p class="muted small" id="combinedNote"></p>
+    <div class="grid" id="combinedGrid"></div>
+  </section>
+
+  <div id="tasks"></div>
+</main>
+
+<script>
+'use strict';
+// ---------------------------------------------------------------- palette (ui/Theme.kt) and Material 3 defaults
+const P = { page: '#000000', sheet: '#0F0E0C', raised: '#181614', rule: '#26231F', edge: '#2E2A25', edgeStrong: '#4A453D',
+  ink: '#EDE6DA', muted: '#8A8378', sel: '#FFB547', onAcc: '#1C1205', danger: '#FF6B5A', bar: 'rgba(15,14,12,0.941)' };
+const MUTED70 = 'rgba(138,131,120,0.7)';
+const M3 = { secondaryContainer: '#4A4458', surfaceContainerHigh: '#2B2930', surfaceContainerHighest: '#36343B' };
+const WMUTED = '#8C8C8C';     // widgets/WidgetType.kt Muted
+const GREEN = '#44B98A', AMBER_W = '#F5B942';
+
+// ---------------------------------------------------------------- icons (ui/Icons.kt, same paths on the 24 grid)
+const circ = (cx, cy, r) => `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`;
+const rbox = (x, y, w, h, r) => `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z`;
+const G = {
+  Back: { s: ['M15 5l-7 7 7 7'] }, ChevronRight: { s: ['M9 6l6 6-6 6'] }, ChevronDown: { s: ['M6 9l6 6 6-6'] },
+  Close: { s: ['M6 6l12 12M18 6L6 18'] }, Plus: { s: ['M12 5v14M5 12h14'] }, Check: { s: ['M5 12l5 5 9-10'] },
+  Undo: { s: ['M9 14L4 9l5-5', 'M4 9h10a6 6 0 0 1 0 12h-3'] }, Redo: { s: ['M15 14l5-5-5-5', 'M20 9H10a6 6 0 0 0 0 12h3'] },
+  More: { f: [circ(5, 12, 1.8), circ(12, 12, 1.8), circ(19, 12, 1.8)] },
+  Trash: { s: ['M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3'] },
+  Play: { f: ['M7 4.5l13 7.5-13 7.5z'] },
+  Sliders: { s: ['M4 7h10M18 7h2M4 17h4M12 17h8', circ(16, 7, 2), circ(10, 17, 2)] },
+  Duplicate: { s: [rbox(8, 8, 12, 12, 2), 'M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2'] },
+  Eye: { s: ['M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z', circ(12, 12, 3)] },
+  EyeOff: { s: ['M3 3l18 18', 'M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a15 15 0 0 1-3 3.4M6.6 6.6C4.3 8.1 3 12 3 12s4 6 9 6a8.9 8.9 0 0 0 4.4-1.2'] },
+  Sparkle: { s: ['M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z', 'M18 15l.8 1.9L21 18l-2.2.9L18 21l-.8-2.1L15 18l2.2-1.1z'] },
+  Grid: { s: [rbox(4, 4, 6.5, 6.5, 1.2), rbox(13.5, 4, 6.5, 6.5, 1.2), rbox(4, 13.5, 6.5, 6.5, 1.2), rbox(13.5, 13.5, 6.5, 6.5, 1.2)] },
+  Phone: { s: [rbox(7, 3, 10, 18, 2)] }, PhoneSideways: { s: [rbox(3, 7, 18, 10, 2)] },
+  Archive: { s: [rbox(3, 4, 18, 5, 1), 'M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4'] },
+  Shield: { s: ['M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z'] },
+  Info: { s: [circ(12, 12, 9), 'M12 11v5M12 8h.01'] },
+  Search: { s: [circ(11, 11, 6), 'M20 20l-4.5-4.5'] },
+};
+function ic(name, size = 22, tint = P.ink, weight = 1.8) {
+  const g = G[name];
+  const s = (g.s || []).map(d => `<path d="${d}" fill="none" stroke="${tint}" stroke-width="${weight}" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
+  const f = (g.f || []).map(d => `<path d="${d}" fill="${tint}"/>`).join('');
+  return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24">${s}${f}</svg>`;
+}
+const iconAction = (name, tint = P.ink, size = 22, box = 44) =>
+  `<div class="row" style="width:${box}px;height:${box}px;justify-content:center;flex:none">${ic(name, size, tint)}</div>`;
+
+// ---------------------------------------------------------------- shared components (ui/Components.kt)
+// Modifier.glow: six stacked rounded rectangles at 5% amber, growing to 14 dp.
+const glow = (r = 14, steps = 6, a = 0.05) =>
+  Array.from({ length: steps }, (_, i) => `0 0 0 ${(r * (i + 1) / steps).toFixed(2)}px rgba(255,181,71,${a})`).join(',');
+function btn(text, o = {}) {
+  const k = o.kind || 'sec';
+  const [fill, ink, edge] = k === 'pri' ? [P.sel, P.onAcc, P.sel] : k === 'danger' ? [P.raised, P.danger, 'rgba(255,107,90,0.35)'] : [P.raised, P.ink, P.edge];
+  const style = `min-height:48px;${o.h ? `height:${o.h}px;` : ''}background:${fill};border-color:${edge};color:${ink};` +
+    (k === 'pri' ? `box-shadow:${glow()};` : '') + (o.full ? 'width:100%;' : '') + (o.flex ? 'flex:1 1 0;min-width:0;' : 'flex:none;');
+  const g = o.glyph ? ic(o.glyph, 18, ink, 2) + '<span style="width:8px;flex:none"></span>' : '';
+  return `<div class="btn" style="${style}">${g}<span class="el">${text}</span></div>`;
+}
+function chip(text, o = {}) {
+  const on = !!o.sel;
+  const dot = o.dot ? `<span style="width:7px;height:7px;border-radius:50%;background:${P.sel};margin-right:7px;flex:none"></span>` : '';
+  return `<span class="chip" style="background:${on ? P.sel : P.sheet};border-color:${on ? P.sel : P.rule};color:${on ? P.onAcc : P.ink};font-weight:${on ? 500 : 400}">${dot}${text}</span>`;
+}
+const card = (inner, style = '') => `<div class="card" style="${style}">${inner}</div>`;
+function cardRow(glyph, title, detail, last) {
+  return `<div class="colf"><div class="row" style="min-height:56px;padding:0 16px">${ic(glyph, 20, P.muted)}<span style="width:14px;flex:none"></span>
+    <div class="f1" style="padding:8px 0"><div style="font-size:15px">${title}</div>${detail ? `<div style="font-size:13px;color:${P.muted}">${detail}</div>` : ''}</div>
+    <span style="width:8px;flex:none"></span>${ic('ChevronRight', 18, MUTED70)}</div>${last ? '' : '<div class="rule" style="margin-left:50px"></div>'}</div>`;
+}
+const sectionLabel = (t, style = '') => `<div class="lbl" style="${style}">${t}</div>`;
+function segmented(opts, sel, style = '') {
+  return `<div class="row" style="background:${P.page};border:1px solid ${P.rule};border-radius:10px;padding:3px;${style}">${opts.map(o => {
+    const on = o === sel;
+    return `<div class="row" style="min-height:36px;border-radius:8px;padding:0 12px;justify-content:center;flex:${style.includes('width:100%') ? '1 1 0' : 'none'};background:${on ? P.edge : 'transparent'};color:${on ? P.ink : P.muted};font-size:13px;font-weight:${on ? 500 : 400}">${o}</div>`;
+  }).join('')}</div>`;
+}
+function screenFrame(title, content) {
+  return `<div class="colf" style="height:100%"><div class="row" style="padding:4px">${iconAction('Back')}</div>
+    <div style="font-size:24px;font-weight:500;padding:0 20px 14px">${title}</div>
+    <div class="colf" style="padding:4px 16px;gap:14px">${content}</div></div>`;
+}
+const body = t => `<div style="font-size:15px;line-height:22px">${t}</div>`;
+const small = t => `<div style="font-size:13px;line-height:19px;color:${P.muted}">${t}</div>`;
+const section = inner => card(`<div class="colf" style="padding:16px;gap:10px">${inner}</div>`);
+// Material 3 Switch: 52 x 32 track; checked = primary track and a 24 dp onPrimary thumb.
+function mSwitch(checked, A) {
+  if (checked) return `<div style="width:52px;height:32px;border-radius:16px;background:${P.sel};position:relative;flex:none"><div class="abs" style="width:24px;height:24px;border-radius:50%;background:${P.onAcc};left:24px;top:4px"></div></div>`;
+  const track = A.has(3) ? P.raised : M3.surfaceContainerHighest;
+  return `<div style="width:52px;height:32px;border-radius:16px;background:${track};border:2px solid ${P.rule};position:relative;flex:none"><div class="abs" style="width:16px;height:16px;border-radius:50%;background:${P.rule};left:6px;top:6px"></div></div>`;
+}
+// Material 3 Slider (BOM 2026.02): 16 dp track, 4 x 44 dp bar thumb with a 6 dp gap, a stop dot at the end.
+// The unlit track is secondaryContainer: Material's #4A4458 until T3 maps it to Palette.Edge.
+function mSlider(fraction, A) {
+  const inactive = A.has(3) ? P.edge : M3.secondaryContainer;
+  return `<div style="position:relative;height:44px;width:100%">
+    <div class="abs" style="left:0;top:14px;height:16px;width:calc(${fraction * 100}% - 8px);background:${P.sel};border-radius:8px 2px 2px 8px"></div>
+    <div class="abs" style="left:calc(${fraction * 100}% + 8px);right:0;top:14px;height:16px;background:${inactive};border-radius:2px 8px 8px 2px"></div>
+    <div class="abs" style="right:6px;top:20px;width:4px;height:4px;border-radius:50%;background:${P.sel}"></div>
+    <div class="abs" style="left:calc(${fraction * 100}% - 2px);top:0;width:4px;height:44px;border-radius:2px;background:${P.sel}"></div></div>`;
+}
+// Material 3 OutlinedTextField with a value and a floated label. Border = outline = Palette.Rule (T3 does not change it).
+function outlinedField(value, label, bg = P.page) {
+  return `<div style="position:relative;height:56px;border:1px solid ${P.rule};border-radius:4px;padding:0 16px;display:flex;align-items:center;font-size:16px">
+    <span class="abs" style="left:12px;top:-9px;padding:0 4px;background:${bg};font-size:12px;line-height:16px;color:${P.muted}">${label}</span>${value}</div>`;
+}
+
+// ---------------------------------------------------------------- sample data and the default layouts (widgets/DefaultLayout.kt)
+const BATT = { level: 76, temp: '31.4', volts: '4.212', toFull: '48m', watts: '9.84' };
+const PORTRAIT = [
+  ['clock', 96, 56, 220, 64], ['date', 124, 136, 164, 24], ['notifs', 124, 172, 164, 28], ['ring', 74, 252, 264, 264],
+  ['stat', 20, 524, 112, 56, { m: 'temp', a: 'left' }], ['stat', 148, 524, 116, 56, { m: 'voltage', a: 'center' }],
+  ['stat', 280, 524, 112, 56, { m: 'time', a: 'right' }], ['weather', 20, 612, 176, 64], ['event', 216, 612, 176, 64],
+  ['media', 20, 696, 372, 52], ['stat', 132, 764, 148, 56, { m: 'power', a: 'center', noLabel: true, white: true }],
+];
+const LANDSCAPE = [
+  ['clock', 24, 40, 220, 64], ['date', 24, 116, 164, 24], ['notifs', 24, 152, 164, 28], ['ring', 292, 40, 264, 264],
+  ['stat', 712, 40, 112, 56, { m: 'temp', a: 'right' }], ['stat', 708, 112, 116, 56, { m: 'voltage', a: 'right' }],
+  ['stat', 712, 184, 112, 56, { m: 'time', a: 'right' }], ['weather', 24, 220, 176, 64], ['event', 24, 296, 176, 64],
+  ['media', 240, 336, 372, 52], ['stat', 676, 256, 148, 56, { m: 'power', a: 'right', noLabel: true, white: true }],
+];
+const STAT = { temp: ['31.4', '°C', 'Temp', 'Temperature'], voltage: ['4.212', 'V', 'Voltage', 'Voltage'], time: ['48m', '', 'To full', 'Time to full'], power: ['9.84', 'W', 'Power', 'Power'] };
+const titleOf = it => it[0] === 'stat' ? 'Stat · ' + STAT[it[5].m][3] :
+  ({ clock: 'Clock', date: 'Date', notifs: 'Notifications', ring: 'Charging ring', weather: 'Weather', event: 'Next event', media: 'Now playing', sunmoon: 'Sun & moon' })[it[0]];
+
+// ---------------------------------------------------------------- widgets, in canvas units (px inside the box)
+// Squared and seven-segment digits from bars; dot matrix from a 5 x 7 grid.
+const SEGS = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg' };
+function segDigit(d, dh, col, seven) {
+  const dw = dh * 0.52, t = dh * (seven ? 0.13 : 0.15), g = seven ? dh * 0.035 : 0, r = seven ? t / 2 : 0, h2 = dh / 2;
+  const at = { a: [0, 0, dw, t], d: [0, dh - t, dw, t], g: [0, h2 - t / 2, dw, t], f: [0, 0, t, h2 + t / 2], e: [0, h2 - t / 2, t, h2 + t / 2], b: [dw - t, 0, t, h2 + t / 2], c: [dw - t, h2 - t / 2, t, h2 + t / 2] };
+  const bars = SEGS[d].split('').map(s => {
+    let [x, y, w, h] = at[s];
+    if (w > h) { x += g + (seven ? t / 2 : 0); w -= 2 * g + (seven ? t : 0); } else { y += g + (seven ? t / 2 : 0); h -= 2 * g + (seven ? t : 0); }
+    return `<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${col};border-radius:${r}px"></div>`;
+  }).join('');
+  return `<div style="position:relative;width:${dw}px;height:${dh}px;flex:none">${bars}</div>`;
+}
+const DOTS = { 1: ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'], 0: ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+  4: ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'], 2: ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'], ':': ['.', '.', '#', '.', '#', '.', '.'] };
+function dotGlyph(ch, dh, col) {
+  const p = dh / 7, rows = DOTS[ch];
+  const cells = rows.map((r, y) => r.split('').map((c, x) => c === '#' ? `<div class="abs" style="left:${x * p + p * 0.1}px;top:${y * p + p * 0.1}px;width:${p * 0.8}px;height:${p * 0.8}px;border-radius:50%;background:${col}"></div>` : '').join('')).join('');
+  return `<div style="position:relative;width:${rows[0].length * p}px;height:${dh}px;flex:none">${cells}</div>`;
+}
+function clockFace(w, h, style = 'squared', col = '#fff') {
+  const wrap = inner => `<div class="row" style="width:${w}px;height:${h}px;justify-content:center">${inner}</div>`;
+  if (style === 'squared' || style === 'seg') {
+    const dh = Math.min(h * 0.86, w * 0.96 / 2.8), sp = dh * 0.14, t = dh * 0.15;
+    const colon = `<div style="position:relative;width:${t}px;height:${dh}px;flex:none"><div class="abs" style="left:0;top:${dh * 0.27}px;width:${t}px;height:${t}px;background:${col};border-radius:${style === 'seg' ? '50%' : 0}"></div><div class="abs" style="left:0;top:${dh * 0.63}px;width:${t}px;height:${t}px;background:${col};border-radius:${style === 'seg' ? '50%' : 0}"></div></div>`;
+    return wrap(`<div class="row" style="gap:${sp}px">${segDigit(1, dh, col, style === 'seg')}${segDigit(0, dh, col, style === 'seg')}${colon}${segDigit(4, dh, col, style === 'seg')}${segDigit(2, dh, col, style === 'seg')}</div>`);
+  }
+  if (style === 'dots') {
+    const dh = Math.min(h * 0.8, w * 0.96 / (23 / 7 + 4 / 7));
+    return wrap(`<div class="row" style="gap:${dh / 7}px">${['1', '0', ':', '4', '2'].map(c => dotGlyph(c, dh, col)).join('')}</div>`);
+  }
+  if (style === 'stacked') {
+    const fs = Math.min(h / 2 / 1.0, w / 1.3);
+    return `<div class="colf" style="width:${w}px;height:${h}px;align-items:center;justify-content:center;font-weight:500;font-size:${fs}px;line-height:${fs * 0.92}px;color:${col}"><span>10</span><span>42</span></div>`;
+  }
+  const weight = { thin: 100, bold: 700, outline: 700, rounded: 500 }[style] || 300;
+  const fs = Math.min(h / 1.05, w / 2.5);
+  const ink = style === 'outline' ? `color:transparent;-webkit-text-stroke:${Math.max(0.6, fs * 0.04)}px ${col}` : `color:${col}`;
+  return wrap(`<span class="wtext" style="font-size:${fs}px;font-weight:${weight};${ink};letter-spacing:${style === 'rounded' ? '0.02em' : '0'}">10:42</span>`);
+}
+function ringSvg(side, A, layout = 'gauge', accent = GREEN, thicknessPct = 6) {
+  const th = thicknessPct / 100 * side, inset = side * 0.04 + th / 2, r = side / 2 - inset, c = side / 2, C = 2 * Math.PI * r;
+  const track = A.has(12) ? '#262626' : '#1B1B1B';   // RingWidget.kt Color(0xFF1B1B1B) -> WidgetPalette.Track
+  const lv = BATT.level / 100;
+  let arcs;
+  if (layout === 'circle') {
+    arcs = `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${track}" stroke-width="${th}"/>
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${accent}" stroke-width="${th}" stroke-linecap="round" stroke-dasharray="${C * lv} ${C}" transform="rotate(-90 ${c} ${c})"/>`;
+  } else if (layout === 'segments') {
+    const n = 20, step = 270 / n, gap = step * 0.3, lit = Math.round(lv * n);
+    arcs = Array.from({ length: n }, (_, i) => `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${i < lit ? accent : track}" stroke-width="${th}" stroke-dasharray="${C * (step - gap) / 360} ${C}" transform="rotate(${135 + i * step + gap / 2} ${c} ${c})"/>`).join('');
+  } else {
+    arcs = `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${track}" stroke-width="${th}" stroke-linecap="round" stroke-dasharray="${C * 0.75} ${C}" transform="rotate(135 ${c} ${c})"/>
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${accent}" stroke-width="${th}" stroke-linecap="round" stroke-dasharray="${C * 0.75 * lv} ${C}" transform="rotate(135 ${c} ${c})"/>`;
+  }
+  return `<svg class="abs" style="left:0;top:0" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}">${arcs}</svg>`;
+}
+function ring(w, h, A, layout = 'gauge') {
+  const side = Math.min(w, h), bw = side * 0.08, bh = side * 0.11;
+  const bolt = `<svg width="${bw}" height="${bh}" viewBox="0 0 100 100" preserveAspectRatio="none" style="display:block"><path d="M62 0L0 58H46L38 100L100 42H54Z" fill="${GREEN}"/></svg>`;
+  return `<div class="abs" style="left:${(w - side) / 2}px;top:${(h - side) / 2}px;width:${side}px;height:${side}px">${ringSvg(side, A, layout)}
+    <div class="colf abs" style="inset:0;align-items:center;justify-content:center">${bolt}<div style="height:${side * 0.024}px"></div>
+    <div class="wtext" style="font-size:${side * 0.165}px;font-weight:500;color:#fff">${BATT.level}%</div><div style="height:${side * 0.024}px"></div>
+    <div class="wtext" style="font-size:${side * 0.056}px;letter-spacing:.06em;color:${WMUTED}">CHARGING</div></div></div>`;
+}
+function stat(w, h, o) {
+  const [v, unit, label] = STAT[o.m];
+  let vs = o.noLabel ? h * 0.62 : h * 0.5;
+  const est = (v.length * 0.56 + (unit ? (unit.length + 1) * 0.56 * 0.64 : 0)) * vs;
+  if (est > w * 0.96) vs *= w * 0.96 / est;
+  const ls = vs * 0.42, al = { left: 'flex-start', center: 'center', right: 'flex-end' }[o.a];
+  const u = unit ? `<span style="font-size:${vs * 0.64}px;font-weight:400;color:${o.white ? '#fff' : GREEN}"> ${unit}</span>` : '';
+  return `<div class="colf" style="width:${w}px;height:${h}px;justify-content:center;align-items:${al}">
+    <div class="wtext" style="font-size:${vs}px;font-weight:300;color:#fff">${v}${u}</div>
+    ${o.noLabel ? '' : `<div class="wtext" style="font-size:${ls}px;color:${WMUTED};margin-top:${vs * 0.04}px">${label}</div>`}</div>`;
+}
+function widget(it, w, h, A, o = {}) {
+  const [type] = it, s = it[5] || {};
+  if (type === 'clock') return clockFace(w, h, o.clockStyle || 'squared');
+  if (type === 'date') return `<div class="row" style="width:${w}px;height:${h}px;justify-content:center"><span class="wtext" style="font-size:${Math.min(h * 0.88, w / 5.6)}px;font-weight:100;color:#fff">Sun, Oct 11</span></div>`;
+  if (type === 'notifs') { const d = h * 0.72; return `<div class="row" style="width:${w}px;height:${h}px;justify-content:center;gap:${d * 0.4}px">${'0000'.split('').map(() => `<div style="width:${d}px;height:${d}px;border-radius:50%;background:#fff;flex:none"></div>`).join('')}</div>`; }
+  if (type === 'ring') return ring(w, h, A, o.ringLayout);
+  if (type === 'stat') return stat(w, h, s);
+  if (type === 'weather') {
+    const d = h * 0.44;
+    return `<div class="row" style="width:${w}px;height:${h}px;gap:${h * 0.12}px"><div style="width:${d}px;height:${d}px;border-radius:50%;background:${AMBER_W};flex:none;margin-left:${h * 0.04}px"></div>
+      <span class="wtext" style="font-size:${h * 0.62}px;font-weight:300;color:#fff">27°</span>
+      <div class="colf" style="line-height:1.2"><span class="wtext" style="font-size:${h * 0.2}px;color:#fff">Cairo</span><span class="wtext" style="font-size:${h * 0.18}px;color:${WMUTED}">Clear</span><span class="wtext" style="font-size:${h * 0.18}px;color:${WMUTED}">33° · 19°</span></div></div>`;
+  }
+  if (type === 'event') return `<div class="colf" style="width:${w}px;height:${h}px;justify-content:center;line-height:1.2"><span class="wtext" style="font-size:${h * 0.17}px;letter-spacing:.1em;color:${WMUTED}">NEXT EVENT</span><span class="wtext" style="font-size:${h * 0.3}px;color:#fff">Team sync</span><span class="wtext" style="font-size:${h * 0.19}px;color:${WMUTED}">14:00 – 14:30</span></div>`;
+  if (type === 'media') {
+    const b = h * 0.8;
+    return `<div class="row" style="width:${w}px;height:${h}px;gap:${h * 0.24}px"><div class="row" style="width:${b}px;height:${b}px;border-radius:${b * 0.16}px;border:${Math.max(1, b * 0.04)}px solid #2A2A2A;flex:none;justify-content:center;color:${WMUTED};font-size:${b * 0.5}px">♪</div>
+      <div class="colf f1" style="line-height:1.2"><span class="wtext" style="font-size:${h * 0.32}px;color:#fff">Midnight City</span><span class="wtext" style="font-size:${h * 0.24}px;color:${WMUTED}">M83</span>
+      <div style="height:${h * 0.06}px;background:#2A2A2A;border-radius:${h}px;margin-top:${h * 0.08}px;position:relative"><div class="abs" style="left:0;top:0;bottom:0;width:40%;background:#fff;border-radius:${h}px"></div></div></div></div>`;
+  }
+  if (type === 'sunmoon') {
+    const r = h * 0.5;
+    return `<div class="row" style="width:${w}px;height:${h}px;gap:${h * 0.18}px"><div style="position:relative;width:${r * 2}px;height:${r}px;flex:none;overflow:hidden">
+      <div class="abs" style="left:0;top:0;width:${r * 2}px;height:${r * 2}px;border-radius:50%;border:${h * 0.04}px solid #2E2E2E"></div>
+      <div class="abs" style="left:${r * 1.5}px;top:${r * 0.22}px;width:${h * 0.16}px;height:${h * 0.16}px;border-radius:50%;background:${AMBER_W}"></div></div>
+      <div class="colf" style="line-height:1.2"><span class="wtext" style="font-size:${h * 0.22}px;color:#fff">Sunset 17:28</span><span class="wtext" style="font-size:${h * 0.17}px;color:${WMUTED}">6h 46m of daylight</span></div></div>`;
+  }
+  return '';
+}
+// A whole layout drawn on its canvas, in canvas units.
+function canvasHtml(items, land, A, o = {}) {
+  const cw = land ? 848 : 412, ch = land ? 412 : 848;
+  return `<div style="position:relative;width:${cw}px;height:${ch}px;background:#000">${items.map(it =>
+    `<div class="w" style="left:${it[1]}px;top:${it[2]}px;width:${it[3]}px;height:${it[4]}px">${widget(it, it[3], it[4], A, o)}</div>`).join('')}</div>`;
+}
+// Put content drawn at size (w, h) into a box scaled by s.
+const scaled = (inner, w, h, s, style = '') =>
+  `<div style="position:relative;width:${w * s}px;height:${h * s}px;overflow:hidden;flex:none;${style}"><div style="position:absolute;left:0;top:0;width:${w}px;height:${h}px;transform:scale(${s});transform-origin:0 0">${inner}</div></div>`;
+// A widget fitted into a box keeping its proportions (EditorSheet FitWidget).
+function fitWidget(it, bw, bh, A) {
+  const aspect = it[3] / it[4], wide = bw / bh > aspect;
+  const h = wide ? bh : bw / aspect, w = wide ? bh * aspect : bw, s = w / it[3];
+  return `<div class="row" style="width:${bw}px;height:${bh}px;justify-content:center">${scaled(`<div style="position:relative;width:${it[3]}px;height:${it[4]}px">${widget(it, it[3], it[4], A)}</div>`, it[3], it[4], s)}</div>`;
+}
+
+// ---------------------------------------------------------------- system bars of the Note 9 (Android 10)
+function statusBar(width, bg = 'transparent') {
+  return `<div class="row abs" style="left:0;top:0;width:${width}px;height:24px;padding:0 14px;font-size:13px;color:#fff;background:${bg};z-index:3">
+    <span class="f1">10:42</span><span>76%</span><span style="width:16px;height:9px;border:1px solid #fff;border-radius:2px;margin-left:6px;position:relative"><span class="abs" style="left:1px;top:1px;bottom:1px;width:70%;background:#fff"></span></span></div>`;
+}
+function navBar(land, W, H) {
+  const marks = `<span style="display:flex;gap:3px"><i style="width:2px;height:12px;background:#ddd"></i><i style="width:2px;height:12px;background:#ddd"></i><i style="width:2px;height:12px;background:#ddd"></i></span>
+    <span style="width:15px;height:15px;border:2px solid #ddd;border-radius:5px"></span>${ic('Back', 18, '#ddd', 2.2)}`;
+  return land
+    ? `<div class="colf abs" style="right:0;top:0;width:48px;height:${H}px;align-items:center;justify-content:space-around;padding:40px 0;z-index:3">${marks}</div>`
+    : `<div class="row abs" style="left:0;bottom:0;width:${W}px;height:48px;justify-content:space-around;padding:0 60px;z-index:3">${marks}</div>`;
+}
+// A screen of the app with safe-drawing padding (every non-editor screen), or edge to edge (editor, display).
+function phone(content, o = {}) {
+  const land = !!o.land, W = land ? 846 : 412, H = land ? 412 : 846;
+  const area = o.edge ? `<div class="abs" style="inset:0">${content}</div>`
+    : `<div class="abs" style="left:0;top:24px;right:${land ? 48 : 0}px;bottom:${land ? 0 : 48}px;overflow:hidden">${content}</div>`;
+  return `<div class="scr" style="width:${W}px;height:${H}px">${area}${o.noBars ? '' : statusBar(land ? W - 48 : W, o.statusBg)}${o.noBars ? '' : navBar(land, W, H)}${o.overlay || ''}</div>`;
+}
+
+// ---------------------------------------------------------------- screens
+function previewCard(A, pagerH, cardStyle = '') {
+  const aspect = 412 / 848, pw = pagerH * aspect;
+  const preview = `<div class="row" style="height:${pagerH}px;justify-content:center"><div style="width:${pw}px;height:${pagerH}px;border:1px solid ${P.rule};border-radius:12px;overflow:hidden">
+    ${scaled(canvasHtml(PORTRAIT, false, A), 412, 848, pw / 412)}</div></div>`;
+  return card(`<div class="colf" style="padding:14px;gap:12px">${preview}
+    <div class="row"><div class="colf f1" style="gap:6px"><div style="font-size:13px;color:${P.muted}">Portrait · screen 1 of 2</div>
+      <div class="row" style="gap:5px"><span style="height:4px;width:18px;border-radius:2px;background:${P.sel}"></span><span style="height:4px;width:6px;border-radius:2px;background:${P.edge}"></span></div></div>
+      ${btn('Edit layout')}</div>
+    <div class="row" style="justify-content:center">${segmented(['Portrait', 'Landscape'], 'Portrait')}</div></div>`, cardStyle);
+}
+function startBlock() {
+  return `<div class="colf" style="gap:8px">${btn('Start Deskglow', { kind: 'pri', glyph: 'Play', h: 56, full: true })}
+    <div style="font-size:13px;color:${P.muted};padding:0 4px">Full screen without the charger. Also on the home-screen widget, the app-icon shortcut and the Quick Settings tile.</div></div>`;
+}
+const homeChips = () => `<div class="row" style="flex-wrap:wrap;gap:8px">${chip('Auto-start off')}${chip('Always on', { dot: true })}${chip('Brightness dim')}${chip('Cairo')}${chip('F1 · NOR')}</div>`;
+const homeCards = () => card(cardRow('Phone', 'Portrait layout', '2 screens') + cardRow('PhoneSideways', 'Landscape layout', '1 screen') + cardRow('Archive', 'Saved layouts', '1 saved · back up to a file', true)) +
+  card(cardRow('Shield', 'Permissions', 'All allowed') + cardRow('Info', 'About and licences', null, true));
+const wordmark = () => `<div class="row" style="padding:20px 0 2px 4px;font-size:24px;font-weight:500;letter-spacing:.04em"><span>Desk</span><span style="color:${P.sel}">glow</span></div>`;
+
+const S = {};
+S.home = A => phone(`<div class="colf" style="padding:0 16px;gap:14px">${wordmark()}${previewCard(A, 330)}${startBlock()}${homeChips()}${homeCards()}</div>`);
+S.homeLand = A => {
+  if (!A.has(22)) return phone(`<div class="colf" style="padding:0 16px;gap:14px">${wordmark()}${previewCard(A, 330)}${startBlock()}${homeChips()}${homeCards()}</div>`, { land: true });
+  // T22: a Row; the preview card on the left with the pager at maxHeight - 140 dp, a scrolling column on the right.
+  return phone(`<div class="row" style="padding:0 16px;gap:14px;align-items:flex-start;height:100%">
+    <div class="f1">${previewCard(A, 388 - 140)}</div>
+    <div class="colf f1" style="gap:14px">${startBlock()}${homeChips()}${homeCards()}</div></div>`, { land: true });
+};
+S.display = A => phone(`<div class="abs" style="left:0;top:-1px">${canvasHtml(PORTRAIT, false, A)}</div>`, { edge: true, noBars: true });
+
+// The editor's stage: grid dots, the widgets scaled to the space, and the selected widget's halo, handles and pill.
+function stage(items, land, A, areaW, areaH, selIndex, o = {}) {
+  const cw = land ? 848 : 412, ch = land ? 412 : 848, u = Math.min(areaW / cw, areaH / ch);
+  const w = cw * u, h = ch * u, tile = 16 * u, left = (areaW - w) / 2, top = (areaH - h) / 2;
+  let chrome = '';
+  if (selIndex != null) {
+    const it = items[selIndex], x = it[1] * u, y = it[2] * u, bw = it[3] * u, bh = it[4] * u;
+    const halo = Array.from({ length: 5 }, (_, i) => `0 0 0 ${(11 * (i + 1) / 5).toFixed(2)}px rgba(255,181,71,0.045)`).join(',');
+    const dot = (cx, cy, main) => main
+      ? `<div class="abs" style="left:${cx - 10}px;top:${cy - 10}px;width:20px;height:20px;border-radius:50%;background:${P.sel};border:3px solid #000"></div>`
+      : `<div class="abs" style="left:${cx - 4.5}px;top:${cy - 4.5}px;width:9px;height:9px;border-radius:50%;background:rgba(237,230,218,0.55);border:2px solid #000"></div>`;
+    const pw = 40 * 4 + 12, ph = 44;
+    let py = y - ph - 10 >= 0 ? y - ph - 10 : (y + bh + 10 + ph <= h ? y + bh + 10 : y + 10);
+    const px = Math.min(Math.max(x + bw / 2 - pw / 2, 0), Math.max(w - pw, 0));
+    chrome = `<div class="abs" style="left:${x}px;top:${y}px;width:${bw}px;height:${bh}px;border:1.5px solid ${P.sel};border-radius:3px;box-shadow:${halo}"></div>
+      ${dot(x, y)}${dot(x + bw, y)}${dot(x, y + bh)}${dot(x + bw, y + bh, true)}
+      <div class="row abs" style="left:${px}px;top:${py}px;width:${pw}px;height:${ph}px;border-radius:22px;background:${P.raised};border:1px solid ${P.edge};justify-content:center">
+        ${iconAction('Sliders', P.ink, 19, 40)}${iconAction('Duplicate', P.ink, 19, 40)}${iconAction('EyeOff', P.ink, 19, 40)}${iconAction('Trash', P.danger, 19, 40)}</div>`;
+  }
+  const dots = `background-image:radial-gradient(circle, rgba(255,255,255,0.16) ${tile / 16}px, transparent ${tile / 16 + 0.4}px);background-size:${tile}px ${tile}px;background-position:${-tile / 2}px ${-tile / 2}px`;
+  return `<div class="abs" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px"><div class="abs" style="inset:0;${dots}"></div>
+    <div class="abs" style="left:0;top:0">${scaled(canvasHtml(items, land, A, o), cw, ch, u)}</div>${chrome}</div>`;
+}
+function dock(areaW, bottom) {
+  return `<div class="row abs" style="left:${(areaW - 140) / 2}px;bottom:${bottom}px;height:52px;width:140px;border-radius:26px;background:${P.raised};border:1px solid ${P.edge};padding:0 4px">
+    <div class="row" style="width:44px;height:44px;border-radius:50%;background:${P.sel};justify-content:center;flex:none">${ic('Plus', 22, P.onAcc, 2.4)}</div>${iconAction('Sparkle')}${iconAction('Grid')}</div>`;
+}
+function topBar(width, label, top = 24) {
+  return `<div class="abs" style="left:0;top:0;width:${width}px;background:${P.bar};padding-top:${top}px;z-index:2">
+    <div class="row" style="min-height:52px;padding:0 4px">${iconAction('Back')}
+      <div class="f1 row" style="justify-content:center"><div class="row" style="min-height:40px;border-radius:18px;background:${P.raised};border:1px solid ${P.edge};padding:0 10px 0 14px">
+        <span style="font-size:14px;font-weight:500">${label}</span><span style="width:4px"></span>${ic('ChevronDown', 16, P.muted, 2.2)}</div></div>
+      ${iconAction('Undo', 'rgba(138,131,120,0.35)')}${iconAction('Redo', 'rgba(138,131,120,0.35)')}${iconAction('More')}</div><div class="rule"></div></div>`;
+}
+function tabs(settingsOn, foldable, settingsEnabled = true) {
+  const tab = (t, on, enabled = true) => `<div class="colf" style="padding:0 12px;align-items:center"><div style="font-size:15px;font-weight:500;padding:10px 0;color:${on ? P.ink : enabled ? P.muted : 'rgba(138,131,120,0.35)'}">${t}</div>
+    <div style="width:48px;height:2px;background:${on ? P.sel : 'transparent'}"></div></div>`;
+  return `<div class="row" style="min-height:46px;padding:0 6px">${tab('Widgets', !settingsOn)}${tab('Settings', settingsOn, settingsEnabled)}<div class="f1"></div>${foldable ? iconAction('ChevronDown', P.muted, 20) : ''}</div>`;
+}
+// Portrait editor with the sheet at its half stop (0.44 of the screen) and the given sheet body scrolled by [scroll].
+function portraitEditor(A, selIndex, sheetBody, scroll, o = {}) {
+  const H = 846, sheetH = H * 0.44, topH = 24 + 52 + 1, areaH = H - topH - sheetH;
+  const sheet = `<div class="abs colf" style="left:0;bottom:0;width:412px;height:${sheetH}px;background:${P.sheet};border:1px solid ${P.rule};border-bottom:0;border-radius:22px 22px 0 0;overflow:hidden;padding-bottom:48px">
+    <div class="row" style="padding-top:8px;justify-content:center"><div style="width:36px;height:4px;border-radius:2px;background:${P.edge}"></div></div>
+    ${tabs(true, true)}<div class="rule"></div>
+    <div class="f1" style="overflow:hidden;position:relative"><div class="abs colf" style="left:16px;right:16px;top:${-scroll}px">${sheetBody}</div></div></div>`;
+  const stageBox = `<div class="abs" style="left:0;top:${topH}px;width:412px;height:${areaH}px;overflow:hidden">
+    <div class="abs" style="left:0;top:0;width:412px;height:${areaH - 64}px">${stage(PORTRAIT, false, A, 412, areaH - 64, selIndex, o)}</div>${dock(412, 6)}</div>`;
+  return phone(`${stageBox}${topBar(412, 'Portrait · Screen 1')}${sheet}`, { edge: true });
+}
+function settingsTitle(t) { return `<div style="font-size:17px;font-weight:500;padding:14px 0 2px">${t}</div>`; }
+function tile(label, selected, width, previewH, preview, labelSize = 11.5, labelStyle = '') {
+  return `<div class="colf" style="width:${width}px;flex:none;border-radius:12px;border:${selected ? 1.5 : 1}px solid ${selected ? P.sel : P.edge};padding:6px;align-items:center">
+    <div class="row" style="width:100%;height:${previewH}px;border-radius:8px;background:#000;padding:4px;justify-content:center;overflow:hidden">${preview}</div>
+    <div style="font-size:${labelSize}px;color:${selected ? P.sel : P.muted};padding-top:5px;text-align:center;${labelStyle}">${label}</div></div>`;
+}
+const swatch = (col, on) => `<div class="row" style="width:48px;height:48px;justify-content:center;flex:none"><div style="width:32px;height:32px;border-radius:50%;border:${on ? 2 : 1}px solid ${on ? P.sel : P.edgeStrong};padding:${on ? 2 : 3}px"><div style="width:100%;height:100%;border-radius:50%;background:${col}"></div></div></div>`;
+function colourRow(label, current) {
+  const cols = ['#FFFFFF', '#44B98A', '#4FC3F7', '#F5B942', '#F2766B', '#B48CF2', '#9A9A9A'];
+  return `<div style="padding:12px 0"><div>${label}</div><div class="row" style="flex-wrap:wrap;padding-top:4px">${cols.map(c => swatch(c, c === current)).join('')}
+    <div class="row" style="width:48px;height:48px;justify-content:center"><div class="row" style="width:32px;height:32px;border-radius:50%;border:1px solid ${P.edgeStrong};justify-content:center">${ic('Plus', 16, P.muted, 2.2)}</div></div></div></div>`;
+}
+const sliderRow = (label, value, fraction, A) => `<div style="padding:12px 0 4px"><div class="row"><span class="f1">${label}</span><span style="font-size:13px;color:${P.muted}">${value}</span></div>${mSlider(fraction, A)}</div>`;
+const inCard = rows => card(rows.map(r => `<div style="padding:0 14px">${r}</div>`).join('<div class="rule"></div>'));
+const menuRow = (label, value) => `<div class="row" style="min-height:54px"><span class="f1">${label}</span><span class="row" style="min-height:44px;padding:0 2px 0 8px">${value}<span style="width:4px"></span>${ic('ChevronDown', 16, P.muted, 2.2)}</span></div>`;
+const showRow = (label, items) => `<div style="padding:12px 0"><div>${label}</div><div class="row" style="flex-wrap:wrap;gap:8px;padding-top:10px">${items.map(([t, on]) => chip(t, { sel: on })).join('')}</div></div>`;
+const segRow = (label, opts, sel) => `<div class="colf" style="padding:12px 0;gap:10px"><div>${label}</div>${segmented(opts, sel, 'width:100%')}</div>`;
+
+S.ringSettings = A => {
+  const ringTile = (lay, label, on) => tile(label, on, 132, 74, `<div style="position:relative;width:66px;height:66px">${ring(66, 66, A, lay)}</div>`);
+  const sheetBody = settingsTitle('Charging ring') + sectionLabel('Layout', 'padding:18px 0 6px') +
+    `<div class="row" style="gap:8px;padding:10px 0 4px">${ringTile('gauge', 'Gauge', true)}${ringTile('circle', 'Circle', false)}${ringTile('segments', 'Segments', false)}</div>` +
+    sectionLabel('Content', 'padding:18px 0 6px') + inCard([menuRow('Under the number', 'Status'), showRow('Options', [['Bolt', true], ['Colour by level', false]])]) +
+    sectionLabel('Look', 'padding:18px 0 6px') + inCard([colourRow('Accent colour', '#44B98A'), sliderRow('Ring thickness', '6', (6 - 3) / 9, A), colourRow('Colour', '#FFFFFF'), sliderRow('Brightness', '100%', 1, A)]);
+  return portraitEditor(A, 3, sheetBody, 430);
+};
+
+const CLOCK_TILES = [['squared', 'Squared'], ['thin', 'Thin'], ['bold', 'Bold'], ['seg', 'Seven-segment'], ['dots', 'Dot matrix'], ['outline', 'Outline'], ['rounded', 'Rounded'], ['stacked', 'Stacked']];
+S.clockStyle = A => {
+  const t6 = A.has(6), width = t6 ? 112 : 104, inner = width - 12 - 8;
+  const tiles = CLOCK_TILES.map(([id, label]) => {
+    // Before T6 the label is drawn as the audit captured it on the phone: "Seven-segmen" / "t".
+    const text = id === 'seg' ? (t6 ? '7-segment' : 'Seven-segmen<br>t') : label;
+    return tile(text, id === 'squared', width, 56, clockFace(inner, 48, id), t6 ? 11 : 11.5, t6 ? 'letter-spacing:0' : '');
+  }).join('');
+  // The strip scrolled so the Seven-segment tile is in view: the first tile and a half are off to the left.
+  const strip = `<div style="padding:12px 0"><div class="row"><span>Style</span><span style="color:${P.muted};padding-left:10px">Squared</span></div>
+    <div style="overflow:hidden;margin-right:-16px"><div class="row" style="gap:8px;padding-top:10px;align-items:flex-start;margin-left:${-(width + 8) * 1.4}px">${tiles}</div></div></div>`;
+  const sheetBody = settingsTitle('Clock') + sectionLabel('Layout', 'padding:18px 0 6px') + strip + sectionLabel('Content', 'padding:18px 0 6px') +
+    inCard([segRow('Time format', ['Phone', '12-hour', '24-hour'], '12-hour'), segRow('Seconds', ['Hidden', 'Digits', 'Line'], 'Hidden')]);
+  return portraitEditor(A, 0, sheetBody, 0);
+};
+
+function thumb(land, width) {
+  const cw = land ? 848 : 412, ch = land ? 412 : 848, h = width * ch / cw;
+  return `<div style="width:${width}px;height:${h}px;border-radius:6px;border:1px solid ${P.rule};overflow:hidden;flex:none">${scaled(canvasHtml(land ? LANDSCAPE : PORTRAIT, land, new Set()), cw, ch, width / cw)}</div>`;
+}
+function savedContent(A) {
+  const t7 = A.has(7);
+  return screenFrame('Saved layouts', `<div style="font-size:13px;color:${P.muted}">Saves your portrait and landscape layouts together. Export a copy to a file to keep it outside the app.</div>
+    ${outlinedField('Layout – 11 Oct, 10:42', 'Name')}
+    <div class="row" style="gap:8px">${btn(t7 ? 'Save now' : 'Save current layo…', { kind: 'pri', flex: true })}${btn(t7 ? 'Import file' : 'Import from file', { flex: true })}</div>
+    ${card(`<div class="colf" style="padding:14px;gap:10px"><div class="row" style="gap:12px">${thumb(false, 30)}${thumb(true, 60)}
+      <div class="colf f1"><div>Desk, evening</div><div style="font-size:13px;color:${P.muted}">4 Oct, 21:15 · 2 portrait, 1 landscape</div></div></div>
+      <div class="row" style="gap:8px">${chip('Restore')}${chip('Rename')}${chip('Export')}<div class="f1"></div>${iconAction('Trash', P.danger)}</div></div>`)}`);
+}
+S.saved = A => phone(savedContent(A));
+S.restore = A => {
+  // Material 3 AlertDialog: 28 dp corners, 24 dp padding. Its container is surfaceContainerHigh (#2B2930) until T3.
+  const bg = A.has(3) ? P.sheet : M3.surfaceContainerHigh;
+  // Centred in the window, dimmed behind; the system bars stay above the dim.
+  const dialog = `<div class="abs" style="inset:0;background:rgba(0,0,0,0.6);z-index:2"></div>
+    <div class="abs row" style="inset:0;justify-content:center;z-index:5"><div class="colf" style="width:340px;background:${bg};border-radius:28px;padding:24px">
+      <div style="font-size:24px;line-height:32px;color:${P.ink}">Restore “Desk, evening”?</div>
+      <div style="font-size:14px;line-height:20px;color:${P.muted};padding-top:16px">This replaces both of your current layouts. They are saved first as “Before restore”, so you can come back to them.</div>
+      <div class="row" style="justify-content:flex-end;gap:8px;padding-top:24px;font-size:14px;line-height:20px;font-weight:500;color:${P.sel}">
+        <span style="padding:10px 12px">Cancel</span><span style="padding:10px 12px">Restore</span></div></div></div>`;
+  return phone(savedContent(A), { overlay: dialog });
+};
+
+S.landEditor = A => {
+  const W = 846 - 48, panel = Math.min(Math.max(W * 0.36, 240), 320), topH = 77, rowH = 412 - topH, stageW = W - panel - 1;
+  const two = A.has(10);
+  const rows = LANDSCAPE.map(it => `<div class="row" style="min-height:56px">
+      <div style="width:64px;height:40px;border-radius:8px;background:#000;border:1px solid ${P.rule};padding:3px;flex:none">${fitWidget(it, 56, 32, A)}</div>
+      <div class="f1" style="padding:14px 12px;font-size:15px;${two ? 'line-height:18px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis'}">${titleOf(it)}</div>
+      ${iconAction('Eye')}${iconAction('Trash', P.muted)}</div><div class="rule"></div>`).join('');
+  const side = `<div class="abs colf" style="left:${stageW + 1}px;top:${topH}px;width:${panel}px;height:${rowH}px;background:${P.sheet}">${tabs(false, false, false)}<div class="rule"></div>
+    <div class="f1" style="overflow:hidden;padding:0 16px"><div style="height:4px"></div>${rows}</div></div>`;
+  const stageBox = `<div class="abs" style="left:0;top:${topH}px;width:${stageW}px;height:${rowH}px;overflow:hidden">
+    <div class="abs" style="left:0;top:0;width:${stageW}px;height:${rowH - 64}px">${stage(LANDSCAPE, true, A, stageW, rowH - 64, null)}</div>${dock(stageW, 6)}</div>
+    <div class="abs" style="left:${stageW}px;top:${topH}px;width:1px;height:${rowH}px;background:${P.rule}"></div>`;
+  return phone(`<div class="abs" style="left:0;top:0;width:${W}px;height:412px">${stageBox}${topBar(W, 'Landscape · Screen 1')}${side}</div>`, { land: true, edge: true });
+};
+
+const PICKER = [['clock', 220, 64, 'Clock', 'Big time in any font'], ['date', 164, 24, 'Date', 'Day and date'], ['notifs', 164, 28, 'Notifications', 'Unread app icons'],
+  ['ring', 264, 264, 'Charging ring', 'Battery level as a ring'], ['stat', 112, 56, 'Stat', 'One battery number', { m: 'temp', a: 'left' }], ['weather', 176, 64, 'Weather', 'Temperature and sky'],
+  ['sunmoon', 240, 88, 'Sun & moon', 'Daylight left and the moon’s phase'], ['event', 176, 64, 'Next event', 'Your next calendar item']];
+S.picker = A => {
+  const colW = (380 - 10) / 2, boxW = colW - 16, boxH = 96;
+  const cards = PICKER.map(p => {
+    const [type, tw, th, label, blurb, s] = p;
+    const scale = Math.min(0.36, boxW * 0.94 / tw);
+    // T13: floor the scale so the preview is at least 40% of the picture's height, never wider than the card.
+    const shown = A.has(13) ? Math.max(scale, Math.min(boxH * 0.4 / th, boxW * 0.94 / tw)) : scale;
+    const it = [type, 0, 0, tw, th, s || {}];
+    const pic = scaled(`<div style="position:relative;width:${tw}px;height:${th}px">${widget(it, tw, th, A)}</div>`, tw, th, shown);
+    return `<div class="colf" style="width:${colW}px;border-radius:16px;background:${P.raised};border:1px solid ${P.rule};padding:8px;gap:8px">
+      <div class="row" style="height:96px;border-radius:10px;background:#000;justify-content:center;overflow:hidden">${pic}</div>
+      <div style="padding:2px 4px"><div class="el" style="font-weight:500">${label}</div><div class="el" style="font-size:12px;color:${P.muted}">${blurb}</div></div></div>`;
+  }).join('');
+  return phone(`<div class="abs colf" style="inset:0;background:${P.sheet};padding-top:24px">
+    <div class="row" style="padding:0 4px 0 20px"><div class="f1" style="font-size:17px;font-weight:500;padding:14px 0">Add a widget</div>${iconAction('Close', P.muted)}</div>
+    <div class="row" style="margin:0 16px;min-height:46px;border-radius:14px;background:${P.page};border:1px solid ${P.rule};padding:0 14px">${ic('Search', 18, P.muted)}<span style="width:10px"></span><span style="color:${P.muted}">Weather, F1, battery</span></div>
+    <div class="row" style="padding:12px 16px;gap:8px">${['All', 'Time', 'Day', 'Battery', 'F1', 'Prayer'].map(c => chip(c, { sel: c === 'All' })).join('')}</div>
+    <div class="row" style="flex-wrap:wrap;gap:10px;padding:0 16px;align-items:flex-start">${cards}</div></div>`, { edge: true, statusBg: 'transparent' });
+};
+
+const DRIVERS = [['', 'None'], ['VER', 'Max Verstappen'], ['HAD', 'Isack Hadjar'], ['NOR', 'Lando Norris'], ['PIA', 'Oscar Piastri'], ['LEC', 'Charles Leclerc'], ['HAM', 'Lewis Hamilton'],
+  ['RUS', 'George Russell'], ['ANT', 'Kimi Antonelli'], ['ALO', 'Fernando Alonso'], ['STR', 'Lance Stroll'], ['GAS', 'Pierre Gasly'], ['COL', 'Franco Colapinto']];
+S.f1 = A => {
+  const rows = DRIVERS.map(([code, name], i) => {
+    const on = code === 'NOR', label = code ? `${code} · ${name}` : name;
+    const tick = on ? (A.has(14) ? ic('Check', 18, P.sel, 2.2) : `<span style="font-size:15px;color:${P.sel}">✓</span>`) : '';
+    return `<div class="row" style="padding:14px 16px"><span class="f1" style="color:${on ? P.sel : P.ink}">${label}</span>${tick}</div>${i < DRIVERS.length - 1 ? '<div class="rule"></div>' : ''}`;
+  }).join('');
+  return phone(screenFrame('My F1 driver and team', `${small('Set them once and every F1 widget follows them. A widget can still pick its own, or none.')}${sectionLabel('Driver')}${card(rows)}`));
+};
+
+S.alwaysOn = A => {
+  const status = 'Needs: Unrestricted battery use';
+  const switchRow = `<div class="row"><div class="colf f1">${body('Show the display whenever the screen turns off')}${small('Like an always-on display: when the screen times out, Deskglow comes up over the lock screen. The phone stays locked.')}</div>${mSwitch(true, A)}</div>`;
+  const inside = A.has(15) ? `<div style="font-size:13px;color:${P.ink}">${status}</div>` : '';
+  const orphan = A.has(15) ? '' : `<div style="font-size:15px;font-weight:500;color:${P.ink}">${status}</div>`;
+  return phone(screenFrame('Always on', section(switchRow + inside) + orphan +
+    section(body('Display over other apps') + small('Android only lets an app open a screen from the background with this. Deskglow uses it for nothing else.') + btn('Allowed', { full: true })) +
+    section(body('Unrestricted battery use') + small('Without it, Samsung stops the service after a while and the display stops coming back.') + btn('Allow', { full: true })) +
+    section(body('Battery') + small('The screen is really on, so this uses more battery than the system’s own always-on display, and the phone does not go into deep sleep while it shows. Press the power button on the display to reach the lock screen. With Turn off when covered on (Brightness and burn-in), the screen goes off after the phone has been covered for a few seconds.'))));
+};
+
+// Which screens exist, how they are labelled, and which [UI] tasks change them.
+const SCREENS = [
+  ['home', 'Home', false, [12]], ['homeLand', 'Home, phone on its side', true, [22, 12]], ['display', 'The display (Start Deskglow)', false, [12]],
+  ['ringSettings', 'Editor: ring settings, sheet at half', false, [3, 12]], ['clockStyle', 'Editor: clock Style strip', false, [6, 12]],
+  ['saved', 'Saved layouts', false, [7]], ['restore', 'Saved layouts: Restore dialog', false, [3, 7]], ['landEditor', 'Landscape editor', true, [10, 12]],
+  ['picker', 'Add-widget picker', false, [13, 12]], ['f1', 'My F1 driver and team', false, [14]], ['alwaysOn', 'Always on', false, [15]],
+];
+const SCREEN = Object.fromEntries(SCREENS.map(s => [s[0], s]));
+function frame(key, A, scale) {
+  const land = SCREEN[key][2], W = land ? 846 : 412, H = land ? 412 : 846;
+  return `<div class="frame" style="width:${W * scale}px;height:${H * scale}px"><div class="dp" style="transform:scale(${scale})">${S[key](A)}</div></div>`;
+}
+
+// ---------------------------------------------------------------- tasks (docs/redesign/TASKS.md, same order)
+const TASKS = [
+  { n: 1, tag: 'PERF', title: 'Reuse Fit probe slots', sev: 'high', eff: 'S',
+    before: '<p><code>widgets/Fit.kt:123</code> uses a <code>SubcomposeLayout</code> with no slot reuse, and <code>Fit.kt:145</code> gives every probe a fresh key, up to 9 per step. Each probe is a brand-new composition of the widget, thrown away after the pass.</p><p>Home → Editor: 6 frames, all janky, p50 150 ms, p99 300 ms. Editor → picker: 4 frames, p50 200 ms.</p>',
+    after: '<p>Probe slots are reused (reuse policy of 4) and keyed by (arrangement, level, step), so repeat passes land on the same slots.</p><p>Target: Home → Editor under 6 janky frames with p50 under 60 ms. In use: the editor and picker open in a few smooth frames instead of a 300 ms stutter.</p>',
+    note: 'Do before T2 and T4.' },
+  { n: 2, tag: 'PERF', title: 'A process-wide cache for Fit results', sev: 'high', eff: 'M',
+    before: '<p><code>widgets/Fit.kt:91–96, 219–231</code>: the result lives in <code>remember {}</code> on one composable. Leaving a screen, or the picker recycling a card, throws it away and the same widget in the same box is measured again.</p>',
+    after: '<p>A shared cache of up to 256 results keyed by (key, width, height, unit), checked with the existing "still fits" probe. The editor opens with what the Home preview already measured; a test asserts the second pass measures at most 1 probe per widget.</p>',
+    note: 'After T1.' },
+  { n: 3, tag: 'UI', title: 'Map the missing Material colour roles', sev: 'med', eff: 'S', screens: ['ringSettings', 'restore'],
+    what: 'Adds <code>secondaryContainer</code>, <code>surfaceContainer(High/Highest)</code> and <code>outlineVariant</code> to the theme and gives the three Saved-layouts dialogs <code>Palette.Sheet</code>. Visible here: the slider’s unlit track turns from Material violet-grey #4A4458 to Palette.Edge #2E2A25, and the Restore dialog from Material grey #2B2930 to the app’s #0F0E0C.',
+    note: 'The audit (U3) also mentions the faint text-field border, but T3’s change list does not touch it, so the Name field is the same in both. Unchecked switches would also change (track #36343B → #181614); none are unchecked on these screens.' },
+  { n: 4, tag: 'PERF', title: 'Make the add-widget picker a plain grid', sev: 'med', eff: 'S',
+    before: '<p><code>ui/editor/Picker.kt:98</code> is a <code>LazyVerticalGrid</code>, so each card is composed, and its Fit search run, as it scrolls in.</p><p>Scrolling one screen: 50 frames, 72% janky, p99 73 ms.</p>',
+    after: '<p>A plain scrolling column with a two-column <code>FlowRow</code>; all 15 cards compose once when the picker opens.</p><p>Target: under 20% janky while scrolling, and opening no slower than after T1. Looks identical.</p>',
+    note: 'After T1, otherwise opening gets slower as all 15 compose at once.' },
+  { n: 5, tag: 'PERF', title: 'Skip the pack when the snapped box has not moved', sev: 'med', eff: 'S',
+    before: '<p><code>ui/editor/EditorState.kt:281</code> → <code>layout/Packer.kt:255</code>: every pointer event runs a full pack (and a 6-step bisection when blocked), twice per frame at the Note 9’s 120 Hz touch rate, even inside the same grid cell.</p><p>Drag 300 px and back: 72 frames, 60% janky, p50 19 ms, p90 30 ms.</p>',
+    after: '<p><code>DragSession.update</code> returns the previous result when the snapped box is unchanged: one pack per grid step.</p><p>The drag numbers should improve; the ticket sets no figure. Looks identical.</p>' },
+  { n: 6, tag: 'UI', title: 'Style-strip tile labels never break inside a word', sev: 'med', eff: 'S', screens: ['clockStyle'],
+    what: 'Tiles go from 104 to 112 dp, the label from 11.5 sp to 11 sp with no letter spacing, and "Seven-segment" is renamed "7-segment" (the stored id <code>seg</code> stays).',
+    note: '"Seven-segmen / t" is drawn as the audit captured it on the phone. A desktop browser at 11.5 px would fit the word, because the phone’s text renders wider.' },
+  { n: 7, tag: 'UI', title: 'Saved-layouts buttons fit their labels', sev: 'med', eff: 'S', screens: ['saved'],
+    what: 'The two buttons read "Save now" and "Import file" instead of "Save current layo…" and "Import from file". Button sizes stay.' },
+  { n: 8, tag: 'PERF', title: 'Move the big caches out of SharedPreferences', sev: 'med', eff: 'M',
+    before: '<p><code>store/AppPrefs.kt:166–192</code>: weather, prayer times, the whole F1 answer set (about 70 KB), the track outline and the live result are strings in the prefs file. The whole XML is rewritten on every change (weather every 30 min) and parsed on the main thread at launch.</p><p>Java heap on Home: 12.9 MB.</p>',
+    after: '<p>Five files under <code>filesDir</code> written through <code>AtomicFile</code>; prefs keep only small settings and shrink to a few KB. Old values are moved over once.</p><p>Measure: Java heap on Home and cold start (<code>am start -W</code>, three runs). No target given. Looks identical.</p>' },
+  { n: 9, tag: 'PERF', title: 'Offscreen widget layers only while dragging', sev: 'med', eff: 'S',
+    before: '<p><code>ui/editor/EditorScreen.kt:528</code> makes every editor widget an offscreen layer all the time.</p><p>Graphics memory: 82.8 MB in the editor against 45.8 MB on Home; a display opened straight after the editor still holds 76.5 MB.</p>',
+    after: '<p>The layer is used only while a widget is dragged or arriving. Editor graphics memory at rest should fall towards Home’s; the drag numbers from T5 must not get worse. Looks identical.</p>',
+    note: 'After T5, so drags are compared like for like.' },
+  { n: 10, tag: 'UI', title: 'Widget names fit in the landscape side panel', sev: 'low', eff: 'S', screens: ['landEditor'],
+    what: 'In the Widgets list the name may take two lines (18 sp line height) instead of being cut to one, so "Notifications", "Charging ring" and "Stat · Temperature" read whole. The panel is 287 dp here (36% of the 798 dp beside the navigation bar).' },
+  { n: 11, tag: 'CODE', title: 'One helper for the three display hosts', sev: 'med', eff: 'M',
+    before: '<p><code>display/Displays.kt:335, 409, 463</code>: the screen saver, Start now and Always on each set brightness (418, 478), follow room light, hide the bars, pick the refresh rate, hold the cover lock and report presence, three times over.</p>',
+    after: '<p>A new <code>display/DisplayHost.kt</code> with <code>prepare()</code>, <code>start()</code> and <code>stop()</code>; each host calls the three, and each lifecycle method is under ten lines. Nothing changes on screen; a fix to one host reaches all three.</p>' },
+  { n: 12, tag: 'UI', title: 'Shared greys for widget tracks and rules', sev: 'low', eff: 'S', screens: ['display'],
+    what: 'Adds <code>WidgetPalette</code> (Track #262626, Rail #2E2E2E, Rule #333333). In this ticket the ring’s unlit track moves from #1B1B1B to Track #262626, a shade lighter, and the Stat graph line is mixed from Track instead of black.',
+    note: 'The Stat graph only shows when "Graph of the last 10 minutes" is on, which the default layout does not use, so only the ring changes on these screens. The other widgets follow in later tickets, three files at a time.' },
+  { n: 13, tag: 'UI', title: 'Small widgets are visible in the picker', sev: 'low', eff: 'S', screens: ['picker'],
+    what: 'Previews keep the shared 0.36 scale but are never smaller than 40% of the picture’s height (and never wider than the card). Date, Notifications and Stat stop being specks.',
+    note: 'The formula applies to every card, so Clock, Weather, Sun & moon and Next event also grow; the ring and other tall widgets stay as they are.' },
+  { n: 14, tag: 'UI', title: 'Use the check icon on the F1 screen', sev: 'low', eff: 'S', screens: ['f1'],
+    what: 'The selected row’s tick becomes the app’s drawn check icon (18 dp, amber, stroke 2.2) instead of a "✓" text character.' },
+  { n: 15, tag: 'UI', title: 'Always-on status inside the switch card', sev: 'low', eff: 'S', screens: ['alwaysOn'],
+    what: 'The status line ("On", or "Needs: …") moves from its own 15 sp medium line between two cards into the switch card, as a 13 sp line under the description.' },
+  { n: 16, tag: 'CODE', title: 'Haptic callback set as a side effect', sev: 'low', eff: 'S',
+    before: '<p><code>ui/editor/EditorScreen.kt:178</code>: <code>state.haptic = { … }</code> is assigned on every recomposition.</p>',
+    after: '<p>Wrapped in <code>SideEffect</code>. One tick per grid step during a drag, as now.</p>' },
+  { n: 17, tag: 'CODE', title: 'Rename the weather Glyph enum', sev: 'low', eff: 'S',
+    before: '<p>Two enums called <code>Glyph</code>: <code>ui/Icons.kt:30</code> (app icons) and <code>widgets/WeatherArt.kt:185</code> (weather symbols). A wrong import compiles without a warning.</p>',
+    after: '<p>The weather one becomes <code>DetailSymbol</code>; <code>grep "widgets.Glyph"</code> finds nothing. No visible change.</p>' },
+  { n: 18, tag: 'CODE', title: 'README states the Always-on exception', sev: 'low', eff: 'S',
+    before: '<p><code>README.md</code> line 7 promises "no background service, no permanent notification", but Always on runs a foreground service with a quiet notification (<code>display/AlwaysOn.kt:256–277</code>).</p>',
+    after: '<p>The sentence ends "…no timers, unless you switch on <b>Always on</b>, which keeps a small service waiting for the screen to turn off."</p>' },
+  { n: 19, tag: 'PERF', title: 'Parse icon paths once per glyph', sev: 'low', eff: 'S',
+    before: '<p><code>ui/Icons.kt:61–62</code>: every <code>GlyphIcon</code> call parses its path strings in its own <code>remember</code>; Home draws a dozen icons.</p>',
+    after: '<p>Each <code>Glyph</code> parses its paths once (<code>by lazy</code>) and every icon shares them. Home’s first frame unchanged or faster (<code>am start -W</code>, three runs). Looks identical.</p>' },
+  { n: 20, tag: 'PERF', title: 'Cheap thumbnails on Saved layouts', sev: 'low', eff: 'M',
+    before: '<p><code>ui/SnapshotsScreen.kt:90–91</code> draws two full live layouts per snapshot (every widget running Fit at 30 dp wide), so the screen gets slower with each snapshot kept.</p>',
+    after: '<p>Each thumbnail draws the widgets’ boxes as rounded rectangles in their colour at 35% on black. With five snapshots, opening the screen has no frame over 50 ms.</p><p>Visible side effect: the thumbnails become coloured blocks instead of tiny live widgets.</p>' },
+  { n: 21, tag: 'CODE', title: 'One rememberResumeCount()', sev: 'low', eff: 'S',
+    before: '<p>Five copies of the same resume counter: <code>ui/HomeScreen.kt:79–84</code> and <code>ui/SetupScreens.kt:83–88, 103–108, 165–169, 230–234</code>.</p>',
+    after: '<p>One helper in <code>ui/Components.kt</code> used in all five places. Returning from system settings still refreshes the cards.</p>' },
+  { n: 22, tag: 'UI', title: 'Home works on its side', sev: 'low', eff: 'M', screens: ['homeLand'],
+    what: 'With the phone sideways, the preview card goes on the left (pager height = screen height − 140 dp) and the Start button, chips and cards in a scrolling column on the right. Portrait is unchanged.',
+    note: 'The ticket does not say where the Deskglow wordmark goes in landscape, and the 140 dp budget leaves no room for it above the preview, so this mockup leaves it out. Decide that before implementing.' },
+  { n: 23, tag: 'PERF', title: 'Release the last cover art with the media feed', sev: 'low', eff: 'S',
+    before: '<p><code>data/Media.kt:88–89</code>: top-level <code>lastSource</code>/<code>lastArt</code> keep the last scaled cover (about 230 KB) after music has stopped.</p>',
+    after: '<p>The cache lives inside the media flow and goes with it; no top-level <code>var</code> remains. Check graphics and Java memory on Home after playing and stopping music. Looks identical.</p>' },
+];
+const UI_TASKS = TASKS.filter(t => t.tag === 'UI').map(t => t.n);
+
+// ---------------------------------------------------------------- page
+const checked = new Set();
+try { JSON.parse(localStorage.getItem('deskglow-mockup') || '[]').forEach(n => checked.add(n)); } catch (e) { /* storage unavailable */ }
+
+function renderTasks() {
+  const sc = 0.6;
+  document.getElementById('tasks').innerHTML = TASKS.map(t => {
+    let content;
+    if (t.tag === 'UI') {
+      const pairs = t.screens.map(key => {
+        const s = SCREEN[key], scale = s[2] ? 0.5 : sc;
+        return `<div class="pair">
+          <div class="col"><h4>Before · ${s[1]}</h4>${frame(key, new Set(), scale)}</div>
+          <div class="col after"><h4>After T${t.n}</h4>${frame(key, new Set([t.n]), scale)}</div></div>`;
+      }).join('<div style="height:16px"></div>');
+      content = `<p class="what">${t.what}</p>${pairs}`;
+    } else {
+      content = `<div class="pair"><div class="col"><h4>Before</h4><div class="textbox">${t.before}</div></div>
+        <div class="col after"><h4>After</h4><div class="textbox">${t.after}</div></div></div>`;
+    }
+    return `<article class="task" id="t${t.n}"><label class="task-head"><input type="checkbox" data-n="${t.n}">
+      <span class="num">T${t.n}</span><span class="tag">[${t.tag}]</span><span class="title">${t.title}</span><span class="meta">${t.sev} · ${t.eff}</span></label>
+      <div class="task-body">${content}${t.note ? `<p class="note">${t.note}</p>` : ''}</div></article>`;
+  }).join('');
+  document.querySelectorAll('#tasks input[type=checkbox]').forEach(box => {
+    box.checked = checked.has(+box.dataset.n);
+    box.addEventListener('change', () => { box.checked ? checked.add(+box.dataset.n) : checked.delete(+box.dataset.n); update(); });
+  });
+}
+function renderCombined() {
+  const A = new Set([...checked].filter(n => UI_TASKS.includes(n)));
+  const list = [...A].sort((a, b) => a - b);
+  document.getElementById('combinedNote').textContent = list.length
+    ? `Every screen with ${list.map(n => 'T' + n).join(', ')} applied together. Screens no ticked task touches are shown as they are today.`
+    : 'No [UI] task is ticked, so every screen is shown as it is today. Tick [UI] tasks below to see them applied here together.';
+  document.getElementById('combinedGrid').innerHTML = SCREENS.map(([key, label, land, affects]) => {
+    const applied = affects.filter(n => A.has(n));
+    const cap = applied.length ? `with ${applied.map(n => 'T' + n).join(', ')}` : 'unchanged';
+    return `<div class="shot">${frame(key, A, land ? 0.42 : 0.5)}<div class="cap"><b>${label}</b> · ${cap}</div></div>`;
+  }).join('');
+}
+function selectionLine() {
+  const list = [...checked].sort((a, b) => a - b);
+  if (!list.length) return '';
+  return `Do task${list.length > 1 ? 's' : ''} ${list.join(', ')} from docs/redesign/TASKS.md`;
+}
+function update() {
+  try { localStorage.setItem('deskglow-mockup', JSON.stringify([...checked])); } catch (e) { /* storage unavailable */ }
+  document.querySelectorAll('article.task').forEach(a => a.classList.toggle('on', checked.has(+a.id.slice(1))));
+  const line = selectionLine();
+  document.getElementById('count').textContent = line ? line : 'Nothing ticked';
+  document.getElementById('copy').disabled = !line;
+  document.getElementById('copied').textContent = '';
+  renderCombined();
+}
+document.getElementById('copy').addEventListener('click', async () => {
+  const line = selectionLine(), out = document.getElementById('copied');
+  try { await navigator.clipboard.writeText(line); out.textContent = 'Copied'; }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = line; document.body.appendChild(ta); ta.select();
+    try { out.textContent = document.execCommand('copy') ? 'Copied' : 'Copy failed: select the line on the left'; } catch (e2) { out.textContent = 'Copy failed: select the line on the left'; }
+    ta.remove();
+  }
+});
+document.getElementById('clear').addEventListener('click', () => {
+  checked.clear(); document.querySelectorAll('#tasks input[type=checkbox]').forEach(b => { b.checked = false; }); update();
+});
+renderTasks();
+update();
+</script>
+</body>
+</html>

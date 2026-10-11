@@ -141,6 +141,16 @@ val LocalEditing = staticCompositionLocalOf { false }
 
 val Muted = Color(0xFF8C8C8C)
 
+/** The near-blacks of the display's unlit parts, so every ring, bar and rule shares one tone of each. */
+object WidgetPalette {
+    /** The unlit part of a ring, an arc or a progress bar. */
+    val Track = Color(0xFF262626)
+    /** A rail or a line under something. */
+    val Rail = Color(0xFF2E2E2E)
+    /** A thin rule between parts. */
+    val Rule = Color(0xFF333333)
+}
+
 
 /** A one-line hint, shown only in the editor and previews (on the display itself the widget stays empty). */
 @Composable

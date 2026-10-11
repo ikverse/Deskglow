@@ -15,20 +15,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,7 +48,9 @@ import com.ikverse.deskglow.ui.IconAction
 import com.ikverse.deskglow.ui.Palette
 import com.ikverse.deskglow.ui.Type
 import com.ikverse.deskglow.ui.pressable
+import com.ikverse.deskglow.widgets.WidgetType
 import com.ikverse.deskglow.widgets.Widgets
+import kotlin.math.max
 import kotlin.math.min
 
 private val CATEGORIES = listOf("All", "Time", "Day", "Battery", "F1", "Prayer")
@@ -95,35 +95,49 @@ internal fun AddPicker(state: EditorState, modifier: Modifier) {
         if (shown.isEmpty()) {
             Text("Nothing matches “${query.trim()}”.", color = Palette.Muted, fontSize = Type.Body, modifier = Modifier.padding(20.dp))
         }
-        LazyVerticalGrid(
-            GridCells.Adaptive(160.dp), Modifier.fillMaxSize().testTag("picker grid"),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        // Fifteen cards that never change: composed once when the picker opens, not as they scroll into view.
+        Column(
+            Modifier.fillMaxSize().testTag("picker grid").verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, bottom = 20.dp),
         ) {
-            items(shown, key = { it.id }) { type ->
-                val shape = RoundedCornerShape(16.dp)
-                Column(
-                    Modifier.clip(shape).background(Palette.Raised).border(1.dp, Palette.Rule, shape)
-                        .pressable { state.add(type) }.padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    BoxWithConstraints(
-                        Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        // The same scale for every widget, shrunk only if the widest would not fit this card.
-                        val scale = min(PREVIEW_SCALE, maxWidth.value * 0.94f / type.width)
-                        Box(Modifier.size((type.width * scale).dp, (type.height * scale).dp)) {
-                            CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle) { type.Content(type.defaults) }
-                        }
-                    }
-                    Column(Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
-                        Text(type.label, fontSize = Type.Body, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(type.blurb, fontSize = Type.Label, color = Palette.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Two to a row. (A FlowRow cannot be used: it asks its cards for intrinsic sizes, which the live previews cannot give.)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                for (pair in shown.chunked(2)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        for (type in pair) key(type.id) { PickerCard(type, state, Modifier.weight(1f)) }
+                        // An odd one out keeps the width of the others rather than stretching across the row.
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PickerCard(type: WidgetType, state: EditorState, modifier: Modifier) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier.clip(shape).background(Palette.Raised).border(1.dp, Palette.Rule, shape)
+            .pressable { state.add(type) }.padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BoxWithConstraints(
+            Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            // The same scale for every widget, shrunk only if the widest would not fit this card...
+            val widest = maxWidth.value * 0.94f / type.width
+            val scale = min(PREVIEW_SCALE, widest)
+            // ...and raised so a small widget is at least 40% of the picture's height, as far as the card is wide.
+            val shown = max(scale, min(maxHeight.value * 0.4f / type.height, widest))
+            Box(Modifier.size((type.width * shown).dp, (type.height * shown).dp)) {
+                CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle) { type.Content(type.defaults) }
+            }
+        }
+        Column(Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+            Text(type.label, fontSize = Type.Body, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(type.blurb, fontSize = Type.Label, color = Palette.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

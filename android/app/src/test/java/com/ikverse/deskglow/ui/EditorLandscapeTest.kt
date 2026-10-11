@@ -104,7 +104,8 @@ class EditorLandscapeTest {
     fun `the add picker lists every widget, and adding one keeps it inside the canvas`() {
         compose.onNodeWithContentDescription("Add widget").performClick()
         compose.onNodeWithText("Add a widget").assertIsDisplayed()
-        compose.onNodeWithText("Your next calendar item").performClick()
+        // Two cards to a row, so on its side the screen shows only the first rows: scroll to the card, as a person would.
+        compose.onNodeWithText("Your next calendar item").performScrollTo().performClick()
         assertEquals(DefaultLayout.create(Orientation.Landscape).items.size + 1, layout.items.size)
         assertInsideAndNoOverlaps()
     }

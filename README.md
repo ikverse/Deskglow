@@ -4,7 +4,7 @@ A charging and desk screen for Android phones: a big clock, the date, your batte
 the weather, your next event and what is playing, laid out however you like. It shows by itself
 while the phone charges (as Android's screen saver), or on demand with **Start now**.
 
-Nothing runs while it is not showing: no background service, no permanent notification, no timers.
+Nothing runs while it is not showing: no background service, no permanent notification, no timers, unless you switch on **Always on**, which keeps a small service waiting for the screen to turn off.
 
 ## What it does
 

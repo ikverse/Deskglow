@@ -80,11 +80,7 @@ private fun Section(content: @Composable ColumnScope.() -> Unit) =
 @Composable
 fun AutoStartScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    var resumes by remember { mutableIntStateOf(0) }
-    LifecycleResumeEffect(Unit) {
-        resumes++
-        onPauseOrDispose { }
-    }
+    val resumes = rememberResumeCount()
     val status = remember(resumes) { screenSaverStatus(context) }
     ScreenFrame("Start automatically when charging", onBack) {
         Section {
@@ -100,14 +96,15 @@ fun AutoStartScreen(onBack: () -> Unit) {
 fun AlwaysOnScreen(graph: AppGraph, onBack: () -> Unit) {
     val context = LocalContext.current
     val on by graph.prefs.alwaysOn.collectAsStateWithLifecycle()
-    var resumes by remember { mutableIntStateOf(0) }
+    val resumes = rememberResumeCount()
     LifecycleResumeEffect(Unit) {
-        resumes++
         if (graph.prefs.alwaysOn.value) startAlwaysOn(context)
         onPauseOrDispose { }
     }
-    val missing = remember(resumes) { alwaysOnMissing(context) }
-    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resumes++ }
+    // The permission prompt returns here too, without the screen having left, so it is counted on its own.
+    var prompts by remember { mutableIntStateOf(0) }
+    val missing = remember(resumes, prompts) { alwaysOnMissing(context) }
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { prompts++ }
     val thisApp = Uri.parse("package:${context.packageName}")
     ScreenFrame("Always on", onBack) {
         Section {
@@ -121,13 +118,12 @@ fun AlwaysOnScreen(graph: AppGraph, onBack: () -> Unit) {
                     if (it) startAlwaysOn(context) else stopAlwaysOn(context)
                 })
             }
-        }
-        if (on) {
-            Text(
-                if (missing.isEmpty()) "On" else "Needs: " + missing.joinToString(", "),
-                fontSize = Type.Body, fontWeight = FontWeight.Medium,
-                color = if (missing.isEmpty()) Palette.Select else Palette.Ink,
-            )
+            if (on) {
+                Text(
+                    if (missing.isEmpty()) "On" else "Needs: " + missing.joinToString(", "),
+                    fontSize = Type.Small, color = if (missing.isEmpty()) Palette.Select else Palette.Ink,
+                )
+            }
         }
         Section {
             Body("Display over other apps")
@@ -162,11 +158,7 @@ fun AlwaysOnScreen(graph: AppGraph, onBack: () -> Unit) {
 @Composable
 fun PermissionsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    var resumes by remember { mutableIntStateOf(0) }
-    LifecycleResumeEffect(Unit) {
-        resumes++
-        onPauseOrDispose { }
-    }
+    val resumes = rememberResumeCount()
     val notifications = remember(resumes) { hasNotificationAccess(context) }
     var calendar by remember(resumes) { mutableStateOf(hasCalendarAccess(context)) }
     var asked by remember { mutableStateOf(false) }
@@ -227,11 +219,7 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
     val context = LocalContext.current
     val auto by graph.prefs.autoLocation.collectAsStateWithLifecycle()
     val detected by graph.prefs.detectedCity.collectAsStateWithLifecycle()
-    var resumes by remember { mutableIntStateOf(0) }
-    LifecycleResumeEffect(Unit) {
-        resumes++
-        onPauseOrDispose { }
-    }
+    val resumes = rememberResumeCount()
     var allowed by remember(resumes) { mutableStateOf(hasLocationAccess(context)) }
     var asked by remember { mutableStateOf(false) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -324,7 +312,7 @@ fun F1Screen(graph: AppGraph, onBack: () -> Unit) {
 private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().pressable { onClick() }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = Type.Body, color = if (selected) Palette.Select else Palette.Ink, modifier = Modifier.weight(1f))
-        if (selected) Text("✓", fontSize = Type.Body, color = Palette.Select)
+        if (selected) GlyphIcon(Glyph.Check, tint = Palette.Select, size = 18.dp, weight = 2.2f)
     }
 }
 

@@ -58,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -175,12 +176,15 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
     )
     HoldOrientation(orientation)
     val view = LocalView.current
-    state.haptic = { kind ->
-        val constant = when (kind) {
-            Haptic.Step -> HapticFeedbackConstants.CLOCK_TICK
-            Haptic.Centre -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.LONG_PRESS
+    // Set after composition, not during it: the callback is only ever used by gestures, which come later.
+    SideEffect {
+        state.haptic = { kind ->
+            val constant = when (kind) {
+                Haptic.Step -> HapticFeedbackConstants.CLOCK_TICK
+                Haptic.Centre -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.LONG_PRESS
+            }
+            view.performHapticFeedback(constant)
         }
-        view.performHapticFeedback(constant)
     }
     BackHandler {
         when {
@@ -523,9 +527,9 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
                 scaleX = 0.96f + 0.04f * shown
                 scaleY = 0.96f + 0.04f * shown
             }
-            // Each widget is drawn once into its own texture and then only moved, so dragging one
-            // widget (and the ones it pushes) costs the others nothing.
-            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            // While a widget is dragged (or arriving) each one is drawn once into its own texture and then only
+            // moved, so the drag costs the others nothing. At rest the textures are not worth their memory.
+            .graphicsLayer { compositingStrategy = if (state.dragId != null || arrive.value < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto }
             .testTag("widget ${item.id}"),
     ) {
         Box(

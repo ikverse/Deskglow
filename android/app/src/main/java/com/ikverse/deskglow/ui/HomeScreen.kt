@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,7 +29,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -76,9 +77,8 @@ fun HomeScreen(
     val alwaysOn by graph.prefs.alwaysOn.collectAsStateWithLifecycle()
     val saved by graph.snapshots.snapshots.collectAsStateWithLifecycle()
     // Permissions and the screen saver are changed in Android's settings, so look again on every return.
-    var resumes by remember { mutableIntStateOf(0) }
+    val resumes = rememberResumeCount()
     LifecycleResumeEffect(Unit) {
-        resumes++
         if (graph.prefs.alwaysOn.value) startAlwaysOn(context) // keeps the service alive if Android stopped it
         onPauseOrDispose { }
     }
@@ -93,59 +93,78 @@ fun HomeScreen(
     val located = remember(resumes) { hasLocationAccess(context) }
     val shownCity = if (auto && located) detected ?: city else city
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    // The Start button, the status chips and the cards: one column, in the page's order, wherever it sits.
+    val controls: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AppButton(
+            "Start Deskglow", { context.startActivity(Intent(context, DisplayActivity::class.java)) },
+            Modifier.fillMaxWidth().height(56.dp), kind = ButtonKind.Primary, glyph = Glyph.Play,
+        )
+        Text(
+            "Full screen without the charger. Also on the home-screen widget, the app-icon shortcut and the Quick Settings tile.",
+            fontSize = Type.Small, color = Palette.Muted, modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
+
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val charging = autoStart.startsWith("On")
+        Chip(if (charging) "Starts when charging" else "Auto-start off", { go(Screen.AutoStart) }, dot = charging)
+        Chip(if (alwaysOn) "Always on" else "Always on off", { go(Screen.AlwaysOn) }, dot = alwaysOn)
+        Chip(
+            "Brightness " + when (brightness.mode) {
+                BrightnessMode.System -> "follows phone"
+                BrightnessMode.Dim -> "dim"
+                BrightnessMode.Custom -> "${brightness.level}%"
+                BrightnessMode.Auto -> "auto"
+            } + if (burnIn) "" else " · burn-in off",
+            { go(Screen.Brightness) },
+        )
+        Chip(shownCity?.label?.substringBefore(',') ?: "Set weather city", { go(Screen.City) })
+        Chip(f1.driver.takeIf { it.isNotEmpty() }?.let { "F1 · $it" } ?: "My F1 driver", { go(Screen.F1) })
+    }
+
+    Card {
+        CardRow(Glyph.Phone, "Portrait layout", screensLabel(portraitScreens), { edit(Orientation.Portrait, 0) })
+        CardRow(Glyph.PhoneSideways, "Landscape layout", screensLabel(landscapeScreens), { edit(Orientation.Landscape, 0) })
+        CardRow(
+            Glyph.Archive, "Saved layouts",
+            if (saved.isEmpty()) "Back up both layouts and restore them later" else "${saved.size} saved · back up to a file",
+            { go(Screen.Snapshots) }, last = true,
+        )
+    }
+    Card {
+        CardRow(Glyph.Shield, "Permissions", permissions, { go(Screen.Permissions) })
+        CardRow(Glyph.Info, "About and licences", null, { go(Screen.About) }, last = true)
+    }
+        }
+    }
+    val wordmark: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 20.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Desk", fontSize = Type.Title, fontWeight = FontWeight.Medium, letterSpacing = 0.04.em)
             Text("glow", fontSize = Type.Title, fontWeight = FontWeight.Medium, letterSpacing = 0.04.em, color = Palette.Select)
         }
+    }
 
-        PreviewCard(graph, edit)
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppButton(
-                "Start Deskglow", { context.startActivity(Intent(context, DisplayActivity::class.java)) },
-                Modifier.fillMaxWidth().height(56.dp), kind = ButtonKind.Primary, glyph = Glyph.Play,
-            )
-            Text(
-                "Full screen without the charger. Also on the home-screen widget, the app-icon shortcut and the Quick Settings tile.",
-                fontSize = Type.Small, color = Palette.Muted, modifier = Modifier.padding(horizontal = 4.dp),
-            )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth > maxHeight) {
+            // On its side the preview and the controls sit side by side, so Start is not below the fold.
+            val height = maxHeight
+            Row(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                PreviewCard(graph, edit, pagerHeight = height - 140.dp, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) { controls() }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                wordmark()
+                PreviewCard(graph, edit)
+                controls()
+                Spacer(Modifier.height(12.dp))
+            }
         }
-
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            val charging = autoStart.startsWith("On")
-            Chip(if (charging) "Starts when charging" else "Auto-start off", { go(Screen.AutoStart) }, dot = charging)
-            Chip(if (alwaysOn) "Always on" else "Always on off", { go(Screen.AlwaysOn) }, dot = alwaysOn)
-            Chip(
-                "Brightness " + when (brightness.mode) {
-                    BrightnessMode.System -> "follows phone"
-                    BrightnessMode.Dim -> "dim"
-                    BrightnessMode.Custom -> "${brightness.level}%"
-                    BrightnessMode.Auto -> "auto"
-                } + if (burnIn) "" else " · burn-in off",
-                { go(Screen.Brightness) },
-            )
-            Chip(shownCity?.label?.substringBefore(',') ?: "Set weather city", { go(Screen.City) })
-            Chip(f1.driver.takeIf { it.isNotEmpty() }?.let { "F1 · $it" } ?: "My F1 driver", { go(Screen.F1) })
-        }
-
-        Card {
-            CardRow(Glyph.Phone, "Portrait layout", screensLabel(portraitScreens), { edit(Orientation.Portrait, 0) })
-            CardRow(Glyph.PhoneSideways, "Landscape layout", screensLabel(landscapeScreens), { edit(Orientation.Landscape, 0) })
-            CardRow(
-                Glyph.Archive, "Saved layouts",
-                if (saved.isEmpty()) "Back up both layouts and restore them later" else "${saved.size} saved · back up to a file",
-                { go(Screen.Snapshots) }, last = true,
-            )
-        }
-        Card {
-            CardRow(Glyph.Shield, "Permissions", permissions, { go(Screen.Permissions) })
-            CardRow(Glyph.Info, "About and licences", null, { go(Screen.About) }, last = true)
-        }
-        Spacer(Modifier.height(12.dp))
     }
 }
 
@@ -157,7 +176,7 @@ private fun screensLabel(count: Int) = if (count == 1) "1 screen" else "$count s
  * screen, or Edit layout, opens the editor on it.
  */
 @Composable
-private fun PreviewCard(graph: AppGraph, edit: (Orientation, Int) -> Unit) {
+private fun PreviewCard(graph: AppGraph, edit: (Orientation, Int) -> Unit, pagerHeight: Dp = 330.dp, modifier: Modifier = Modifier) {
     val portraitScreens by graph.prefs.pageCount(Orientation.Portrait).collectAsStateWithLifecycle()
     val landscapeScreens by graph.prefs.pageCount(Orientation.Landscape).collectAsStateWithLifecycle()
     var orientation by remember { mutableStateOf(Orientation.Portrait) }
@@ -166,10 +185,10 @@ private fun PreviewCard(graph: AppGraph, edit: (Orientation, Int) -> Unit) {
     val pager = if (orientation == Orientation.Portrait) portraitPager else landscapePager
     val screens = if (orientation == Orientation.Portrait) portraitScreens else landscapeScreens
     val index = pager.currentPage.coerceIn(0, screens - 1)
-    Card {
+    Card(modifier) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             key(orientation) {
-                HorizontalPager(pager, Modifier.fillMaxWidth().height(330.dp).testTag("preview pager"), pageSpacing = 12.dp) { page ->
+                HorizontalPager(pager, Modifier.fillMaxWidth().height(pagerHeight).testTag("preview pager"), pageSpacing = 12.dp) { page ->
                     val layout by graph.layoutsFor(orientation, page).layout.collectAsStateWithLifecycle()
                     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         val aspect = orientation.width.toFloat() / orientation.height
