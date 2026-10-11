@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -36,9 +37,11 @@ import com.ikverse.deskglow.data.FeedStatus
 import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.F1Session
 import com.ikverse.deskglow.data.F1State
+import com.ikverse.deskglow.data.LocalBroadcastDelay
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.countdownText
 import com.ikverse.deskglow.data.feedStatus
+import com.ikverse.deskglow.data.heldBack
 import com.ikverse.deskglow.data.trackRace
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
@@ -94,6 +97,12 @@ object F1ScheduleWidget : WidgetType {
         val state by feeds.f1.collectAsStateWithLifecycle()
         val minute by feeds.minute.collectAsStateWithLifecycle()
         val phone24 = DateFormat.is24HourFormat(LocalContext.current)
+        // Held back to line up with the TV, and the clock set back with it.
+        val delaySeconds by LocalBroadcastDelay.current.collectAsStateWithLifecycle()
+        val delayMs = if (LocalEditing.current) 0L else delaySeconds * 1000L
+        val held = remember(feeds.f1Pulse, delayMs) { feeds.f1Pulse.heldBack(delayMs) }
+        val pulse by held.collectAsStateWithLifecycle(feeds.f1Pulse.value)
+        val lag = Duration.ofMillis(delayMs)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val w = constraints.maxWidth.toFloat()
@@ -112,11 +121,10 @@ object F1ScheduleWidget : WidgetType {
             val fine = settings[SHOW_COUNTDOWN] && next != null && Duration.between(roughNow, next.start) < Duration.ofMinutes(61)
             val now = if (fine) {
                 val second by feeds.second.collectAsStateWithLifecycle()
-                second.atZone(ZoneId.systemDefault()).toInstant()
-            } else roughNow
+                second.atZone(ZoneId.systemDefault()).toInstant() - lag
+            } else roughNow - lag
             val h24 = when (settings[CLOCK]) { "12" -> false; "24" -> true; else -> phone24 }
             // The live-timing feed says whether the session is delayed or stopped, and that it is still on after its slot.
-            val pulse by feeds.f1Pulse.collectAsStateWithLifecycle()
             val plan = Plan(race, now, settings, h24, feedStatus(data.races, pulse, now))
             val unit = canvasUnit(w, width)
             // Measured afresh when the settings or the weekend change, not as the countdown ticks.

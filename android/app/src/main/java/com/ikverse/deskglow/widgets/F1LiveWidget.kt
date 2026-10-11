@@ -13,6 +13,7 @@ import com.ikverse.deskglow.data.F1Roster
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.LiveSession
+import com.ikverse.deskglow.data.LocalBroadcastDelay
 import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.TrackFlag
@@ -69,8 +70,6 @@ object F1LiveWidget : WidgetType {
     /** "code" (VER), "number" (1) or "surname" (VERSTAPPEN). */
     val NAMES = TextKey("names", "code")
     val ACCENT = ColourKey("accent", 0xFFE10600.toInt())
-    /** Seconds the timing is held back, to line up with a TV picture that lags it. */
-    val DELAY = IntKey("broadcastDelay", 0)
 
     override val id = "f1live"
     override val label = "F1 live session"
@@ -82,7 +81,6 @@ object F1LiveWidget : WidgetType {
     override fun fields(settings: Settings) = buildList {
         val track = settings[LAYOUT] == "track"
         add(LayoutField("Layout", LAYOUT, listOf("tower" to "Tower", "glance" to "Glance", "focus" to "Focus", "line" to "One line", "track" to "Track map")))
-        add(SliderField("Broadcast delay", DELAY, 0..90, " s"))
         if (settings[LAYOUT] == "tower") add(SliderField("Rows", ROWS, 3..20))
         if (settings[LAYOUT] == "tower") add(ChoiceField("Gap", GAP, listOf("auto" to "Automatic", "leader" to "To the leader", "ahead" to "To the car ahead")))
         if (track) {
@@ -120,15 +118,15 @@ object F1LiveWidget : WidgetType {
     override fun note(settings: Settings) =
         "Live timing from Formula 1's own live-timing feed, which is unofficial and may stop working; results between sessions from it or from OpenF1. " +
             (if (settings[LAYOUT] == "track") "On the map each car is placed from the last of the timing's mini-sectors it went through, so it is close but not exact; track outlines from MultiViewer. " else "") +
-            (if (settings[DELAY] > 0) "Shown ${settings[DELAY]} s behind the live timing to match the broadcast. " else "") +
-            "Connects only while a session runs. Not affiliated with Formula 1."
+            "Connects only while a session runs; the broadcast delay set under F1 on the Home screen holds it back to match the TV. Not affiliated with Formula 1."
 
     @Composable
     override fun Content(settings: Settings) {
         val feeds = LocalFeeds.current
         val editing = LocalEditing.current
         // Held back to line up with the TV; the clock is set back with it, so countdowns and cars on the map match what is shown.
-        val delayMs = if (editing) 0L else settings[DELAY] * 1000L
+        val delaySeconds by LocalBroadcastDelay.current.collectAsStateWithLifecycle()
+        val delayMs = if (editing) 0L else delaySeconds * 1000L
         val held = remember(feeds.f1Live, delayMs) { feeds.f1Live.heldBack(delayMs) }
         val state by held.collectAsStateWithLifecycle(feeds.f1Live.value)
         val lag = Duration.ofMillis(delayMs)

@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
 import com.ikverse.deskglow.BuildConfig
 import com.ikverse.deskglow.data.F1Roster
+import com.ikverse.deskglow.data.MAX_BROADCAST_DELAY
 import com.ikverse.deskglow.display.alwaysOnMissing
 import com.ikverse.deskglow.display.startAlwaysOn
 import com.ikverse.deskglow.display.stopAlwaysOn
@@ -57,6 +58,7 @@ import com.ikverse.deskglow.store.City
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 private fun Context.open(intent: Intent) {
     try {
@@ -286,8 +288,22 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
 @Composable
 fun F1Screen(graph: AppGraph, onBack: () -> Unit) {
     val favourite by graph.prefs.f1Favourite.collectAsStateWithLifecycle()
-    ScreenFrame("My F1 driver and team", onBack) {
+    val delay by graph.prefs.broadcastDelay.collectAsStateWithLifecycle()
+    ScreenFrame("F1 driver, team and delay", onBack) {
         Small("Set them once and every F1 widget follows them. A widget can still pick its own, or none.")
+        SectionLabel("Broadcast delay")
+        Card {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Slider(
+                    value = delay.toFloat(),
+                    onValueChange = { graph.prefs.setBroadcastDelay(it.roundToInt()) },
+                    valueRange = 0f..MAX_BROADCAST_DELAY.toFloat(),
+                    modifier = Modifier.weight(1f),
+                )
+                Text("$delay s", color = Palette.Muted, modifier = Modifier.padding(start = 10.dp))
+            }
+        }
+        Small("Every live F1 widget shows the timing this many seconds behind, to line up with a TV picture that lags it.")
         SectionLabel("Driver")
         Card {
             val drivers = listOf("" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }

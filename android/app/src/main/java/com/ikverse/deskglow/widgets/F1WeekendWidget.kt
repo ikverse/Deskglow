@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,6 +41,7 @@ import com.ikverse.deskglow.data.F1Session
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.F1Track
 import com.ikverse.deskglow.data.LivePhase
+import com.ikverse.deskglow.data.LocalBroadcastDelay
 import com.ikverse.deskglow.data.LocalF1Favourite
 import com.ikverse.deskglow.data.LocalFeeds
 import com.ikverse.deskglow.data.SessionTop
@@ -47,6 +49,7 @@ import com.ikverse.deskglow.data.WeekendView
 import com.ikverse.deskglow.data.countdownText
 import com.ikverse.deskglow.data.effectiveFavourite
 import com.ikverse.deskglow.data.favouriteColour
+import com.ikverse.deskglow.data.heldBack
 import com.ikverse.deskglow.data.sessionTop
 import com.ikverse.deskglow.data.weekendViewWithFeed
 import com.ikverse.deskglow.data.feedStatus
@@ -117,6 +120,12 @@ object F1WeekendWidget : WidgetType {
         val state by feeds.f1.collectAsStateWithLifecycle()
         val minute by feeds.minute.collectAsStateWithLifecycle()
         val app by LocalF1Favourite.current.collectAsStateWithLifecycle()
+        // Held back to line up with the TV, and the clock set back with it.
+        val delaySeconds by LocalBroadcastDelay.current.collectAsStateWithLifecycle()
+        val delayMs = if (LocalEditing.current) 0L else delaySeconds * 1000L
+        val held = remember(feeds.f1Pulse, delayMs) { feeds.f1Pulse.heldBack(delayMs) }
+        val pulse by held.collectAsStateWithLifecycle(feeds.f1Pulse.value)
+        val lag = Duration.ofMillis(delayMs)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val data = when (val s = state) {
@@ -130,10 +139,9 @@ object F1WeekendWidget : WidgetType {
             val fine = view is WeekendView.Upcoming && view.next != null && Duration.between(roughNow, view.next.start) < Duration.ofMinutes(61)
             val now = if (fine) {
                 val second by feeds.second.collectAsStateWithLifecycle()
-                second.atZone(ZoneId.systemDefault()).toInstant()
-            } else roughNow
-            // The live-timing feed says whether a session is on, delayed or stopped, and has the results; it is asked for only a few topics, and only while a session runs.
-            val pulse by feeds.f1Pulse.collectAsStateWithLifecycle()
+                second.atZone(ZoneId.systemDefault()).toInstant() - lag
+            } else roughNow - lag
+            // The live-timing feed (read above) says whether a session is on, delayed or stopped, and has the results; it is asked for only a few topics, and only while a session runs.
             val latest = if (settings[BETWEEN] == "top3") (pulse as? F1LiveState.Result)?.session else null
             val counted = weekendView(data, now).let { v ->
                 if (settings[COUNT_TO] == "race" && v is WeekendView.Upcoming) v.copy(next = v.race.race.takeIf { it.start.isAfter(now) }) else v

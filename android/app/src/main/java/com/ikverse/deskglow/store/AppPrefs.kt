@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.ikverse.deskglow.data.F1Favourite
+import com.ikverse.deskglow.data.MAX_BROADCAST_DELAY
 import com.ikverse.deskglow.model.Orientation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +77,10 @@ class AppPrefs(context: Context) {
     private val f1FavouriteState = MutableStateFlow(F1Favourite(prefs.getString(KEY_F1_DRIVER, "").orEmpty(), prefs.getString(KEY_F1_TEAM, "").orEmpty()))
     /** The F1 driver and team followed in every F1 widget that has no choice of its own. */
     val f1Favourite: StateFlow<F1Favourite> = f1FavouriteState.asStateFlow()
+
+    private val broadcastDelayState = MutableStateFlow(prefs.getInt(KEY_BROADCAST_DELAY, 0).coerceIn(0, MAX_BROADCAST_DELAY))
+    /** Seconds every live F1 widget holds the timing back, to line up with a TV picture that lags it. */
+    val broadcastDelay: StateFlow<Int> = broadcastDelayState.asStateFlow()
 
     private val autoLocationState = MutableStateFlow(prefs.getBoolean(KEY_AUTO_LOCATION, true))
     val autoLocation: StateFlow<Boolean> = autoLocationState.asStateFlow()
@@ -157,6 +162,12 @@ class AppPrefs(context: Context) {
         f1FavouriteState.value = f1FavouriteState.value.copy(team = id)
     }
 
+    fun setBroadcastDelay(seconds: Int) {
+        val clamped = seconds.coerceIn(0, MAX_BROADCAST_DELAY)
+        prefs.edit { putInt(KEY_BROADCAST_DELAY, clamped) }
+        broadcastDelayState.value = clamped
+    }
+
     fun setCity(city: City?) {
         prefs.edit {
             if (city == null) remove(KEY_CITY) else putString(KEY_CITY, city.toJson())
@@ -234,6 +245,7 @@ class AppPrefs(context: Context) {
         const val KEY_CITY = "city"
         const val KEY_F1_DRIVER = "f1_driver"
         const val KEY_F1_TEAM = "f1_team"
+        const val KEY_BROADCAST_DELAY = "broadcast_delay"
         const val KEY_AUTO_LOCATION = "auto_location"
         const val KEY_DETECTED_CITY = "detected_city"
         const val KEY_WEATHER_CACHE = "weather_cache"

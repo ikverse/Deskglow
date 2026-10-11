@@ -50,6 +50,18 @@ class F1FavouriteTest {
     }
 
     @Test
+    fun `the broadcast delay starts at none, is kept for the next start, and stays within its range`() {
+        assertEquals(0, graph.prefs.broadcastDelay.value)
+        graph.prefs.setBroadcastDelay(25)
+        assertEquals(25, graph.prefs.broadcastDelay.value)
+        assertEquals(25, AppPrefs(ApplicationProvider.getApplicationContext()).broadcastDelay.value)
+        graph.prefs.setBroadcastDelay(500)
+        assertEquals(90, graph.prefs.broadcastDelay.value)
+        graph.prefs.setBroadcastDelay(-3)
+        assertEquals(0, graph.prefs.broadcastDelay.value)
+    }
+
+    @Test
     fun `what is picked is kept for the next start`() {
         graph.prefs.setF1Driver("NOR")
         graph.prefs.setF1Team("mclaren")
