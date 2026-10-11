@@ -100,7 +100,7 @@ object F1ScheduleWidget : WidgetType {
         // Held back to line up with the TV, and the clock set back with it.
         val delaySeconds by LocalBroadcastDelay.current.collectAsStateWithLifecycle()
         val delayMs = if (LocalEditing.current) 0L else delaySeconds * 1000L
-        val held = remember(feeds.f1Pulse, delayMs) { feeds.f1Pulse.heldBack(delayMs) }
+        val held = remember(feeds.f1Pulse, delayMs) { feeds.f1Pulse.heldBack(delayMs, feeds.f1History) }
         val pulse by held.collectAsStateWithLifecycle(feeds.f1Pulse.value)
         val lag = Duration.ofMillis(delayMs)
         BoxWithConstraints(Modifier.fillMaxSize()) {

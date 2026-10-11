@@ -10,6 +10,7 @@ import com.ikverse.deskglow.data.F1Repository
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.Feeds
 import com.ikverse.deskglow.data.Http
+import com.ikverse.deskglow.data.LiveHistory
 import com.ikverse.deskglow.data.LocationFinder
 import com.ikverse.deskglow.data.MediaState
 import com.ikverse.deskglow.data.NotificationState
@@ -39,10 +40,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.FlowCollector
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import java.io.File
 import java.time.LocalDateTime
@@ -186,26 +186,12 @@ private class LiveFeeds(
     override val weather = weatherRepository.updates().shared<WeatherState>(WeatherState.NoCity)
     override val alarm = alarmUpdates(context).shared(currentAlarm(context))
     override val f1 = f1Repository.updates().shared<F1State>(F1State.Loading)
-    // The whole timing is only asked for while something reads f1Live; widgets that read f1Pulse leave it at the few topics they need.
-    private val detail = MutableStateFlow(false)
-    private var watchers = 0
-    private fun watching(change: Int) = synchronized(this) {
-        watchers += change
-        detail.value = watchers > 0
-    }
-
-    private val live = f1LiveRepository.updates(f1, detail).shared<F1LiveState>(F1LiveState.Waiting)
+    // Always the whole timing, whichever F1 widget is reading: a live widget held back to the TV then
+    // has the timing from before it was opened, and starts in step with the TV instead of empty.
+    override val f1History = LiveHistory()
+    private val live = f1LiveRepository.updates(f1).onEach { f1History.record(it, System.currentTimeMillis()) }.shared<F1LiveState>(F1LiveState.Waiting)
     override val f1Pulse: StateFlow<F1LiveState> = live
-    override val f1Live: StateFlow<F1LiveState> = object : StateFlow<F1LiveState> by live {
-        override suspend fun collect(collector: FlowCollector<F1LiveState>): Nothing {
-            watching(+1)
-            try {
-                live.collect(collector)
-            } finally {
-                watching(-1)
-            }
-        }
-    }
+    override val f1Live: StateFlow<F1LiveState> = live
 
     private val prayers = HashMap<Pair<Int, Int>, StateFlow<PrayerState>>()
 

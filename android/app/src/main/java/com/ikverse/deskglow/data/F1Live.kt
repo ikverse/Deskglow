@@ -732,27 +732,65 @@ fun LiveSession.freshEvent(now: Instant, within: Duration = EVENT_FRESH): LiveEv
 val EVENT_FRESH: Duration = Duration.ofSeconds(90)
 
 /**
- * The same states, each [delayMs] after it came, in order: the timing held back to line up with a TV
- * picture that lags it. The first comes at once, so there is something to show while the rest catch
- * up to the delay. With no delay, the flow itself.
+ * What the feed has said lately, each state with when it came, so a widget held back to match the TV
+ * can start from what the TV is showing rather than from what the feed says now. Kept for the longest
+ * delay that can be set, and the state before that, which is still what showed at the far end of it.
  */
-fun Flow<F1LiveState>.heldBack(delayMs: Long, clock: () -> Long = System::currentTimeMillis): Flow<F1LiveState> =
+class LiveHistory(private val keepMs: Long = (MAX_BROADCAST_DELAY + 10) * 1000L) {
+    private class Said(val seq: Long, val at: Long, val state: F1LiveState)
+
+    private val said = ArrayDeque<Said>()
+    private var next = 0L
+
+    @Synchronized
+    fun record(state: F1LiveState, at: Long) {
+        said.addLast(Said(next++, at, state))
+        while (said.size > 1 && said[1].at <= at - keepMs) said.removeFirst()
+    }
+
+    /** The last state to have come by [at], and its place in the history; null when none had. */
+    @Synchronized
+    internal fun lastBy(at: Long): Pair<Long, F1LiveState>? = said.lastOrNull { it.at <= at }?.let { it.seq to it.state }
+
+    /** The oldest state kept. */
+    @Synchronized
+    internal fun oldest(): F1LiveState? = said.firstOrNull()?.state
+
+    /** The first state after place [seq]: its place, when it came, and the state. */
+    @Synchronized
+    internal fun after(seq: Long): Triple<Long, Long, F1LiveState>? = said.firstOrNull { it.seq > seq }?.let { Triple(it.seq, it.at, it.state) }
+}
+
+/**
+ * The states of [history] as a TV picture [delayMs] behind the feed shows them: first what the feed
+ * said [delayMs] ago, then each later state [delayMs] after it came, in order. Nothing the feed says
+ * shows before the TV has had time to show it, whenever the widget starts reading, so a flag never
+ * comes on the widget first. Before anything that old is known (the app has only just started), what
+ * the feed said before the session (the last result) stands in, or nothing; never a live state.
+ * Collecting this keeps the feed itself running. With no delay, the flow itself.
+ */
+fun Flow<F1LiveState>.heldBack(delayMs: Long, history: LiveHistory, clock: () -> Long = System::currentTimeMillis): Flow<F1LiveState> =
     if (delayMs <= 0) this else channelFlow {
-        val queue = Channel<Pair<Long, F1LiveState>>(Channel.UNLIMITED)
-        launch {
-            for ((due, state) in queue) {
-                delay(due - clock())
+        // Every new state wakes the loop below; the states themselves are read from the history, where none is lost to conflation.
+        val news = Channel<Unit>(Channel.CONFLATED)
+        launch { collect { news.trySend(Unit) } }
+        val start = history.lastBy(clock() - delayMs)
+        var place = start?.first ?: -1L
+        var shown = start?.second ?: history.oldest()?.takeIf { it !is F1LiveState.Live } ?: F1LiveState.Waiting
+        send(shown)
+        while (true) {
+            val (seq, at, state) = history.after(place) ?: run {
+                news.receive()
+                null
+            } ?: continue
+            val wait = at + delayMs - clock()
+            if (wait > 0) delay(wait)
+            place = seq
+            if (state !== shown) {
+                shown = state
                 send(state)
             }
         }
-        var first = true
-        collect { state ->
-            if (first) {
-                first = false
-                send(state)
-            } else queue.send(clock() + delayMs to state)
-        }
-        queue.close()
     }
 
 /**
