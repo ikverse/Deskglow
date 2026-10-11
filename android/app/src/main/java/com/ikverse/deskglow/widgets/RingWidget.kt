@@ -1,18 +1,15 @@
 package com.ikverse.deskglow.widgets
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +75,7 @@ object RingWidget : WidgetType {
         val colour = Color(settings[Common.COLOUR])
         val accent = Color(settings[ACCENT]).let { if (settings[LEVEL_COLOUR]) levelColour(battery.level, it) else it }
         val layout = settings[LAYOUT]
+        val sizes = LocalTextSizes.current
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val side = min(constraints.maxWidth, constraints.maxHeight).toFloat()
             Box(Modifier.size(pxToDp(side)), contentAlignment = Alignment.Center) {
@@ -112,20 +110,23 @@ object RingWidget : WidgetType {
                         }
                     }
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                // Inside the ring's hole: shrunk, or the bolt and the words under the number left out, rather than touching the ring.
+                val ink = remember(side, thickness, layout) { ringInk(side, thickness, layout) }
+                val main = sizes.main
+                val small = sizes.small
+                val editing = LocalEditing.current
+                val parts = buildList {
                     if (settings[SHOW_BOLT] && battery.plugged) {
-                        Bolt(accent, Modifier.size(pxToDp(side * 0.08f), pxToDp(side * 0.11f)))
-                        Spacer(Modifier.height(pxToDp(side * 0.024f)))
-                    } else if (settings[SHOW_BOLT]) {
-                        EditorSlot("⚡", side * 0.07f)
-                        Spacer(Modifier.height(pxToDp(side * 0.024f)))
+                        add(ClearPart(required = false) { k -> Bolt(accent, Modifier.size(pxToDp(side * 0.08f * main * k), pxToDp(side * 0.11f * main * k))) })
+                    } else if (settings[SHOW_BOLT] && editing) {
+                        add(ClearPart(required = false) { k -> EditorSlot("⚡", side * 0.07f * main * k) })
                     }
-                    Text("${battery.level}%", color = colour, fontSize = pxToSp(side * 0.165f), fontWeight = FontWeight.Medium, maxLines = 1)
+                    add(ClearPart { k -> Text("${battery.level}%", color = colour, fontSize = pxToSp(side * 0.165f * main * k), fontWeight = FontWeight.Medium, maxLines = 1) })
                     underText(under, battery)?.let { text ->
-                        Spacer(Modifier.height(pxToDp(side * 0.024f)))
-                        Text(text, color = Muted, fontSize = pxToSp(side * 0.056f), letterSpacing = 0.06.em, maxLines = 1)
+                        add(ClearPart(required = false) { k -> Text(text, color = Muted, fontSize = pxToSp(side * 0.056f * small * k), letterSpacing = 0.06.em, maxLines = 1) })
                     }
                 }
+                ClearStack(ink, parts, gap = side * 0.024f)
             }
         }
     }

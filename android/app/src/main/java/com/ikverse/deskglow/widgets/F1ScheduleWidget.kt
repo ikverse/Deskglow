@@ -211,9 +211,12 @@ private fun Chip(text: String, accent: Color, px: Float) {
 @Composable
 private fun ListLayout(plan: Plan, w: Float, h: Float, unit: Float) {
     val (_, row) = tableRows(plan.sessions.size, 1.5f, h, w * 0.13f, unit, least = plan.sessions.size)
-    val text = row * 0.5f
+    val sizes = LocalTextSizes.current
+    val text = rowText(row, 0.5f, sizes.main)
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        Box(Modifier.fillMaxWidth().height(pxToDp(row * 1.3f)), contentAlignment = Alignment.CenterStart) { HeaderRow(plan, Fitting.second(text, unit) * 0.85f, w, withChip = false) }
+        Box(Modifier.fillMaxWidth().height(pxToDp(row * 1.3f)), contentAlignment = Alignment.CenterStart) {
+            HeaderRow(plan, Fitting.second(row * 0.5f, unit) * 0.85f * sizes.small, w, withChip = false)
+        }
         plan.sessions.forEachIndexed { i, session ->
             val newDay = i == 0 || plan.local(plan.sessions[i - 1]).toLocalDate() != plan.local(session).toLocalDate()
             val shade = plan.shade(session)

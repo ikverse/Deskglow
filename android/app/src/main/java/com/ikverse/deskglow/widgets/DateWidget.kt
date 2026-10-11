@@ -12,6 +12,7 @@ import com.ikverse.deskglow.fonts.BundledFonts
 import com.ikverse.deskglow.fonts.LocalFonts
 import com.ikverse.deskglow.model.Settings
 import com.ikverse.deskglow.model.TextKey
+import kotlin.math.min
 
 object DateWidget : WidgetType {
     val FORMAT = TextKey("format", "short")
@@ -26,6 +27,7 @@ object DateWidget : WidgetType {
     override val width = 164
     override val height = 24
     override val defaults: Settings = Common.base(0xFFD8D8D8).with(Common.ALIGN, "center")
+    override val smallText = false
 
     override fun fields(settings: Settings): List<Field> = buildList {
         add(StyleField("Font", FONT, StyleKind.Date))
@@ -47,13 +49,14 @@ object DateWidget : WidgetType {
     @Composable
     override fun Content(settings: Settings) {
         val minute by LocalFeeds.current.minute.collectAsStateWithLifecycle()
-        DateFace(settings, settings[FONT], TimeText.fresh(minute).toLocalDate(), Modifier.fillMaxSize())
+        // The date already fills its box, so a main size over 100% has no room to grow into.
+        DateFace(settings, settings[FONT], TimeText.fresh(minute).toLocalDate(), Modifier.fillMaxSize(), share = min(LocalTextSizes.current.main, 1f))
     }
 }
 
 /** The date in one font. Shared by the widget and the font strip's preview tiles. */
 @Composable
-fun DateFace(settings: Settings, font: String, date: java.time.LocalDate, modifier: Modifier) {
+fun DateFace(settings: Settings, font: String, date: java.time.LocalDate, modifier: Modifier, share: Float = 1f) {
     val arabic = settings[Common.ARABIC]
     val written = TimeText.date(date, settings[DateWidget.FORMAT], arabic, Common.arabicDigits(settings))
     val text = if (!arabic && settings[DateWidget.CASE] == "upper") written.uppercase() else written
@@ -67,5 +70,6 @@ fun DateFace(settings: Settings, font: String, date: java.time.LocalDate, modifi
         // A fixed sample keeps the height steady from day to day, whatever letters the date has.
         sample = if (arabic) "الأربعاء أكتوبر" else "Wdgjy0,",
         align = alignFraction(settings[Common.ALIGN]),
+        share = share,
     )
 }

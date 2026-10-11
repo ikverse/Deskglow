@@ -35,6 +35,8 @@ import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.model.WidgetItem
 import com.ikverse.deskglow.widgets.Common
 import com.ikverse.deskglow.widgets.LocalCanvasBox
+import com.ikverse.deskglow.widgets.LocalTextSizes
+import com.ikverse.deskglow.widgets.TextSizes
 import com.ikverse.deskglow.widgets.Widgets
 import java.time.LocalDateTime
 import kotlin.math.min
@@ -99,7 +101,11 @@ fun WidgetBody(item: WidgetItem, modifier: Modifier) {
     // while its neighbours are dragged about.
     val settings = remember(item.settings, type) { type.resolve(item.settings) }
     Box(modifier.graphicsLayer { alpha = settings[Common.OPACITY] / 100f }) {
-        CompositionLocalProvider(LocalTextStyle provides WidgetTextStyle, LocalCanvasBox provides IntSize(item.box.w, item.box.h)) { type.Content(settings) }
+        CompositionLocalProvider(
+            LocalTextStyle provides WidgetTextStyle,
+            LocalCanvasBox provides IntSize(item.box.w, item.box.h),
+            LocalTextSizes provides TextSizes.of(settings),
+        ) { type.Content(settings) }
     }
 }
 

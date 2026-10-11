@@ -13,6 +13,7 @@ import androidx.compose.ui.layout.SubcomposeSlotReusePolicy
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
+import com.ikverse.deskglow.model.Settings
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -24,6 +25,20 @@ import kotlin.math.roundToInt
  * canvas is drawn small, as on the display. Null where a widget is drawn outside a layout (the picker).
  */
 val LocalCanvasBox = staticCompositionLocalOf<IntSize?> { null }
+
+/**
+ * A widget's "Main size" and "Small text size" settings as factors (1 is 100%), set by the code that draws widgets.
+ * [Fit] applies them while it measures, so a widget still fits its box: making one kind larger leaves less room
+ * for the other, as the weather's temperature size does. Text sized by hand reads them here too.
+ */
+@Immutable
+data class TextSizes(val main: Float = 1f, val small: Float = 1f) {
+    companion object {
+        fun of(settings: Settings) = TextSizes(settings[Common.MAIN_SIZE] / 100f, settings[Common.SMALL_SIZE] / 100f)
+    }
+}
+
+val LocalTextSizes = staticCompositionLocalOf { TextSizes() }
 
 /** Pixels to a canvas unit, for a widget [w] pixels wide that is [ownWidth] units wide when first added (as it is in the picker). */
 @Composable
@@ -52,6 +67,8 @@ object Fitting {
     /** A table row is no shorter than this before rows that can be left out are, and no taller than [LARGEST_ROW]. */
     const val SMALLEST_ROW = 12f
     const val LARGEST_ROW = 34f
+    /** The most of a table row's height its text takes, however large the main size is set. */
+    const val ROW_TEXT = 0.78f
     /** Hints in the editor are set between these. */
     const val HINT_MIN = 7f
     const val HINT_MAX = 16f
@@ -120,6 +137,7 @@ private class FitMemo {
     var w = -1
     var h = -1
     var key: Any? = null
+    var sizes: TextSizes? = null
     var choice: Choice? = null
 }
 
@@ -135,7 +153,8 @@ private object MainSlot
  *
  * The choice is kept until the box, [key] or the widget's settings change, so a live widget does not
  * jump about as its text changes length; it is only made again if new text would no longer fit.
- * [unit] is pixels to a canvas unit ([canvasUnit]). The content is centred upright and set across by
+ * [unit] is pixels to a canvas unit ([canvasUnit]). The main size is scaled by [LocalTextSizes]' main factor and the
+ * lesser kinds by its small one, before measuring, so the choice allows for them. The content is centred upright and set across by
  * [align] (0 left, 1 right). Where the box is not fixed in a direction, this takes only what it needs.
  */
 @Composable
@@ -149,6 +168,7 @@ fun Fit(
     content: @Composable (Fitted) -> Unit,
 ) {
     val memo = remember { FitMemo() }
+    val sizes = LocalTextSizes.current
     // Probe slots are kept (up to four) between passes instead of being composed from scratch each time.
     val layoutState = remember { SubcomposeLayoutState(SubcomposeSlotReusePolicy(4)) }
     SubcomposeLayout(layoutState, modifier) { c ->
@@ -163,7 +183,7 @@ fun Fit(
             val reference = Fitting.REFERENCE * unit
             val second = min(Fitting.second(main, unit), max(reference, h * Fitting.SECOND_CAP))
             val small = min(Fitting.small(main, unit), max(reference, h * Fitting.SMALL_CAP))
-            return Scale(main, second, min(small, second), space, unit)
+            return Scale(main * sizes.main, second * sizes.small, min(small, second) * sizes.small, space, unit)
         }
 
         fun fitted(a: Int, l: Int, u: Float, space: Float, probing: Boolean) = Fitted(a, l, scaleAt(u, space), w.toFloat(), h.toFloat(), probing)
@@ -246,8 +266,8 @@ fun Fit(
             return Choice(chosen.arrangement, chosen.level, chosen.u, space)
         }
 
-        val shared = listOf(key, w, h, unit, arrangements, levels)
-        var choice = memo.choice.takeIf { memo.w == w && memo.h == h && memo.key == key } ?: FitCache.get(shared)
+        val shared = listOf(key, w, h, unit, arrangements, levels, sizes)
+        var choice = memo.choice.takeIf { memo.w == w && memo.h == h && memo.key == key && memo.sizes == sizes } ?: FitCache.get(shared)
         if (choice != null) {
             // The text may have changed since: the size stays unless it no longer fits at all.
             val s = size(fitted(choice.arrangement, choice.level, choice.u, choice.space, true), Probe(-2, 0, 0))
@@ -261,6 +281,7 @@ fun Fit(
         memo.w = w
         memo.h = h
         memo.key = key
+        memo.sizes = sizes
         memo.choice = choice
         val shown = fitted(choice.arrangement, choice.level, choice.u, choice.space, false)
         val placeables = subcompose(MainSlot) { content(shown) }.map { it.measure(Constraints(maxWidth = w, maxHeight = h)) }
@@ -280,6 +301,12 @@ fun Fit(
  * at most [Fitting.LARGEST_ROW] canvas units, and rows past [least] are dropped while one would come
  * out under [Fitting.SMALLEST_ROW].
  */
+/**
+ * A table row's text: [share] of the [row] height, scaled by the main size, and never taller than [Fitting.ROW_TEXT]
+ * of the row, so a larger size still keeps each row inside its own height.
+ */
+fun rowText(row: Float, share: Float, main: Float): Float = min(row * share * main, row * Fitting.ROW_TEXT)
+
 fun tableRows(wanted: Int, fixed: Float, height: Float, widthBound: Float, unit: Float, least: Int = 3): Pair<Int, Float> {
     var count = wanted
     fun row(n: Int) = min(min(height / (n + fixed), widthBound), Fitting.LARGEST_ROW * unit)

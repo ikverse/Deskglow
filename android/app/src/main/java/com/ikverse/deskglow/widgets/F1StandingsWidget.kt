@@ -138,7 +138,8 @@ object F1StandingsWidget : WidgetType {
             }
             val shown = top.take(count)
             val (left, right) = if (twoColumns) standingColumns(shown) else shown to emptyList()
-            val text = row * 0.56f
+            val sizes = LocalTextSizes.current
+            val text = rowText(row, 0.56f, sizes.main)
             val leader = entries.first().points
             val mode = settings[VALUE]
             val bars = settings[LAYOUT] == "bars" && leader > 0
@@ -184,7 +185,7 @@ object F1StandingsWidget : WidgetType {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
                 Text(
                     (if (teams) "CONSTRUCTORS" else "DRIVERS") + if (data.round > 0) " · ROUND ${data.round}" else "",
-                    color = Muted, fontSize = pxToSp(Fitting.second(text, unit) * 0.72f), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false,
+                    color = Muted, fontSize = pxToSp(Fitting.second(row * 0.56f, unit) * 0.72f * sizes.small), fontWeight = FontWeight.Medium, letterSpacing = 0.1.em, maxLines = 1, softWrap = false,
                     modifier = Modifier.height(pxToDp(row * 1.2f)).padding(top = pxToDp(row * 0.3f)),
                 )
                 if (twoColumns) {

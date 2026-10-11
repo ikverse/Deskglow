@@ -35,13 +35,15 @@ fun FitText(
     stableDigits: Boolean = false,
     /** 0 left, 0.5 centre, 1 right: where the text sits when the box is wider than it. */
     align: Float = 0.5f,
+    /** A share (up to 1) of the size that fills the box: the widget's main size. */
+    share: Float = 1f,
 ) {
     val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG) }
     // Measuring text is the expensive part, so it is done once per text and font, not on every draw.
     val fit = remember(text, typeface, sample, stableDigits) { measureFit(text, typeface, sample, stableDigits) }
     Canvas(modifier) {
         if (text.isEmpty()) return@Canvas
-        val scale = min(size.width / fit.inkWidth, size.height / fit.inkHeight)
+        val scale = min(size.width / fit.inkWidth, size.height / fit.inkHeight) * share
         paint.typeface = typeface ?: Typeface.DEFAULT
         paint.color = color.toArgb()
         paint.textSize = 100f * scale
@@ -71,10 +73,10 @@ private fun measureFit(text: String, typeface: Typeface?, sample: String, stable
 
 /** A drawn clock (see [ClockStyles]) scaled to fit its box and set against [align] (0 left, 1 right). Paths are built once per new time. */
 @Composable
-fun ArtCanvas(art: ClockArt, color: Color, modifier: Modifier = Modifier, background: Color = Color.Black, align: Float = 0.5f) {
+fun ArtCanvas(art: ClockArt, color: Color, modifier: Modifier = Modifier, background: Color = Color.Black, align: Float = 0.5f, share: Float = 1f) {
     val paths = remember(art) { art.parts.map { part -> part to pathsOf(part) } }
     Canvas(modifier) {
-        val scale = min(size.width / art.width, size.height / art.height)
+        val scale = min(size.width / art.width, size.height / art.height) * share
         val dx = (size.width - art.width * scale) * align - art.left * scale
         val dy = (size.height - art.height * scale) / 2 - art.top * scale
         withTransform({

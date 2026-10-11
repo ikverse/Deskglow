@@ -85,6 +85,7 @@ import com.ikverse.deskglow.ui.Type
 import com.ikverse.deskglow.ui.pressable
 import com.ikverse.deskglow.widgets.ChoiceField
 import com.ikverse.deskglow.widgets.ColourField
+import com.ikverse.deskglow.widgets.Common
 import com.ikverse.deskglow.widgets.Field
 import com.ikverse.deskglow.widgets.LayoutField
 import com.ikverse.deskglow.widgets.ShowField
@@ -296,7 +297,7 @@ private fun sectionOf(field: Field): Section = when (field) {
     is ToggleField, is ShowField -> Section.Content
 }
 
-private val LOOK_LABELS = setOf("Brightness", "Ring thickness", "Temperature size", "Alignment", "Icon style")
+private val LOOK_LABELS = setOf("Brightness", "Ring thickness", "Temperature size", "Alignment", "Icon style", "Main size", "Small text size")
 
 @Composable
 private fun SettingsTab(state: EditorState, graph: AppGraph) {
@@ -304,7 +305,7 @@ private fun SettingsTab(state: EditorState, graph: AppGraph) {
     val type = state.typeOf(item) ?: return
     val settings = state.settingsOf(item)
     Text(type.title(settings), fontSize = Type.Heading, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
-    val groups = type.fields(settings).groupBy(::sectionOf)
+    val groups = (type.fields(settings) + Common.sizeFields(type)).groupBy(::sectionOf)
     for (section in Section.entries) {
         val fields = groups[section] ?: continue
         SectionLabel(section.title, Modifier.padding(top = 18.dp, bottom = 6.dp))
