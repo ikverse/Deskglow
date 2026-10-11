@@ -56,6 +56,13 @@ fun DeskglowTheme(content: @Composable () -> Unit) {
             surfaceVariant = Palette.Raised,
             onSurfaceVariant = Palette.Muted,
             outline = Palette.Rule,
+            // Roles Material would otherwise fill with its own violet greys: the slider's unlit track, dialogs, menus.
+            outlineVariant = Palette.Edge,
+            secondaryContainer = Palette.Edge,
+            onSecondaryContainer = Palette.Ink,
+            surfaceContainer = Palette.Sheet,
+            surfaceContainerHigh = Palette.Sheet,
+            surfaceContainerHighest = Palette.Raised,
             error = Palette.Danger,
         ),
     ) {

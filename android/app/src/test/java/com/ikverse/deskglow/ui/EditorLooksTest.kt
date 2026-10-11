@@ -83,7 +83,7 @@ class EditorLooksTest {
         open()
         selectClock()
         compose.onNodeWithText("عربي / Arabic").performScrollTo().performClick()
-        compose.onNodeWithTag("strip").performScrollToNode(hasText("Seven-segment · Western only"))
+        compose.onNodeWithTag("strip").performScrollToNode(hasText("7-segment · Western only"))
         save("editor-arabic-strip")
     }
 

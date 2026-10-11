@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+import java.io.File
 
 /** The file the settings live in, and the key of "always on", which the service and the boot receiver read without building the whole app. */
 private const val PREFS_FILE = "deskglow"
@@ -44,6 +45,7 @@ data class City(val name: String, val region: String, val latitude: Double, val 
 /** App-wide settings (everything that is not part of a widget), with a live view of each. */
 class AppPrefs(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+    private val files = CacheFiles(File(context.filesDir, "cache"))
 
     private val brightnessState = MutableStateFlow(
         Brightness(
@@ -160,27 +162,32 @@ class AppPrefs(context: Context) {
             if (city == null) remove(KEY_CITY) else putString(KEY_CITY, city.toJson())
             remove(KEY_WEATHER_CACHE)
         }
+        files.write(FILE_WEATHER, null)
         cityState.value = city
     }
 
+    /**
+     * The last weather answer. This and the caches below are files, not preferences; one saved in the
+     * preferences by an older version is moved across the first time it is read.
+     */
     var weatherCache: String?
-        get() = prefs.getString(KEY_WEATHER_CACHE, null)
-        set(value) = prefs.edit { putString(KEY_WEATHER_CACHE, value) }
+        get() = cached(FILE_WEATHER, KEY_WEATHER_CACHE)
+        set(value) = keep(FILE_WEATHER, KEY_WEATHER_CACHE, value)
 
     /** The last prayer times fetched, for today and tomorrow, and where they were for. */
     var prayerCache: String?
-        get() = prefs.getString(KEY_PRAYER_CACHE, null)
-        set(value) = prefs.edit { putString(KEY_PRAYER_CACHE, value) }
+        get() = cached(FILE_PRAYER, KEY_PRAYER_CACHE)
+        set(value) = keep(FILE_PRAYER, KEY_PRAYER_CACHE, value)
 
     /** The last F1 calendar, results and standings fetched. */
     var f1Cache: String?
-        get() = prefs.getString(KEY_F1_CACHE, null)
-        set(value) = prefs.edit { putString(KEY_F1_CACHE, value) }
+        get() = cached(FILE_F1, KEY_F1_CACHE)
+        set(value) = keep(FILE_F1, KEY_F1_CACHE, value)
 
     /** The outline of the last circuit fetched for the race-weekend widget. */
     var f1Track: String?
-        get() = prefs.getString(KEY_F1_TRACK, null)
-        set(value) = prefs.edit { putString(KEY_F1_TRACK, value) }
+        get() = cached(FILE_F1_TRACK, KEY_F1_TRACK)
+        set(value) = keep(FILE_F1_TRACK, KEY_F1_TRACK, value)
 
     /**
      * The classification of the last F1 session to finish, for the live-session widget. One saved by
@@ -188,14 +195,37 @@ class AppPrefs(context: Context) {
      * that read a session wrong would otherwise go on showing its result until the next session.
      */
     var f1LiveResult: String?
-        get() = prefs.getString(KEY_F1_LIVE, null)?.takeIf { prefs.getInt(KEY_F1_LIVE_FORMAT, 0) == F1_LIVE_FORMAT }
-        set(value) = prefs.edit { putString(KEY_F1_LIVE, value).putInt(KEY_F1_LIVE_FORMAT, F1_LIVE_FORMAT) }
+        get() = cached(FILE_F1_LIVE, KEY_F1_LIVE)?.takeIf { prefs.getInt(KEY_F1_LIVE_FORMAT, 0) == F1_LIVE_FORMAT }
+        set(value) {
+            keep(FILE_F1_LIVE, KEY_F1_LIVE, value)
+            prefs.edit { putInt(KEY_F1_LIVE_FORMAT, F1_LIVE_FORMAT) }
+        }
+
+    /** The file's text, else the copy an older version left in the preferences, which is moved into the file and removed. */
+    private fun cached(file: String, legacyKey: String): String? {
+        files.read(file)?.let { return it }
+        val old = prefs.getString(legacyKey, null) ?: return null
+        files.write(file, old)
+        prefs.edit { remove(legacyKey) }
+        return old
+    }
+
+    /** Saves [value] as the file (null removes it) and drops any copy still in the preferences. */
+    private fun keep(file: String, legacyKey: String, value: String?) {
+        files.write(file, value)
+        if (prefs.contains(legacyKey)) prefs.edit { remove(legacyKey) }
+    }
 
     var pickedFonts: String?
         get() = prefs.getString(KEY_PICKED_FONTS, null)
         set(value) = prefs.edit { putString(KEY_PICKED_FONTS, value) }
 
     private companion object {
+        const val FILE_WEATHER = "weather.json"
+        const val FILE_PRAYER = "prayer.json"
+        const val FILE_F1 = "f1.json"
+        const val FILE_F1_TRACK = "f1-track.json"
+        const val FILE_F1_LIVE = "f1-live.json"
         const val KEY_BRIGHTNESS_MODE = "brightness_mode"
         const val KEY_BRIGHTNESS_LEVEL = "brightness_level"
         const val KEY_BURN_IN = "burn_in"

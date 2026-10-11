@@ -3,10 +3,10 @@ package com.ikverse.deskglow.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -53,18 +53,22 @@ enum class Glyph(val strokes: List<String> = emptyList(), val fills: List<String
     Info(listOf(circle(12f, 12f, 9f), "M12 11v5M12 8h.01")),
     Search(listOf(circle(11f, 11f, 6f), "M20 20l-4.5-4.5")),
     Bell(listOf("M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4")),
-    Location(listOf("M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z", circle(12f, 10f, 2.5f))),
+    Location(listOf("M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z", circle(12f, 10f, 2.5f)));
+
+    /** The line paths, parsed once for the glyph and shared by every icon drawn with it. */
+    val strokePaths: List<Path> by lazy { strokes.map { PathParser().parsePathString(it).toPath() } }
+
+    /** The solid paths, parsed once. */
+    val fillPaths: List<Path> by lazy { fills.map { PathParser().parsePathString(it).toPath() } }
 }
 
 /** A [Glyph] at [size], in [tint]. It carries no description of its own: the button around it names the action. */
 @Composable
 fun GlyphIcon(glyph: Glyph, modifier: Modifier = Modifier, tint: Color = Palette.Ink, size: Dp = 22.dp, weight: Float = 1.8f) {
-    val strokes = remember(glyph) { glyph.strokes.map { PathParser().parsePathString(it).toPath() } }
-    val fills = remember(glyph) { glyph.fills.map { PathParser().parsePathString(it).toPath() } }
     Canvas(modifier.size(size)) {
         scale(this.size.width / 24f, pivot = Offset.Zero) {
-            for (path in strokes) drawPath(path, tint, style = Stroke(weight, cap = StrokeCap.Round, join = StrokeJoin.Round))
-            for (path in fills) drawPath(path, tint)
+            for (path in glyph.strokePaths) drawPath(path, tint, style = Stroke(weight, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            for (path in glyph.fillPaths) drawPath(path, tint)
         }
     }
 }

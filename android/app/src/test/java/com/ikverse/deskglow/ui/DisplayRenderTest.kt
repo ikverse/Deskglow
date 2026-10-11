@@ -53,7 +53,7 @@ import com.ikverse.deskglow.widgets.F1LiveWidget
 import com.ikverse.deskglow.widgets.F1ScheduleWidget
 import com.ikverse.deskglow.widgets.F1StandingsWidget
 import com.ikverse.deskglow.widgets.F1WeekendWidget
-import com.ikverse.deskglow.widgets.Glyph
+import com.ikverse.deskglow.widgets.DetailSymbol
 import com.ikverse.deskglow.widgets.LocalEditing
 import com.ikverse.deskglow.widgets.PrayerWidget
 import com.ikverse.deskglow.widgets.WeatherIcon
@@ -222,7 +222,7 @@ class DisplayRenderTest {
                     }
                 }
                 Row {
-                    Glyph.entries.forEach { DetailGlyph(it, Color.White, Modifier.size(32.dp)) }
+                    DetailSymbol.entries.forEach { DetailGlyph(it, Color.White, Modifier.size(32.dp)) }
                     Bell(Color(0xFFF5B942), Modifier.size(32.dp))
                 }
             }

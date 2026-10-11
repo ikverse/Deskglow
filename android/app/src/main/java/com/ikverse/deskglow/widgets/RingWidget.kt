@@ -86,7 +86,7 @@ object RingWidget : WidgetType {
                     val inset = side * 0.04f + thickness / 2
                     val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
                     val corner = Offset(inset, inset)
-                    val track = Color(0xFF1B1B1B)
+                    val track = WidgetPalette.Track
                     val level = battery.level.coerceIn(0, 100)
                     when (layout) {
                         "circle" -> {

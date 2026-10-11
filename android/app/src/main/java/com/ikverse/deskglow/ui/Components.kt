@@ -26,6 +26,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 
 /** The app's type scale: five sizes, so every screen reads as one. */
 object Type {
@@ -249,4 +252,18 @@ fun ScreenFrame(title: String, onBack: () -> Unit, content: @Composable ColumnSc
             content = content,
         )
     }
+}
+
+/**
+ * How many times the screen has come back to the front. Permissions and the screen saver are changed in
+ * Android's settings, so a screen that shows them reads them again whenever this changes.
+ */
+@Composable
+fun rememberResumeCount(): Int {
+    var count by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        count++
+        onPauseOrDispose { }
+    }
+    return count
 }

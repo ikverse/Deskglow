@@ -182,22 +182,22 @@ private class WeatherArt(val scope: DrawScope, val s: Float, val accent: Color, 
 }
 
 /** The small symbols beside the weather details. */
-enum class Glyph { Thermometer, Droplet, Wind, Umbrella, Sunrise, Sunset, Uv }
+enum class DetailSymbol { Thermometer, Droplet, Wind, Umbrella, Sunrise, Sunset, Uv }
 
 /** One detail symbol, drawn in [color] with the same line weight at any size. */
 @Composable
-fun DetailGlyph(glyph: Glyph, color: Color, modifier: Modifier) {
+fun DetailGlyph(glyph: DetailSymbol, color: Color, modifier: Modifier) {
     Canvas(modifier) {
         val s = size.minDimension
         fun p(x: Float, y: Float) = Offset(x * s, y * s)
         val stroke = Stroke(s * 0.1f, cap = StrokeCap.Round, join = StrokeJoin.Round)
         when (glyph) {
-            Glyph.Thermometer -> {
+            DetailSymbol.Thermometer -> {
                 drawRoundRect(color, p(0.4f, 0.08f), androidx.compose.ui.geometry.Size(0.2f * s, 0.6f * s), androidx.compose.ui.geometry.CornerRadius(0.1f * s), style = stroke)
                 drawCircle(color, 0.16f * s, p(0.5f, 0.76f))
                 drawLine(color, p(0.5f, 0.4f), p(0.5f, 0.7f), s * 0.1f, StrokeCap.Round)
             }
-            Glyph.Droplet -> {
+            DetailSymbol.Droplet -> {
                 val drop = Path().apply {
                     moveTo(0.5f * s, 0.08f * s)
                     cubicTo(0.5f * s, 0.08f * s, 0.18f * s, 0.47f * s, 0.18f * s, 0.64f * s)
@@ -208,7 +208,7 @@ fun DetailGlyph(glyph: Glyph, color: Color, modifier: Modifier) {
                 }
                 drawPath(drop, color)
             }
-            Glyph.Wind -> {
+            DetailSymbol.Wind -> {
                 val gusts = Path().apply {
                     moveTo(0.08f * s, 0.36f * s); lineTo(0.6f * s, 0.36f * s)
                     cubicTo(0.82f * s, 0.36f * s, 0.82f * s, 0.1f * s, 0.62f * s, 0.14f * s)
@@ -218,17 +218,17 @@ fun DetailGlyph(glyph: Glyph, color: Color, modifier: Modifier) {
                 }
                 drawPath(gusts, color, style = stroke)
             }
-            Glyph.Sunrise, Glyph.Sunset -> {
+            DetailSymbol.Sunrise, DetailSymbol.Sunset -> {
                 drawLine(color, p(0.06f, 0.74f), p(0.94f, 0.74f), s * 0.1f, StrokeCap.Round)
                 drawArc(color, 180f, 180f, false, p(0.27f, 0.5f), androidx.compose.ui.geometry.Size(0.46f * s, 0.46f * s), style = stroke)
-                val up = glyph == Glyph.Sunrise
+                val up = glyph == DetailSymbol.Sunrise
                 drawLine(color, p(0.5f, 0.1f), p(0.5f, 0.34f), s * 0.1f, StrokeCap.Round)
                 val tip = if (up) 0.1f else 0.34f
                 val back = if (up) 0.24f else 0.2f
                 drawLine(color, p(0.38f, back), p(0.5f, tip), s * 0.1f, StrokeCap.Round)
                 drawLine(color, p(0.62f, back), p(0.5f, tip), s * 0.1f, StrokeCap.Round)
             }
-            Glyph.Uv -> {
+            DetailSymbol.Uv -> {
                 drawCircle(color, 0.2f * s, p(0.5f, 0.5f), style = stroke)
                 for (i in 0 until 8) {
                     val a = i * Math.PI / 4
@@ -237,7 +237,7 @@ fun DetailGlyph(glyph: Glyph, color: Color, modifier: Modifier) {
                     drawLine(color, p(0.5f + c * 0.32f, 0.5f + n * 0.32f), p(0.5f + c * 0.44f, 0.5f + n * 0.44f), s * 0.09f, StrokeCap.Round)
                 }
             }
-            Glyph.Umbrella -> {
+            DetailSymbol.Umbrella -> {
                 val canopy = Path().apply {
                     moveTo(0.08f * s, 0.5f * s)
                     cubicTo(0.12f * s, 0.12f * s, 0.88f * s, 0.12f * s, 0.92f * s, 0.5f * s)

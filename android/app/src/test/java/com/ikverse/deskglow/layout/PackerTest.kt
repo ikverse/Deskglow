@@ -72,6 +72,16 @@ class PackerTest {
     }
 
     @Test
+    fun `two moves inside the same grid cell return the same packing`() {
+        val media = layout.find(id("media"))!!
+        val drag = DragSession(media.id, resize = false, start = media.box, base = placed)
+        val first = drag.update(0f, -70f)!!
+        // Two units further: still the same dot of the 4-unit grid, so nothing is packed again.
+        assertTrue(first === drag.update(0f, -69f)!!)
+        assertTrue(first === drag.update(0f, -71f)!!)
+    }
+
+    @Test
     fun `a widget met from the side is pushed sideways, and goes home when the drag moves off it`() {
         val a = Placed("a", Box(0, 0, 100, 40))
         val b = Placed("b", Box(116, 0, 100, 40))

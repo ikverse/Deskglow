@@ -141,19 +141,19 @@ object WeatherWidget : WidgetType {
     }
 
     /** The details the owner turned on, each with its symbol: thermometer 21°, droplet 48%, wind 14 km/h, umbrella 10%. */
-    fun details(settings: Settings, weather: Weather, h24: Boolean = false, editing: Boolean = false): List<Pair<Glyph, String>> {
+    fun details(settings: Settings, weather: Weather, h24: Boolean = false, editing: Boolean = false): List<Pair<DetailSymbol, String>> {
         val f = settings[UNITS] == "f"
         // In the editor a switched-on detail with no reading keeps its symbol and a dash, so its place can be seen.
-        fun <T : Any> detail(on: FlagKey, glyph: Glyph, value: T?, text: (T) -> String): Pair<Glyph, String>? =
+        fun <T : Any> detail(on: FlagKey, glyph: DetailSymbol, value: T?, text: (T) -> String): Pair<DetailSymbol, String>? =
             if (!settings[on]) null else value?.let { glyph to text(it) } ?: if (editing) glyph to "—" else null
         return listOfNotNull(
-            detail(SHOW_FEELS, Glyph.Thermometer, weather.feelsLikeC) { formatTemperature(it, f) },
-            detail(SHOW_HUMIDITY, Glyph.Droplet, weather.humidityPercent) { "$it%" },
-            detail(SHOW_WIND, Glyph.Wind, weather.windKmh) { formatWind(it, f) },
-            detail(SHOW_RAIN, Glyph.Umbrella, weather.rainChancePercent) { "$it%" },
-            detail(SHOW_SUNRISE, Glyph.Sunrise, weather.sunrise) { sunTime(it, h24) },
-            detail(SHOW_SUNSET, Glyph.Sunset, weather.sunset) { sunTime(it, h24) },
-            detail(SHOW_UV, Glyph.Uv, weather.uvIndex) { Math.round(it).toString() },
+            detail(SHOW_FEELS, DetailSymbol.Thermometer, weather.feelsLikeC) { formatTemperature(it, f) },
+            detail(SHOW_HUMIDITY, DetailSymbol.Droplet, weather.humidityPercent) { "$it%" },
+            detail(SHOW_WIND, DetailSymbol.Wind, weather.windKmh) { formatWind(it, f) },
+            detail(SHOW_RAIN, DetailSymbol.Umbrella, weather.rainChancePercent) { "$it%" },
+            detail(SHOW_SUNRISE, DetailSymbol.Sunrise, weather.sunrise) { sunTime(it, h24) },
+            detail(SHOW_SUNSET, DetailSymbol.Sunset, weather.sunset) { sunTime(it, h24) },
+            detail(SHOW_UV, DetailSymbol.Uv, weather.uvIndex) { Math.round(it).toString() },
         )
     }
 
@@ -294,7 +294,7 @@ private class WeatherLook(
     val w: Float,
     /** "Partly cloudy · Cairo", or less, or empty. */
     val place: String,
-    val details: List<Pair<Glyph, String>>,
+    val details: List<Pair<DetailSymbol, String>>,
     val h24: Boolean = false,
     /** The city's clock, for the forecast layout. */
     val now: LocalDateTime? = null,

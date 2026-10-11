@@ -221,7 +221,7 @@ private fun Spark(samples: List<StatHistory.Sample>, nowMs: Long, colour: Color,
         )
         val path = Path()
         samples.forEachIndexed { i, sample -> at(sample).let { if (i == 0) path.moveTo(it.x, it.y) else path.lineTo(it.x, it.y) } }
-        drawPath(path, lerp(Color.Black, colour, 0.85f), style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(path, lerp(WidgetPalette.Track, colour, 0.85f), style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
         drawCircle(colour, stroke * 1.6f, at(samples.last()))
     }
 }

@@ -201,6 +201,9 @@ class DragSession(
     private val corner: Corner = Corner.BottomEnd,
 ) {
     private var last: Box = start
+
+    /** The packing for [last], so a pointer event that lands in the same grid cell costs nothing. */
+    private var lastResult: Map<String, Box>? = null
     private val together: List<Placed> = if (resize) emptyList() else base.filter { it.id in companions && it.id != id }
 
     /** The box around the dragged widget and its companions as they began. */
@@ -266,6 +269,7 @@ class DragSession(
             if (abs((groupStart.y + dy) * 2 + groupStart.h - orientation.height) <= Stage.CENTRE_PULL * 2) gy = (orientation.height - groupStart.h) / 2 - groupStart.y
             Box(start.x + gx, start.y + gy, start.w, start.h)
         }
+        lastResult?.let { if (want == last) return it }
         var box = want
         var result = resolve(want)
         if (result == null) {
@@ -290,6 +294,7 @@ class DragSession(
         }
         if (result != null) {
             last = box
+            lastResult = result
             if (!resize) centring = Centring.of(groupAt(box), orientation)
         }
         return result

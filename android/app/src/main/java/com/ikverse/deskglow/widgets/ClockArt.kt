@@ -25,7 +25,7 @@ data class ClockArt(val left: Float, val top: Float, val width: Float, val heigh
  * Western digits and (except seven-segment, whose seven bars cannot form ٢, ٣ or ٤) Arabic ones.
  */
 object ClockStyles {
-    val DRAWN = listOf("squared" to "Squared", "seg" to "Seven-segment", "dots" to "Dot matrix", "outline" to "Outline", "rounded" to "Rounded", "stacked" to "Stacked")
+    val DRAWN = listOf("squared" to "Squared", "seg" to "7-segment", "dots" to "Dot matrix", "outline" to "Outline", "rounded" to "Rounded", "stacked" to "Stacked")
 
     fun isDrawn(style: String) = DRAWN.any { it.first == style }
 

@@ -253,9 +253,10 @@ private fun WidgetsTab(state: EditorState) {
                 contentAlignment = Alignment.Center,
             ) { FitWidget(item, Modifier.fillMaxWidth().height(34.dp)) }
             Text(
-                title, fontSize = Type.Body,
+                title, fontSize = Type.Body, lineHeight = 18.sp,
                 color = when { item.id == state.selectedId -> Palette.Select; item.visible -> Palette.Ink; else -> Palette.Muted },
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                // Two lines: the landscape panel is narrow, and "Stat · Temperature" should read whole.
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).clickable(enabled = item.visible) { state.selectAndOpen(item.id) }.padding(horizontal = 12.dp, vertical = 14.dp),
             )
             IconAction(

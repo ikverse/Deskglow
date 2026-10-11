@@ -146,7 +146,7 @@ fun StyleStrip(field: StyleField, settings: Settings, state: EditorState, graph:
 @Composable
 internal fun Tile(
     label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit,
-    width: Dp = 104.dp, previewHeight: Dp = 56.dp, preview: @Composable () -> Unit,
+    width: Dp = 112.dp, previewHeight: Dp = 56.dp, preview: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(12.dp)
     Column(
@@ -158,9 +158,9 @@ internal fun Tile(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.fillMaxWidth().height(previewHeight).clip(RoundedCornerShape(8.dp)).background(Color.Black).padding(4.dp), contentAlignment = Alignment.Center) { preview() }
-        // Two lines, so "Seven-segment · Western only" is read in full; anything longer ends in "…" rather than being cut mid-letter.
+        // Two lines, so "7-segment · Western only" is read in full; anything longer ends in "…" rather than being cut mid-letter.
         Text(
-            label, fontSize = 11.5.sp, color = if (selected) Palette.Select else Palette.Muted,
+            label, fontSize = 11.sp, letterSpacing = 0.sp, color = if (selected) Palette.Select else Palette.Muted,
             maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp),
         )
     }

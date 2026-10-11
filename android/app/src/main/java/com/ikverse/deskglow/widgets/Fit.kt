@@ -8,6 +8,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.layout.SubcomposeLayoutState
+import androidx.compose.ui.layout.SubcomposeSlotReusePolicy
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
@@ -88,6 +90,32 @@ class Fitted(val arrangement: Int, val level: Int, val scale: Scale, val w: Floa
 
 private class Choice(val arrangement: Int, val level: Int, val u: Float, val space: Float)
 
+/**
+ * Choices already made, shared by every screen: a widget measured once for a box (in the Home preview, say)
+ * is not measured again in the editor or the picker. Least recently used goes first.
+ */
+private object FitCache {
+    private val map = object : LinkedHashMap<Any, Choice>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Any, Choice>?) = size > 256
+    }
+
+    /** How many searches have run: a test reads it to see that a second pass did not search again. */
+    @Volatile
+    var searches = 0
+        private set
+
+    fun get(key: Any): Choice? = synchronized(map) { map[key] }
+    fun put(key: Any, choice: Choice) { synchronized(map) { map[key] = choice } }
+    fun searched() { searches++ }
+    fun clear() = synchronized(map) { map.clear() }
+}
+
+/** Test hook: how many full [Fit] searches have run, and a way to start from an empty cache. */
+internal object FitStats {
+    val searches get() = FitCache.searches
+    fun reset() = FitCache.clear()
+}
+
 private class FitMemo {
     var w = -1
     var h = -1
@@ -95,7 +123,8 @@ private class FitMemo {
     var choice: Choice? = null
 }
 
-private data class Probe(val n: Int)
+/** A probe's slot: the same (arrangement, level, step) lands on the same slot every pass, so its nodes can be reused. */
+private data class Probe(val arrangement: Int, val level: Int, val step: Int)
 private object MainSlot
 
 /**
@@ -120,13 +149,14 @@ fun Fit(
     content: @Composable (Fitted) -> Unit,
 ) {
     val memo = remember { FitMemo() }
-    SubcomposeLayout(modifier) { c ->
+    // Probe slots are kept (up to four) between passes instead of being composed from scratch each time.
+    val layoutState = remember { SubcomposeLayoutState(SubcomposeSlotReusePolicy(4)) }
+    SubcomposeLayout(layoutState, modifier) { c ->
         val w = if (c.hasBoundedWidth) c.maxWidth else c.minWidth
         val h = if (c.hasBoundedHeight) c.maxHeight else c.minHeight
         if (w <= 0 || h <= 0) return@SubcomposeLayout layout(c.minWidth, c.minHeight) {}
         val tw = w * Fitting.FILL
         val th = h * Fitting.FILL
-        var probes = 0
 
         fun scaleAt(u: Float, space: Float): Scale {
             val main = u * unit
@@ -138,11 +168,11 @@ fun Fit(
 
         fun fitted(a: Int, l: Int, u: Float, space: Float, probing: Boolean) = Fitted(a, l, scaleAt(u, space), w.toFloat(), h.toFloat(), probing)
 
-        fun size(f: Fitted): IntSize {
+        fun size(f: Fitted, slot: Probe): IntSize {
             var sw = 0
             var sh = 0
             // Measured only, never drawn: kept out of what screen readers (and tests) see.
-            subcompose(Probe(probes++)) { Box(Modifier.clearAndSetSemantics {}) { content(f) } }.forEach {
+            subcompose(slot) { Box(Modifier.clearAndSetSemantics {}) { content(f) } }.forEach {
                 val p = it.measure(Constraints())
                 sw = max(sw, p.width)
                 sh = max(sh, p.height)
@@ -159,7 +189,7 @@ fun Fit(
             var hi = Float.POSITIVE_INFINITY
             var u = Fitting.REFERENCE
             for (step in 0 until 9) {
-                val s = size(fitted(a, l, u, 1f, true))
+                val s = size(fitted(a, l, u, 1f, true), Probe(a, l, step))
                 val r = ratio(s)
                 if (r >= 1f) {
                     if (u > lo) {
@@ -184,7 +214,7 @@ fun Fit(
             }
             if (lo == 0f) {
                 lo = Fitting.SMALLEST
-                loHeight = size(fitted(a, l, lo, 1f, true)).height
+                loHeight = size(fitted(a, l, lo, 1f, true), Probe(a, l, 9)).height
             }
             return lo to loHeight
         }
@@ -207,7 +237,7 @@ fun Fit(
             }
             val chosen = best ?: Choice(0, 0, Fitting.SMALLEST, 1f)
             // Spare height opens up the gaps between lines, as far as SPREAD.
-            val open = size(fitted(chosen.arrangement, chosen.level, chosen.u, Fitting.SPREAD, true)).height
+            val open = size(fitted(chosen.arrangement, chosen.level, chosen.u, Fitting.SPREAD, true), Probe(-1, 0, 0)).height
             val space = when {
                 open <= th -> Fitting.SPREAD
                 open > bestHeight -> 1f + (Fitting.SPREAD - 1f) * ((th - bestHeight) / (open - bestHeight)).coerceIn(0f, 1f)
@@ -216,19 +246,22 @@ fun Fit(
             return Choice(chosen.arrangement, chosen.level, chosen.u, space)
         }
 
-        var choice = memo.choice.takeIf { memo.w == w && memo.h == h && memo.key == key }
+        val shared = listOf(key, w, h, unit, arrangements, levels)
+        var choice = memo.choice.takeIf { memo.w == w && memo.h == h && memo.key == key } ?: FitCache.get(shared)
         if (choice != null) {
             // The text may have changed since: the size stays unless it no longer fits at all.
-            val s = size(fitted(choice.arrangement, choice.level, choice.u, choice.space, true))
+            val s = size(fitted(choice.arrangement, choice.level, choice.u, choice.space, true), Probe(-2, 0, 0))
             if (s.width > w || s.height > h) choice = null
         }
         if (choice == null) {
             choice = search()
-            memo.w = w
-            memo.h = h
-            memo.key = key
-            memo.choice = choice
+            FitCache.searched()
+            FitCache.put(shared, choice)
         }
+        memo.w = w
+        memo.h = h
+        memo.key = key
+        memo.choice = choice
         val shown = fitted(choice.arrangement, choice.level, choice.u, choice.space, false)
         val placeables = subcompose(MainSlot) { content(shown) }.map { it.measure(Constraints(maxWidth = w, maxHeight = h)) }
         val cw = placeables.maxOfOrNull { it.width } ?: 0

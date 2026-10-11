@@ -2,9 +2,10 @@ package com.ikverse.deskglow.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,17 +26,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ikverse.deskglow.AppGraph
-import com.ikverse.deskglow.display.DisplayContent
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.store.Snapshot
 import com.ikverse.deskglow.store.SnapshotCodec
 import com.ikverse.deskglow.store.SnapshotRepository
+import com.ikverse.deskglow.widgets.Common
 
 /** Saves both layouts under a name, brings a saved pair back, and moves backups to and from files. */
 @Composable
@@ -74,12 +79,12 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
         )
         OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppButton("Save current layouts", {
+            AppButton("Save now", {
                 val saved = graph.snapshots.save(name, graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape))
                 message = "Saved “${saved.name}”."
                 name = SnapshotRepository.proposeName(System.currentTimeMillis())
             }, Modifier.weight(1f), kind = ButtonKind.Primary)
-            AppButton("Import from file", { importLauncher.launch(arrayOf("*/*")) }, Modifier.weight(1f))
+            AppButton("Import file", { importLauncher.launch(arrayOf("*/*")) }, Modifier.weight(1f))
         }
         message?.let { Text(it, fontSize = Type.Small, color = Palette.Select) }
         if (snapshots.isEmpty()) Text("Nothing saved yet.", color = Palette.Muted)
@@ -128,6 +133,7 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
                 }) { Text("Restore", color = Palette.Select) }
             },
             dismissButton = { TextButton(onClick = { restoring = null }) { Text("Cancel") } },
+            containerColor = Palette.Sheet,
         )
     }
     renaming?.let { snapshot ->
@@ -143,6 +149,7 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
                 }) { Text("Rename", color = Palette.Select) }
             },
             dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+            containerColor = Palette.Sheet,
         )
     }
     deleting?.let { snapshot ->
@@ -157,18 +164,34 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
                 }) { Text("Delete", color = Palette.Danger) }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            containerColor = Palette.Sheet,
         )
     }
 }
 
+/**
+ * A snapshot's screen as boxes in the widgets' colours on black. A live drawing of every widget, twice per
+ * snapshot, made this screen slower with each one kept; a few rectangles do not.
+ */
 @Composable
 private fun Thumb(layout: Layout, orientation: Orientation, modifier: Modifier) {
-    Box(
+    val shape = RoundedCornerShape(6.dp)
+    Canvas(
         modifier
             .aspectRatio(orientation.width.toFloat() / orientation.height)
-            .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, Palette.Rule, RoundedCornerShape(6.dp)),
+            .clip(shape)
+            .background(Color.Black)
+            .border(1.dp, Palette.Rule, shape),
     ) {
-        DisplayContent(layout, burnIn = false, orientation = orientation)
+        val scale = size.width / orientation.width
+        for (item in layout.items) {
+            if (!item.visible) continue
+            val box = item.box
+            drawRoundRect(
+                Color(item.settings[Common.COLOUR]).copy(alpha = 0.35f),
+                Offset(box.x * scale, box.y * scale), Size(box.w * scale, box.h * scale),
+                CornerRadius(2.dp.toPx()),
+            )
+        }
     }
 }
