@@ -46,8 +46,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.ComposeView
@@ -199,31 +201,41 @@ private const val BLANK_FADE_MS = 2_000
 /** How long the panel stays fast after a swipe starts: the slide is a third of a second, and the dots a little more. */
 private const val SWIPE_FAST_MS = 1_000L
 
-/** How far two fingers must travel sideways together before it counts as a swipe to another screen. */
-private val SWIPE_DISTANCE = 64.dp
+/**
+ * How far each of two fingers must travel sideways before it counts as a swipe to another screen. Deliberately
+ * long, and the travel must be mostly horizontal, so a brush or a stray second finger does not turn the screen.
+ */
+private val SWIPE_DISTANCE = 100.dp
+
+/** How many times further the fingers must go sideways than up or down for the touch to count as a sideways swipe. */
+private const val SWIPE_HORIZONTAL_RATIO = 2f
 
 /**
- * Calls [onSwipe] with +1 (towards the next screen) or -1 when two fingers move sideways together.
- * One finger is left alone, so a double tap works as usual; once a second finger lands
- * the touch is taken from them so it cannot also count as a tap.
+ * Calls [onSwipe] with +1 (towards the next screen) or -1 when two fingers move sideways together: both the
+ * same way, each past [SWIPE_DISTANCE], and further across than up or down. One finger is left alone, so a
+ * double tap works as usual; once a second finger lands the touch is taken from them so it cannot also count
+ * as a tap.
  */
 private fun Modifier.twoFingerSwipe(onSwipeState: State<(direction: Int) -> Unit>): Modifier = pointerInput(Unit) {
     val distance = SWIPE_DISTANCE.toPx()
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-        var startX: Float? = null
+        val starts = mutableMapOf<PointerId, Offset>()
         var swiped = false
         do {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val down = event.changes.filter { it.pressed }
             if (down.size >= 2) {
                 event.changes.forEach { it.consume() }
-                val x = down.map { it.position.x }.average().toFloat()
-                val start = startX
-                if (start == null) startX = x
-                else if (!swiped && abs(x - start) > distance) {
+                val moves = down.map { it.position - starts.getOrPut(it.id) { it.position } }
+                val sideways = moves.map { it.x }.average().toFloat()
+                val upDown = moves.map { it.y }.average().toFloat()
+                if (!swiped &&
+                    moves.all { abs(it.x) > distance && (it.x < 0) == (sideways < 0) } &&
+                    abs(sideways) >= SWIPE_HORIZONTAL_RATIO * abs(upDown)
+                ) {
                     swiped = true
-                    onSwipeState.value(if (x < start) 1 else -1)
+                    onSwipeState.value(if (sideways < 0) 1 else -1)
                 }
             }
         } while (event.changes.any { it.pressed })

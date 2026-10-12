@@ -242,6 +242,35 @@ class ScreensTest {
     }
 
     @Test
+    fun `a short or mostly vertical two-finger drag does not turn the screen`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>().graph
+        app.prefs.setLastPage(portrait, 0)
+        app.addPage(portrait)
+        app.addPage(portrait)
+        show()
+        compose.waitForIdle()
+        fun twoFingerDrag(dx: Float, dy: Float, secondFingerDx: Float = dx) {
+            compose.onRoot().performTouchInput {
+                down(0, Offset(600f, 600f))
+                down(1, Offset(700f, 600f))
+                moveTo(0, Offset(600f + dx, 600f + dy))
+                moveTo(1, Offset(700f + secondFingerDx, 600f + dy))
+                up(0)
+                up(1)
+            }
+            compose.waitForIdle()
+        }
+        twoFingerDrag(dx = -60f, dy = 0f) // too short
+        assertEquals(0, app.prefs.lastPage(portrait))
+        twoFingerDrag(dx = -450f, dy = 250f) // across, but more down than across / 2
+        assertEquals(0, app.prefs.lastPage(portrait))
+        twoFingerDrag(dx = -450f, dy = 0f, secondFingerDx = 0f) // only one finger moved
+        assertEquals(0, app.prefs.lastPage(portrait))
+        twoFingerDrag(dx = -450f, dy = 0f) // a real swipe still works
+        assertEquals(1, app.prefs.lastPage(portrait))
+    }
+
+    @Test
     fun `swiping on step by step visits every screen in turn, none skipped`() {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>().graph
         app.prefs.setLastPage(portrait, 0)
