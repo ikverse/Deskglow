@@ -69,6 +69,8 @@ object SmartLayout {
         "ring" to Spec("R", Family.Ring, 120, 320, 120, 320),
         "f1weekend" to Spec("FW", Family.Banner, 280, 848, 96, 220),
         "f1standings" to Spec("FS", Family.Table, 160, 400, 160, 400),
+        "f1live" to Spec("FL", Family.Table, 160, 400, 200, 412),
+        "f1schedule" to Spec("FC", Family.Table, 160, 400, 120, 300),
         "weather" to Spec("W", Family.Card, 120, 400, 48, 300),
         "prayer" to Spec("P", Family.Banner, 280, 848, 80, 200),
         "event" to Spec("E", Family.Card, 120, 400, 48, 200),
@@ -138,7 +140,7 @@ object SmartLayout {
         pattern("Horizon", "C 24 480 364 120,D 24 608 176 24,N 208 608 180 28,S 24 660 113 56,S 149 660 113 56,S 274 660 114 56,M 24 740 364 52"),
         pattern("Constellation", "C 40 96 220 64,D 220 180 164 24,R 24 260 180 180,W 220 300 176 64,S 236 400 112 56,E 40 500 176 64,S 260 580 112 56,M 60 680 300 52"),
         pattern("Weather poster", "C 24 56 364 96,W 24 176 364 280,D 24 472 180 24,E 24 512 364 64,S 24 596 113 56,S 149 596 113 56,S 274 596 114 56,M 24 676 364 52"),
-        pattern("Race day", "C 24 48 236 72,D 268 64 120 24,FW 20 144 372 112,FS 24 272 176 208,R 212 272 176 176,W 212 456 176 64,E 24 496 176 64,M 24 600 364 52"),
+        pattern("Race day", "C 24 48 236 72,D 268 64 120 24,FW 20 144 372 112,FS 24 272 176 208,R 212 272 176 176,W 212 456 176 64,E 24 496 176 64,M 24 600 364 52,FC 24 672 364 140"),
         pattern("Prayer focus", "C 96 56 220 64,D 124 128 164 24,P 20 176 372 96,A 86 288 240 64,R 106 376 200 200,S 24 600 112 56,S 150 600 112 56,S 276 600 112 56,M 20 688 372 52"),
         pattern("Diagonal", "C 24 48 240 72,D 24 128 200 24,N 24 160 200 28,R 136 240 140 140,W 212 440 176 64,E 212 512 176 64,S 276 584 112 56,A 148 648 240 64,M 24 728 364 52"),
     )
@@ -154,6 +156,7 @@ object SmartLayout {
         pattern("Ticker bands", "D 24 16 180 24,N 216 16 180 28,S 600 8 108 40,S 716 8 108 40,C 24 80 520 180,R 572 64 252 252,M 24 340 520 52"),
         pattern("Golden split", "C 24 24 500 160,R 24 196 192 192,W 228 196 296 92,E 228 296 296 92,S 548 24 276 56,S 548 92 276 56,S 548 160 276 56,A 548 228 276 64,M 548 336 276 52"),
         pattern("Mirror image", "C 314 32 220 64,D 342 104 164 24,R 320 148 208 208,W 24 40 240 72,E 584 40 240 72,S 24 128 240 56,S 584 128 240 56,S 24 200 240 56,S 584 200 240 56,M 238 364 372 44"),
+        pattern("Pit wall", "C 24 24 240 64,D 24 96 200 24,FW 280 24 328 96,FS 24 136 176 208,FC 216 136 184 208,S 416 136 192 56,S 416 204 192 56,S 416 272 192 56,FL 624 24 200 364,M 24 356 584 44"),
     )
 
     private fun catalogue(o: Orientation) = if (o == Orientation.Portrait) PORTRAIT else LANDSCAPE
@@ -170,6 +173,8 @@ object SmartLayout {
         /** Widgets squeezed in wherever there was room, because no slot took them. */
         val leftover: Int,
         val mirrorable: Boolean,
+        /** What the composition is called once mirrored, when that changes what it is. */
+        val mirroredName: String = name,
     )
 
     /** Each slot takes a widget of its own kind, or failing that one of the same family that suits its size. */
@@ -199,19 +204,28 @@ object SmartLayout {
         return Base(pattern.name, boxes, hidden, empty, leftover, mirrorable = true)
     }
 
-    /** The first free place, scanning down from the top, for a widget no pattern slot wanted; smaller if need be. */
+    /**
+     * A free place for a widget no pattern slot wanted: below everything placed so far if there is
+     * room, lined up with the composition's own edges or centre, otherwise the first gap scanning down
+     * from the top; smaller if need be. It keeps the same clearance from its neighbours as the rest.
+     */
     private fun findSpot(item: WidgetItem, taken: Collection<Box>, o: Orientation): Box? {
         val spec = specOf(item)
         val type = Widgets.find(item.type)
         val w0 = type?.width ?: item.box.w
         val h0 = type?.height ?: item.box.h
+        val left = taken.minOfOrNull { it.x } ?: EDGE
+        val right = taken.maxOfOrNull { it.right } ?: (o.width - EDGE)
+        val floor = taken.maxOfOrNull { it.bottom + GAP_Y } ?: o.top
         for (scale in listOf(1.0, 0.85, 0.7)) {
             val (w, h) = sized(spec, (w0 * scale).toInt(), (h0 * scale).toInt())
-            for (y in 0..(o.height - h) step 4) {
-                for (x in listOf(((o.width - w) / 2).round4(), 16, o.width - 16 - w).distinct()) {
-                    val box = Box(x, y, w, h)
-                    if (x >= EDGE && box.right <= o.width - EDGE && taken.none { it.overlaps(box) }) return box
-                }
+            val xs = listOf(((left + right - w) / 2).round4(), left.round4(), (right - w).floor4(), ((o.width - w) / 2).round4(), EDGE, o.width - EDGE - w)
+                .filter { it >= EDGE && it + w <= o.width - EDGE }.distinct()
+            val lowest = o.height - o.bottom - h
+            val ys = (floor..lowest step 4) + (o.top..min(floor, lowest) step 4)
+            for (y in ys) for (x in xs) {
+                val box = Box(x, y, w, h)
+                if (taken.all { apart(it, box) }) return box
             }
         }
         return null
@@ -222,18 +236,35 @@ object SmartLayout {
     private class Row(val members: List<Member>) {
         val h get() = members.maxOf { it.h }
         val w get() = members.sumOf { it.w } + (members.size - 1) * GAP_X
+
+        /** Every member [k] times its height (a ring [k] times its size), but never below what it can draw itself in. */
+        fun scaled(k: Double): List<Member> = members.map { m ->
+            val spec = specOf(m.item)
+            val h = max((m.h * k).toInt().floor4(), spec.minH.floor4())
+            if (spec.family == Family.Ring) Member(m.item, h, h) else Member(m.item, m.w, h)
+        }
     }
+
+    /** Rows never shrink below this share of their height; past it, widgets are hidden instead. */
+    private const val MIN_SHRINK = 0.6
 
     /**
      * Any set of widgets in [columns] columns: the clock, date and notifications first, then the ring,
-     * the stats in rows of up to three, the cards in pairs, and the wide banners last. Rows shrink to
-     * fit the height; when they cannot, the last rows are switched off. Null when a widget is too wide
-     * for a column.
+     * the stats in rows of up to three, the cards in pairs, the tables, and the wide banners last.
+     * Rows too wide for a column (banners, in narrow columns) go as full-width bands under the
+     * columns. The rows are dealt out so the columns come out as even as can be, every column with at
+     * least two rows. Everything shrinks together to fit the height; when even [MIN_SHRINK] is not
+     * enough, the least important rows are switched off, wherever they are. [width], when given, is
+     * how wide the whole flow is, centred on the canvas; otherwise it spans the canvas.
      */
-    private fun flow(name: String, items: List<WidgetItem>, o: Orientation, columns: Int, leftAligned: Boolean = false): Base? {
-        val margin = 24
+    private fun flow(
+        name: String, items: List<WidgetItem>, o: Orientation, columns: Int,
+        leftAligned: Boolean = false, mirroredName: String = name, width: Int? = null,
+    ): Base? {
+        val margin = if (width == null) 24 else max(24, (o.width - width) / 2).floor4()
         val gutter = 24
-        val colW = ((o.width - 2 * margin - (columns - 1) * gutter) / columns).floor4()
+        val fullW = o.width - 2 * margin
+        val colW = ((fullW - (columns - 1) * gutter) / columns).floor4()
         fun member(item: WidgetItem, w: Int, h: Int) = specOf(item).let { sized(it, w, h) }.let { (sw, sh) -> Member(item, sw, sh) }
         fun ofType(vararg types: String) = items.filter { it.type in types }
 
@@ -256,35 +287,51 @@ object SmartLayout {
         ofType("f1weekend").forEach { rows += Row(listOf(member(it, colW, 112))) }
         ofType("prayer").forEach { rows += Row(listOf(member(it, colW, 96))) }
         ofType("media").forEach { rows += Row(listOf(member(it, colW, 52))) }
-        ofType("f1standings").forEach { rows += Row(listOf(member(it, colW, 208))) }
+        ofType("f1standings", "f1schedule").chunked(if (colW >= 340) 2 else 1).forEach { pair ->
+            if (pair.size == 2) rows += Row(pair.map { member(it, (colW - GAP_X) / 2, 208) })
+            else rows += Row(listOf(member(pair[0], min(colW, 220), 208)))
+        }
+        ofType("f1live").forEach { rows += Row(listOf(member(it, min(colW, 200), 300))) }
         items.filter { it.type !in SPECS }.forEach { rows += Row(listOf(member(it, min(colW, it.box.w), it.box.h))) }
 
-        if (rows.any { row -> row.w > colW }) return null
-
-        val columnRows = List(columns) { ArrayList<Row>() }
-        val target = rows.sumOf { it.h + GAP_Y } / columns
-        var c = 0
-        var used = 0
+        // A row too wide for a column is a band across the whole width, under the columns.
+        val inColumns = ArrayList<Row>()
+        val bands = ArrayList<Row>()
         for (row in rows) {
-            if (c < columns - 1 && used + row.h / 2 > target) { c++; used = 0 }
-            columnRows[c] += row
-            used += row.h + GAP_Y
+            if (row.w <= colW) inColumns += row
+            else {
+                val band = Row(row.members.map { member(it.item, fullW, it.h) })
+                if (band.w > fullW) return null
+                bands += band
+            }
         }
 
         val available = o.height - o.top - o.bottom
-        fun factor(list: List<Row>) = (available - (list.size - 1) * GAP_Y).toDouble() / list.sumOf { it.h }
-        val boxes = LinkedHashMap<String, Box>()
+        fun height(list: List<Row>, k: Double) = list.sumOf { it.scaled(k).maxOf { m -> m.h } } + (list.size - 1) * GAP_Y
+        fun bandsHeight(k: Double) = bands.sumOf { it.scaled(k).maxOf { m -> m.h } + GAP_Y }
+
+        // Shrink as little as will do; when nothing will, hide the least important row and try again.
         val hidden = ArrayList<String>()
-        columnRows.forEachIndexed { index, list ->
-            while (list.isNotEmpty() && factor(list) < 0.7) hidden += list.removeAt(list.lastIndex).members.map { it.item.id }
-            val k = if (list.isEmpty()) 1.0 else min(1.0, factor(list))
+        var split: List<List<Row>>
+        var k: Double
+        while (true) {
+            split = dealt(inColumns, columns) ?: return null
+            val fit = generateSequence(1.0) { it - 0.05 }.takeWhile { it >= MIN_SHRINK - 1e-9 }
+                .firstOrNull { f -> split.maxOf { height(it, f) } + bandsHeight(f) <= available }
+            if (fit != null) { k = fit; break }
+            val last = rows.lastOrNull { it in inColumns || it in bands } ?: return null
+            inColumns.remove(last)
+            bands.remove(last)
+            hidden += last.members.map { it.item.id }
+        }
+
+        val boxes = LinkedHashMap<String, Box>()
+        var lowest = o.top
+        split.forEachIndexed { index, list ->
             var y = o.top
             val x0 = margin + index * (colW + gutter)
             for (row in list) {
-                val scaled = row.members.map { m ->
-                    val (w, h) = if (specOf(m.item).family == Family.Ring) (m.h * k).toInt().floor4().let { it to it } else m.w to (m.h * k).toInt().floor4()
-                    Member(m.item, w, max(h, specOf(m.item).minH.floor4()))
-                }
+                val scaled = row.scaled(k)
                 val rowH = scaled.maxOf { it.h }
                 var x = if (leftAligned) x0 else (x0 + (colW - (scaled.sumOf { it.w } + (scaled.size - 1) * GAP_X)) / 2).floor4()
                 for (m in scaled) {
@@ -293,8 +340,40 @@ object SmartLayout {
                 }
                 y += rowH + GAP_Y
             }
+            lowest = max(lowest, y)
         }
-        return Base(name, boxes, hidden, empty = 0, leftover = 0, mirrorable = columns > 1 || leftAligned)
+        var y = lowest
+        for (band in bands) {
+            val m = band.scaled(k).single()
+            val x = if (leftAligned) margin else (margin + (fullW - m.w) / 2).floor4()
+            boxes[m.item.id] = Box(x, y, m.w, m.h)
+            y += m.h + GAP_Y
+        }
+        return Base(name, boxes, hidden, empty = 0, leftover = 0, mirrorable = columns > 1 || leftAligned, mirroredName = mirroredName)
+    }
+
+    /**
+     * [rows], in order, cut into [columns] runs so that the tallest run is as short as can be; null
+     * when there are not two rows for every column, since a column of one widget, or none, looks
+     * like something went missing.
+     */
+    private fun dealt(rows: List<Row>, columns: Int): List<List<Row>>? {
+        if (columns == 1) return rows.takeIf { it.isNotEmpty() }?.let { listOf(it) }
+        if (rows.size < 2 * columns) return null
+        fun height(list: List<Row>) = list.sumOf { it.h } + (list.size - 1) * GAP_Y
+        var best: List<List<Row>>? = null
+        var bestHeight = Int.MAX_VALUE
+        fun cut(start: Int, left: Int, done: List<List<Row>>) {
+            if (left == 1) {
+                val all = done + listOf(rows.subList(start, rows.size))
+                val tallest = all.maxOf(::height)
+                if (tallest < bestHeight) { bestHeight = tallest; best = all }
+                return
+            }
+            for (end in start + 2..rows.size - 2 * (left - 1)) cut(end, left - 1, done + listOf(rows.subList(start, end)))
+        }
+        cut(0, columns, emptyList())
+        return best
     }
 
     private val Orientation.top get() = if (this == Orientation.Portrait) 40 else 16
@@ -363,12 +442,12 @@ object SmartLayout {
         s -= 30 * abs(left - right) / w
         if (min(left, right) < 12) s -= 5
 
-        // Alignment: widgets sharing a left edge, right edge or centre line look intended.
+        // Alignment: widgets sharing an edge or a centre line, or sitting in one row, look intended.
         var shared = 0
         for (i in all.indices) for (j in i + 1 until all.size) {
             val a = all[i]
             val b = all[j]
-            if (a.x == b.x || a.right == b.right || abs((2 * a.x + a.w) - (2 * b.x + b.w)) <= 2) shared++
+            if (a.x == b.x || a.right == b.right || abs((2 * a.x + a.w) - (2 * b.x + b.w)) <= 2 || a.y == b.y || a.bottom == b.bottom) shared++
         }
         s += 5 * min(2.5, shared.toDouble() / all.size)
 
@@ -417,7 +496,7 @@ object SmartLayout {
                 boxes = anchored(boxes, anchor, o)
                 if (!isValid(boxes, o)) continue
                 val s = score(boxes, byId, base, o) + rng.nextDouble() * JITTER
-                if (best == null || s > best.score) best = Candidate(base.name, boxes, base.hidden, s)
+                if (best == null || s > best.score) best = Candidate(if (mirror) base.mirroredName else base.name, boxes, base.hidden, s)
             }
         }
         return best
@@ -474,13 +553,21 @@ object SmartLayout {
 
         val bases = catalogue(orientation).map { fill(it, items, orientation) } + listOfNotNull(
             flow("Centred column", items, orientation, 1).takeIf { orientation == Orientation.Portrait },
-            flow("Left column", items, orientation, 1, leftAligned = true).takeIf { orientation == Orientation.Portrait },
+            flow("Left column", items, orientation, 1, leftAligned = true, mirroredName = "Right column").takeIf { orientation == Orientation.Portrait },
             flow("Twin columns", items, orientation, 2),
             flow("Triple columns", items, orientation, 3).takeIf { orientation == Orientation.Landscape },
+            flow("Four columns", items, orientation, 4).takeIf { orientation == Orientation.Landscape },
+            // Landscape is short, so one column only suits a few widgets: offered only when none would be hidden.
+            flow("Centre column", items, orientation, 1, width = 400).takeIf { orientation == Orientation.Landscape && it?.hidden?.isEmpty() == true },
         )
         val ranked = bases.mapNotNull { bestVariation(it, byId, orientation, rng) }.sortedByDescending { it.score }
         if (ranked.isEmpty()) return null
-        val pool = ranked.filterIndexed { i, c -> i < MIN_POOL || c.score >= ranked[0].score - KEEP_WITHIN }.take(POOL)
+        // The best few, then only those nearly as good; never the same boxes twice.
+        val pool = ArrayList<Candidate>()
+        for (c in ranked) {
+            if (pool.size >= POOL || (pool.size >= MIN_POOL && c.score < ranked[0].score - KEEP_WITHIN)) break
+            if (pool.none { it.boxes == c.boxes }) pool += c
+        }
         val pick = pool[Math.floorMod(round, pool.size)]
 
         val boxes = pick.boxes
