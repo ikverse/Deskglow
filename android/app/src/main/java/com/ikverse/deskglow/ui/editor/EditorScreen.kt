@@ -160,7 +160,13 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
     val state = remember(orientation, page) {
         EditorState(repository.layout.value, orientation, copyTarget = graph.layoutsFor(orientation.other, page), save = repository::update,
             // The other layout may have fewer screens: the copy lands on the same screen number, so it is made first.
-            beforeCopy = { graph.ensurePages(orientation.other, page + 1) })
+            beforeCopy = { graph.ensurePages(orientation.other, page + 1) },
+            screenTarget = ScreenTarget(
+                add = { copied -> graph.addPage(orientation.other)?.also { graph.layoutsFor(orientation.other, it).update(copied) } },
+                remove = { graph.deletePage(orientation.other, it) },
+                count = { graph.prefs.pageCount(orientation.other).value },
+                read = { graph.layoutsFor(orientation.other, it).layout.value },
+            ))
     }
     val pages = PageActions(
         count = pageCount,
@@ -926,6 +932,10 @@ private fun Dock(state: EditorState, modifier: Modifier) {
         ) { GlyphIcon(Glyph.Plus, tint = Palette.OnAccent, size = 22.dp, weight = 2.4f) }
         IconAction(Glyph.Sparkle, "Auto-arrange", state::smartArrange, Modifier.testTag("auto arrange"))
         IconAction(Glyph.Grid, "Snap all to grid", state::snapAllToGrid, Modifier.testTag("snap all"))
+        IconAction(
+            Glyph.Duplicate, "Copy to a new ${state.orientation.other.name.lowercase()} screen",
+            state::copyToNewScreen, Modifier.testTag("copy to new screen"),
+        )
     }
 }
 

@@ -21,8 +21,8 @@ val Orientation.other: Orientation get() = if (this == Orientation.Portrait) Ori
  * little at a time; any that still do not fit at half size are hidden rather than lost.
  */
 object Retarget {
-    /** [hidden]: how many widgets were left out because they could not fit. */
-    data class Result(val layout: Layout, val hidden: Int)
+    /** [hidden]: how many widgets were left out because they could not fit. [arrangement]: the name of the composition [arranged] chose, if it chose one. */
+    data class Result(val layout: Layout, val hidden: Int, val arrangement: String? = null)
 
     /** A widget this close to an edge counts as sitting against it. */
     private const val EDGE = 8
@@ -48,6 +48,21 @@ object Retarget {
             }
         }
         return Result(Layout(items), failed.size)
+    }
+
+    /**
+     * [convert], then the visible widgets laid out afresh for [to] by [SmartLayout], so the copy is a
+     * composition made for that canvas rather than the old one stretched over it. Widgets keep their
+     * settings (weather and clock styles are fitted to their new boxes). Falls back to the plain
+     * [convert] when it keeps more widgets on the screen than the arrangement does.
+     */
+    fun arranged(layout: Layout, from: Orientation, to: Orientation): Result {
+        val plain = convert(layout, from, to)
+        if (from == to) return plain
+        // Widgets the plain conversion had no room for are given back to the arrangement to place.
+        val restored = Layout(plain.layout.items.mapIndexed { i, item -> item.copy(visible = layout.items[i].visible) })
+        val smart = SmartLayout.arrange(restored, to, 0) ?: return plain
+        return if (smart.hidden <= plain.hidden) Result(smart.layout, smart.hidden, smart.name) else plain
     }
 
     /** Puts the widgets down one at a time, each at the free spot nearest to where it ideally goes. */
