@@ -113,6 +113,29 @@ class RetargetTest {
     }
 
     @Test
+    fun `an arranged copy keeps every widget and is tidy, both ways`() {
+        for ((from, to) in listOf(Orientation.Portrait to Orientation.Landscape, Orientation.Landscape to Orientation.Portrait)) {
+            val source = DefaultLayout.create(from)
+            val result = Retarget.arranged(source, from, to)
+            assertEquals(source.items.map { it.id }, result.layout.items.map { it.id })
+            assertEquals(result.hidden, result.layout.items.count { !it.visible })
+            assertTidy(result.layout, to)
+            assertTrue(result.hidden <= Retarget.convert(source, from, to).hidden)
+        }
+    }
+
+    @Test
+    fun `an arranged copy leaves hidden widgets hidden`() {
+        val layout = Layout(listOf(
+            WidgetItem("c", "clock", Box(24, 48, 364, 96)),
+            WidgetItem("h", "ring", Box(24, 200, 176, 176), visible = false),
+        ))
+        val out = Retarget.arranged(layout, Orientation.Portrait, Orientation.Landscape).layout
+        assertFalse(out.find("h")!!.visible)
+        assertTrue(out.find("c")!!.visible)
+    }
+
+    @Test
     fun `converting to the same orientation changes nothing`() {
         val layout = DefaultLayout.create()
         assertEquals(layout, Retarget.convert(layout, Orientation.Portrait, Orientation.Portrait).layout)

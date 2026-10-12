@@ -35,6 +35,15 @@ enum class Haptic { Step, Centre }
 /** A message across the top for five seconds, with Undo when there is something to undo. */
 data class Toast(val message: String, val undo: (() -> Unit)? = null, val id: Long = System.nanoTime())
 
+/** The screens of the other orientation, as far as "copy to a new screen" needs them. */
+class ScreenTarget(
+    /** Puts [Layout] on a new last screen and returns that screen's index, or null when no more screens are allowed. */
+    val add: (Layout) -> Int?,
+    val remove: (Int) -> Unit,
+    val count: () -> Int,
+    val read: (Int) -> Layout,
+)
+
 /**
  * Everything the editor does, apart from drawing it. Every change goes straight to [save] (the
  * shared layout), so the home preview and the screen saver always match what the editor shows. It
@@ -47,6 +56,8 @@ class EditorState(
     /** Where "copy to the other orientation" writes; null when there is nowhere to copy to. */
     private val copyTarget: LayoutRepository? = null,
     private val beforeCopy: () -> Unit = {},
+    /** Where "copy to a new screen" adds its screen; null when there is nowhere to add one. */
+    private val screenTarget: ScreenTarget? = null,
     private val save: (Layout) -> Unit,
 ) {
     var layout by mutableStateOf(initial)
@@ -422,6 +433,26 @@ class EditorState(
         val name = orientation.other.name.lowercase()
         val note = if (converted.hidden > 0) " ${converted.hidden} did not fit and ${if (converted.hidden == 1) "was" else "were"} hidden." else ""
         toast = Toast("Copied to $name.$note", undo = { target.update(before) })
+    }
+
+    /**
+     * Adds a screen to the other orientation holding this one's widgets, arranged afresh to suit it.
+     * Nothing already there is touched. Undo removes the new screen again, if it has not been changed since.
+     */
+    fun copyToNewScreen() {
+        val target = screenTarget ?: return
+        val name = orientation.other.name.lowercase()
+        val result = Retarget.arranged(layout, orientation, orientation.other)
+        val index = target.add(result.layout)
+        if (index == null) {
+            toast = Toast("The $name layout has as many screens as it can hold. Delete one first.")
+            return
+        }
+        val arrangement = result.arrangement?.let { " Arranged: $it." } ?: ""
+        val note = if (result.hidden > 0) " ${result.hidden} did not fit and ${if (result.hidden == 1) "was" else "were"} hidden." else ""
+        toast = Toast("Copied to $name as screen ${index + 1}.$arrangement$note", undo = {
+            if (target.count() == index + 1 && target.read(index) == result.layout) target.remove(index)
+        })
     }
 
     fun reset() {

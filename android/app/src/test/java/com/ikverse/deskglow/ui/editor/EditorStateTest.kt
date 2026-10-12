@@ -468,6 +468,52 @@ class EditorStateTest {
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }
 
+    /** A stand-in for the other orientation's screens, holding [pages] and refusing more than [limit]. */
+    private fun screens(pages: MutableList<Layout>, limit: Int = 5) = ScreenTarget(
+        add = { if (pages.size >= limit) null else { pages += it; pages.lastIndex } },
+        remove = { pages.removeAt(it) },
+        count = { pages.size },
+        read = { pages[it] },
+    )
+
+    @Test
+    fun `copying to a new screen adds an arranged screen and touches nothing else`() {
+        val pages = mutableListOf(Layout(emptyList()))
+        val s = EditorState(DefaultLayout.create(), Orientation.Portrait, screenTarget = screens(pages)) { saved += it }
+        val before = s.layout
+        s.copyToNewScreen()
+        assertEquals(2, pages.size)
+        assertEquals(Layout(emptyList()), pages[0])
+        assertEquals(com.ikverse.deskglow.layout.Retarget.arranged(before, Orientation.Portrait, Orientation.Landscape).layout, pages[1])
+        assertEquals(before, s.layout)
+        assertTrue(saved.isEmpty())
+        assertTrue(s.toast!!.message.startsWith("Copied to landscape as screen 2."))
+    }
+
+    @Test
+    fun `undoing a copy to a new screen removes it, unless it has been changed since`() {
+        val pages = mutableListOf(Layout(emptyList()))
+        val s = EditorState(DefaultLayout.create(), Orientation.Portrait, screenTarget = screens(pages)) {}
+        s.copyToNewScreen()
+        s.toast!!.undo!!()
+        assertEquals(1, pages.size)
+
+        s.copyToNewScreen()
+        pages[1] = Layout(emptyList())
+        s.toast!!.undo!!()
+        assertEquals(2, pages.size)
+    }
+
+    @Test
+    fun `copying to a new screen at the screen limit adds nothing and says so`() {
+        val pages = MutableList(5) { Layout(emptyList()) }
+        val s = EditorState(DefaultLayout.create(), Orientation.Portrait, screenTarget = screens(pages)) {}
+        s.copyToNewScreen()
+        assertEquals(5, pages.size)
+        assertTrue(s.toast!!.message.contains("as many screens"))
+        assertNull(s.toast!!.undo)
+    }
+
     @Test
     fun `deleting a gathered widget drops it from the group`() {
         val s = grouped(Box(0, 0, 100, 40), Box(200, 0, 100, 40))
