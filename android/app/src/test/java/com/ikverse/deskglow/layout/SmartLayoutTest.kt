@@ -81,6 +81,45 @@ class SmartLayoutTest {
     }
 
     @Test
+    fun `the pattern a default layout was drawn from is among its compositions`() {
+        val expected = mapOf(Orientation.Portrait to "Classic stack", Orientation.Landscape to "Three columns")
+        for ((o, name) in expected) {
+            val layout = DefaultLayout.create(o)
+            val names = (0 until SmartLayout.POOL).map { SmartLayout.arrange(layout, o, it)!!.name }
+            assertTrue("${o.name}: $names", name in names)
+        }
+    }
+
+    @Test
+    fun `a screen with everything on it keeps nearly everything`() {
+        // Eighteen widgets: portrait has room for all but a few; the shorter landscape canvas for all but five.
+        val most = mapOf(Orientation.Portrait to 3, Orientation.Landscape to 5)
+        for (o in Orientation.values()) for (round in 0 until SmartLayout.POOL) {
+            val result = SmartLayout.arrange(Layout(everything), o, round)!!
+            assertTrue("${o.name} round=$round ${result.name} hid ${result.hidden}", result.hidden <= most.getValue(o))
+        }
+    }
+
+    @Test
+    fun `columns are only offered when each would hold two rows`() {
+        val few = Layout(everything.filter { it.type in setOf("clock", "ring", "weather") })
+        for (o in Orientation.values()) for (round in 0 until SmartLayout.POOL) {
+            val name = SmartLayout.arrange(few, o, round)!!.name
+            assertTrue("${o.name} round=$round $name", !name.endsWith("columns"))
+        }
+    }
+
+    @Test
+    fun `a few widgets in landscape can stand in one centred column, a full screen never`() {
+        val o = Orientation.Landscape
+        val few = Layout(everything.filter { it.type in setOf("clock", "ring", "weather") })
+        val fewNames = (0 until SmartLayout.POOL).map { SmartLayout.arrange(few, o, it)!!.name }
+        assertTrue("$fewNames", "Centre column" in fewNames)
+        val allNames = (0 until SmartLayout.POOL).map { SmartLayout.arrange(Layout(everything), o, it)!!.name }
+        assertTrue("$allNames", "Centre column" !in allNames)
+    }
+
+    @Test
     fun `pressing again gives different compositions`() {
         for (o in Orientation.values()) {
             val layout = DefaultLayout.create(o)
@@ -137,6 +176,7 @@ class SmartLayoutTest {
             "default-landscape" to DefaultLayout.create(Orientation.Landscape).items,
             "few" to everything.filter { it.type in setOf("clock", "ring", "weather") },
             "time" to everything.filter { it.type in setOf("clock", "date", "alarm", "prayer", "notifs") },
+            "f1" to everything.filter { it.type in setOf("clock", "date", "f1weekend", "f1standings", "f1schedule", "f1live", "stat") }.take(8),
         )
         val out = StringBuilder("[")
         for ((name, items) in sets) for (o in Orientation.values()) for (round in 0 until SmartLayout.POOL) {
