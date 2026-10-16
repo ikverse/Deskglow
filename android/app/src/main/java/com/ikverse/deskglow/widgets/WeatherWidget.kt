@@ -94,25 +94,29 @@ object WeatherWidget : WidgetType {
         return codes.mapIndexed { i, code -> HourForecast(start.plusHours(i.toLong()), 22.0 - i * 0.6, code, start.plusHours(i.toLong()).hour in 6..17) }
     }
 
-    override fun fields(settings: Settings) = listOf(
-        StyleField("Layout", LAYOUT, StyleKind.Weather),
-        ChoiceField("Units", UNITS, listOf("c" to "°C", "f" to "°F")),
-        ChoiceField("Icon", ICON_STYLE, listOf("filled" to "Filled", "outline" to "Outline", "none" to "None")),
-        SliderField("Temperature size", SIZE, 60..140, "%"),
-        ToggleField("Tint by temperature", TINT),
-        Common.alignField,
-        ShowField(
-            "Show",
-            listOf(
-                SHOW_CONDITION to "Condition", SHOW_RANGE to "High and low", SHOW_CITY to "City",
-                SHOW_FEELS to "Feels like", SHOW_HUMIDITY to "Humidity", SHOW_WIND to "Wind", SHOW_RAIN to "Chance of rain",
-                SHOW_SUNRISE to "Sunrise", SHOW_SUNSET to "Sunset", SHOW_UV to "UV index",
+    override fun fields(settings: Settings) = buildList {
+        add(LayoutField("Layout", LAYOUT, LAYOUTS))
+        add(ChoiceField("Units", UNITS, listOf("c" to "°C", "f" to "°F")))
+        add(ChoiceField("Icon", ICON_STYLE, listOf("filled" to "Filled", "outline" to "Outline", "none" to "None")))
+        add(SliderField("Temperature size", SIZE, 60..140, "%"))
+        add(ToggleField("Tint by temperature", TINT))
+        add(Common.alignField)
+        add(
+            ShowField(
+                "Show",
+                listOf(
+                    SHOW_CONDITION to "Condition", SHOW_RANGE to "High and low", SHOW_CITY to "City",
+                    SHOW_FEELS to "Feels like", SHOW_HUMIDITY to "Humidity", SHOW_WIND to "Wind", SHOW_RAIN to "Chance of rain",
+                    SHOW_SUNRISE to "Sunrise", SHOW_SUNSET to "Sunset", SHOW_UV to "UV index",
+                ),
             ),
-        ),
-        ColourField("Accent colour", ACCENT),
-        Common.colourField,
-        Common.brightnessField,
-    )
+        )
+        // The only times the widget shows: the forecast's hours and the sun's. The choice is offered once one of them is on screen.
+        if (settings[LAYOUT] == "hours" || settings[SHOW_SUNRISE] || settings[SHOW_SUNSET]) add(Common.timeFormatField())
+        add(ColourField("Accent colour", ACCENT))
+        add(Common.colourField)
+        add(Common.brightnessField)
+    }
 
     /** The icon switch became "None" in the icon choice: a widget with the icon off keeps it off. */
     override fun migrate(settings: Settings): Settings =

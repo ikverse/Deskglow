@@ -6,6 +6,8 @@ import androidx.core.content.edit
 import com.ikverse.deskglow.data.F1Favourite
 import com.ikverse.deskglow.data.MAX_BROADCAST_DELAY
 import com.ikverse.deskglow.model.Orientation
+import com.ikverse.deskglow.model.formatHexColour
+import com.ikverse.deskglow.model.parseHexColour
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -231,7 +233,21 @@ class AppPrefs(context: Context) {
         get() = prefs.getString(KEY_PICKED_FONTS, null)
         set(value) = prefs.edit { putString(KEY_PICKED_FONTS, value) }
 
+    private val recentColoursState = MutableStateFlow(
+        prefs.getString(KEY_RECENT_COLOURS, null).orEmpty().split(',').mapNotNull { parseHexColour(it.trim()) }.take(MAX_RECENT_COLOURS),
+    )
+    /** The last colours mixed in the editor's colour picker, newest first, for picking again. */
+    val recentColours: StateFlow<List<Int>> = recentColoursState.asStateFlow()
+
+    fun addRecentColour(argb: Int) {
+        val next = (listOf(argb) + recentColoursState.value.filter { it != argb }).take(MAX_RECENT_COLOURS)
+        prefs.edit { putString(KEY_RECENT_COLOURS, next.joinToString(",") { formatHexColour(it) }) }
+        recentColoursState.value = next
+    }
+
     private companion object {
+        const val KEY_RECENT_COLOURS = "recent_colours"
+        const val MAX_RECENT_COLOURS = 8
         const val FILE_WEATHER = "weather.json"
         const val FILE_PRAYER = "prayer.json"
         const val FILE_F1 = "f1.json"

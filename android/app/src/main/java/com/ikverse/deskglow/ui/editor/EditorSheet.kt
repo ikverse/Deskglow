@@ -11,7 +11,6 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -32,7 +31,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -45,7 +43,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,11 +51,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -223,7 +218,7 @@ private fun Tab(text: String, on: Boolean, enabled: Boolean = true, onClick: () 
 
 /** A small live drawing of a widget, in the proportions of its box, fitted into whatever room it is given. */
 @Composable
-private fun FitWidget(item: WidgetItem, modifier: Modifier = Modifier) {
+internal fun FitWidget(item: WidgetItem, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val aspect = item.box.w.toFloat() / item.box.h
         val wide = maxWidth / maxHeight > aspect
@@ -297,7 +292,7 @@ private fun sectionOf(field: Field): Section = when (field) {
     is ToggleField, is ShowField -> Section.Content
 }
 
-private val LOOK_LABELS = setOf("Brightness", "Ring thickness", "Temperature size", "Alignment", "Icon style", "Main size", "Small text size")
+private val LOOK_LABELS = setOf("Brightness", "Ring thickness", "Temperature size", "Alignment", "Icon", "Main size", "Small text size")
 
 @Composable
 private fun SettingsTab(state: EditorState, graph: AppGraph) {
@@ -392,7 +387,7 @@ private fun FieldRow(field: Field, item: WidgetItem, settings: Settings, state: 
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        is ColourField -> ColourRow(field, settings, state)
+        is ColourField -> ColourRow(field, item, settings, state, graph)
         is StyleField -> StyleStrip(field, settings, state, graph)
     }
 }
@@ -439,85 +434,4 @@ private fun LayoutChoice(field: LayoutField, item: WidgetItem, settings: Setting
             }
         }
     }
-}
-
-private val SWATCHES = listOf(0xFFFFFFFF, 0xFF44B98A, 0xFF4FC3F7, 0xFFF5B942, 0xFFF2766B, 0xFFB48CF2, 0xFF9A9A9A).map { it.toInt() }
-
-/** What a screen reader calls each of [SWATCHES], in the same order. */
-private val SWATCH_NAMES = listOf("White", "Green", "Sky blue", "Amber", "Coral", "Violet", "Grey")
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ColourRow(field: ColourField, settings: Settings, state: EditorState) {
-    var custom by remember { mutableStateOf(false) }
-    val current = settings[field.key]
-    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-        Text(field.label, fontSize = Type.Body)
-        // Each swatch is 30 dp to look at and 48 dp to touch. They wrap onto a second line where the row is narrow.
-        FlowRow(Modifier.padding(top = 4.dp)) {
-            SWATCHES.forEachIndexed { index, colour ->
-                SwatchButton(SWATCH_NAMES[index], selected = colour == current, onClick = { state.set(field.key, colour) }) {
-                    Box(
-                        Modifier.size(32.dp).clip(CircleShape)
-                            .border(if (colour == current) 2.dp else 1.dp, if (colour == current) Palette.Select else Palette.EdgeStrong, CircleShape)
-                            .padding(3.dp).clip(CircleShape).background(Color(colour)),
-                    )
-                }
-            }
-            val isCustom = current !in SWATCHES
-            SwatchButton("Custom colour", selected = isCustom, onClick = { custom = true }) {
-                Box(
-                    Modifier.size(32.dp).clip(CircleShape)
-                        .border(if (isCustom) 2.dp else 1.dp, if (isCustom) Palette.Select else Palette.EdgeStrong, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (isCustom) Box(Modifier.size(22.dp).clip(CircleShape).background(Color(current))) else GlyphIcon(Glyph.Plus, tint = Palette.Muted, size = 16.dp, weight = 2.2f)
-                }
-            }
-        }
-    }
-    if (custom) ColourDialog(current, onDismiss = { custom = false }) {
-        custom = false
-        state.set(field.key, it)
-    }
-}
-
-/** A 48 dp touch target around a swatch, named and marked selected for a screen reader. */
-@Composable
-private fun SwatchButton(name: String, selected: Boolean, onClick: () -> Unit, content: @Composable BoxScope.() -> Unit) {
-    Box(
-        Modifier.size(48.dp).clip(CircleShape)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = name },
-        contentAlignment = Alignment.Center,
-        content = content,
-    )
-}
-
-/** Any colour, by hue, strength and brightness. */
-@Composable
-private fun ColourDialog(start: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
-    val hsv = remember { FloatArray(3).also { android.graphics.Color.colorToHSV(start, it) } }
-    var hue by remember { mutableFloatStateOf(hsv[0]) }
-    var saturation by remember { mutableFloatStateOf(hsv[1]) }
-    var value by remember { mutableFloatStateOf(hsv[2].coerceAtLeast(0.2f)) }
-    val colour = Color.hsv(hue, saturation, value)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = { onPick(colour.toArgb()) }) { Text("Use colour") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-        title = { Text("Colour") },
-        text = {
-            Column {
-                Box(Modifier.fillMaxWidth().height(44.dp).clip(CircleShape).background(colour))
-                Text("Hue", fontSize = Type.Small, color = Palette.Muted, modifier = Modifier.padding(top = 12.dp))
-                Slider(hue, { hue = it }, valueRange = 0f..360f)
-                Text("Strength", fontSize = Type.Small, color = Palette.Muted)
-                Slider(saturation, { saturation = it })
-                Text("Brightness", fontSize = Type.Small, color = Palette.Muted)
-                Slider(value, { value = it }, valueRange = 0.2f..1f)
-            }
-        },
-        containerColor = Palette.Sheet,
-    )
 }

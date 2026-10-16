@@ -44,13 +44,16 @@ object ClockWidget : WidgetType {
     override val blurb = "Big time in any font"
     override val width = 220
     override val height = 64
-    override val defaults: Settings = Common.base().with(Common.ALIGN, "center")
+    /** A new clock follows the phone's 12 or 24-hour setting; a saved one without the choice is brought to 12 or 24 by [migrate]. */
+    override val defaults: Settings = Common.base().with(Common.ALIGN, "center").with(Common.TIME_FORMAT, "phone")
 
     override fun fields(settings: Settings): List<Field> = buildList {
         add(StyleField("Style", STYLE, StyleKind.Clock))
         add(Common.timeFormatField())
         add(ChoiceField("Seconds", SECONDS_MODE, listOf("none" to "Hidden", "digits" to "Digits", "line" to "Line")))
-        add(ShowField("Details", listOf(LEADING_ZERO to "Leading zero", AMPM to "AM / PM")))
+        // A 24-hour clock has no AM or PM, and always has its leading zero.
+        if (settings[Common.TIME_FORMAT] == "24") add(ToggleField("Leading zero", LEADING_ZERO))
+        else add(ShowField("Details", listOf(LEADING_ZERO to "Leading zero", AMPM to "AM / PM")))
         addAll(Common.arabicFields(settings))
         add(Common.alignField)
         add(Common.colourField)

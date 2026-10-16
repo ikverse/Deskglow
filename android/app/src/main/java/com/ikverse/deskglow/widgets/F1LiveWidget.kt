@@ -79,10 +79,11 @@ object F1LiveWidget : WidgetType {
     override val defaults: Settings = Common.base()
 
     override fun fields(settings: Settings) = buildList {
-        val track = settings[LAYOUT] == "track"
+        val layout = settings[LAYOUT]
+        val track = layout == "track"
         add(LayoutField("Layout", LAYOUT, listOf("tower" to "Tower", "glance" to "Glance", "focus" to "Focus", "line" to "One line", "track" to "Track map")))
-        if (settings[LAYOUT] == "tower") add(SliderField("Rows", ROWS, 3..22))
-        if (settings[LAYOUT] == "tower") add(ChoiceField("Gap", GAP, listOf("auto" to "Automatic", "leader" to "To the leader", "ahead" to "To the car ahead")))
+        if (layout == "tower") add(SliderField("Rows", ROWS, 3..22))
+        if (layout == "tower") add(ChoiceField("Gap", GAP, listOf("auto" to "Automatic", "leader" to "To the leader", "ahead" to "To the car ahead")))
         if (track) {
             add(ChoiceField("Car labels", TRACK_LABELS, listOf("me" to "My driver", "leader" to "My driver and leader", "top3" to "Top 3", "all" to "Everyone", "none" to "None")))
             add(ChoiceField("Highlight", TRACK_HIGHLIGHT, listOf("driver" to "My driver", "team" to "My team", "none" to "None")))
@@ -96,16 +97,23 @@ object F1LiveWidget : WidgetType {
         add(ChoiceField("Favourite team", FAV_TEAM, listOf("" to "My team (from Home)", "none" to "None") + F1Roster.teams))
         add(ToggleField("Team colour as accent", TEAM_ACCENT))
         add(ChoiceField("Names", NAMES, listOf("code" to "Codes", "number" to "Numbers", "surname" to "Surnames")))
+        // Only the chips this layout acts on: the glance is the flag, so it cannot hide it; only the tower and the focus have a tyre to show.
         add(
             ShowField(
                 "Show",
-                if (track) {
-                    listOf(
-                        SHOW_FLAG to "Flag and clock", BORDER to "Flag border", NEWS to "Latest news",
-                        START_LINE to "Start line", CORNERS to "Corner numbers", TRACK_FLAG to "Track in flag colour",
-                    )
-                } else {
-                    listOf(SHOW_FLAG to "Flag and clock", BORDER to "Flag border", TYRES to "Tyres", GAINED to "Places gained", NEWS to "Latest news")
+                buildList {
+                    if (layout != "glance") add(SHOW_FLAG to "Flag and clock")
+                    add(BORDER to "Flag border")
+                    if (track) {
+                        add(NEWS to "Latest news")
+                        add(START_LINE to "Start line")
+                        add(CORNERS to "Corner numbers")
+                        add(TRACK_FLAG to "Track in flag colour")
+                    } else {
+                        if (layout == "tower" || layout == "focus") add(TYRES to "Tyres")
+                        add(GAINED to "Places gained")
+                        add(NEWS to "Latest news")
+                    }
                 },
             ),
         )

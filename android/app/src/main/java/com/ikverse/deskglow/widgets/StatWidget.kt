@@ -79,11 +79,16 @@ object StatWidget : WidgetType {
         add(ChoiceField("Shows", METRIC, METRICS))
         add(Common.alignField)
         add(ChoiceField("Label", LABEL_MODE, listOf("under" to "Under", "beside" to "Beside", "none" to "None")))
-        if (settings[METRIC] in GRAPHABLE) add(ToggleField("Graph of the last 10 minutes", SPARK))
-        add(ColourField("Accent colour", ACCENT))
+        val graphable = settings[METRIC] in GRAPHABLE
+        if (graphable) add(ToggleField("Graph of the last 10 minutes", SPARK))
+        // The accent paints the unit and the graph; a reading with neither (the time to full, the charger, the health, the cycles) has nothing for it to paint.
+        if (hasUnit(settings[METRIC]) || graphable && settings[SPARK]) add(ColourField("Accent colour", ACCENT))
         add(Common.colourField)
         add(Common.brightnessField)
     }
+
+    /** Whether [metric]'s reading carries a unit (°C, V, W, mA, %), which is drawn in the accent colour. */
+    fun hasUnit(metric: String): Boolean = metric in setOf("temp", "voltage", "power", "current", "level")
 
     /** [metric] as a number to graph, or null for the readings that are words. */
     fun numeric(metric: String, battery: BatteryState): Double? = when (metric) {
