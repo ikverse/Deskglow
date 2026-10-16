@@ -93,8 +93,11 @@ internal class Board(
 @Composable
 internal fun LiveFace(b: Board, w: Float, h: Float) {
     val unit = canvasUnit(w, F1LiveWidget.width)
-    Box(Modifier.fillMaxSize().then(if (b.session.signalLost) Modifier.alpha(0.55f) else Modifier)) {
-        when (b.settings[F1LiveWidget.LAYOUT]) {
+    val layout = b.settings[F1LiveWidget.LAYOUT]
+    // The tower and the map draw their own border, with room kept for it; the other three take the same border here.
+    val frame = if (layout == "glance" || layout == "focus" || layout == "line") flagFrame(b, w, h) else Modifier
+    Box(Modifier.fillMaxSize().then(if (b.session.signalLost) Modifier.alpha(0.55f) else Modifier).then(frame)) {
+        when (layout) {
             "glance" -> GlanceFace(b, unit)
             "focus" -> FocusFace(b, unit)
             "line" -> LineFace(b, unit)
@@ -102,6 +105,20 @@ internal fun LiveFace(b: Board, w: Float, h: Float) {
             else -> TowerFace(b, w, h, unit)
         }
     }
+}
+
+/**
+ * A thin border round the widget in the flag's colour while a flag is out and "Flag border" is on;
+ * in the editor a switched-on border with no flag out is drawn faintly, so its place can be seen.
+ * Nothing when the border is off.
+ */
+@Composable
+private fun flagFrame(b: Board, w: Float, h: Float): Modifier {
+    if (!b.settings[F1LiveWidget.BORDER]) return Modifier
+    val shade = b.status.shade.takeIf { b.live && b.status.filled }
+    val colour = shade ?: if (LocalEditing.current) Muted.copy(alpha = 0.4f) else return Modifier
+    val inset = min(w, h) * 0.035f
+    return Modifier.border(pxToDp((min(w, h) * 0.008f).coerceAtLeast(1.5f)), colour, RoundedCornerShape(pxToDp(inset * 1.5f))).padding(pxToDp(inset))
 }
 
 /** What a fitted layout is measured afresh for: its settings and the shape of the session, not the text that changes from second to second. */
@@ -536,7 +553,7 @@ private fun GlanceFace(b: Board, unit: Float) {
                 if (GlancePart.Followed in shown && me != null) {
                     GlanceLine(
                         driverName(me, b.names), "P${me.position}", me.teamColour, if (session.isRace && b.live) gapText(me.interval) else "",
-                        me.gained?.takeIf { session.isRace && b.started }, b, s, gap, f.probing, strong = true,
+                        me.gained?.takeIf { session.isRace && b.started && b.settings[F1LiveWidget.GAINED] }, b, s, gap, f.probing, strong = true,
                     )
                 }
                 if (GlancePart.Footer in shown) {
@@ -629,23 +646,25 @@ private fun FocusFace(b: Board, unit: Float) {
     val ahead = session.rows.firstOrNull { it.position == me.position - 1 }
     val behind = session.rows.firstOrNull { it.position == me.position + 1 }
     val raceLike = session.isRace
-    val tyre = me.tyre?.let { t ->
+    val tyre = me.tyre?.takeIf { b.settings[F1LiveWidget.TYRES] }?.let { t ->
         listOfNotNull(tyreName(t), me.tyreLaps?.let { "$it laps" }, if (raceLike && me.stops > 0) "${me.stops} stop" + (if (me.stops > 1) "s" else "") else null).joinToString(" · ")
     }
     val tyreSlot = tyre == null && b.settings[F1LiveWidget.TYRES] && editing
+    val showTop = b.settings[F1LiveWidget.SHOW_FLAG]
     val news = if (b.live) b.news else b.next?.let { "Next · $it" }
     val newsSlot = news == null && b.live && b.settings[F1LiveWidget.NEWS] && editing
     val parts = listOfNotNull(FocusPart.Tyre.takeIf { tyre != null || tyreSlot }, FocusPart.News.takeIf { news != null || newsSlot })
-    Fit(unit, fitKey(b, parts, me.code, ahead != null, behind != null, session.cutoff), arrangements = 2, levels = parts.size) { f ->
+    Fit(unit, fitKey(b, parts, me.code, ahead != null, behind != null, session.cutoff, showTop), arrangements = 2, levels = parts.size) { f ->
         val s = f.scale
         val shown = parts.take(f.level)
         val fill = if (f.probing) Modifier else Modifier.fillMaxWidth()
         val big = s.main * 2.6f
         val gap = s.second * 0.35f * s.space
 
-        // Where the session stands, small, at the top.
+        // Where the session stands, small, at the top; left out with "Flag and clock" off.
         @Composable
         fun Top() {
+            if (!showTop) return
             Row(fill.padding(vertical = pxToDp(gap)), verticalAlignment = Alignment.CenterVertically) {
                 if (b.status.filled && b.live) StateChip(b.status.label.uppercase(), b.status.shade, s.small * 0.85f) else Text(
                     if (b.live) b.status.label.ifEmpty { session.name } else "Result", color = Muted, fontSize = pxToSp(s.small * 0.95f), maxLines = 1, softWrap = false,
@@ -670,7 +689,7 @@ private fun FocusFace(b: Board, unit: Float) {
                 Spacer(Modifier.width(pxToDp(s.main * 0.6f)))
                 Column {
                     Text(driverName(me, b.names), color = b.accent, fontSize = pxToSp(s.main * 1.5f), fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-                    val gain = me.gained?.takeIf { raceLike && b.started }
+                    val gain = me.gained?.takeIf { raceLike && b.started && b.settings[F1LiveWidget.GAINED] }
                     if (gain != null && gain != 0) Gained(gain, s.second * 1.4f)
                 }
             }
@@ -897,7 +916,7 @@ private fun LineFace(b: Board, unit: Float) {
                     driverName(me, b.names) + " P${me.position}", color = b.accent, fontSize = pxToSp(px), fontWeight = FontWeight.SemiBold,
                     maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = if (f.probing) Modifier else Modifier.weight(1f, fill = false),
                 )
-                val gain = me.gained?.takeIf { session.isRace && b.started && it != 0 }
+                val gain = me.gained?.takeIf { session.isRace && b.started && it != 0 && b.settings[F1LiveWidget.GAINED] }
                 if (gain != null) {
                     Spacer(Modifier.width(pxToDp(px * 0.3f)))
                     Gained(gain, px)

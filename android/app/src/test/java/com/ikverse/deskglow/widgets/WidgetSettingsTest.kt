@@ -242,6 +242,89 @@ class WidgetSettingsTest {
         assertEquals(true, defaults[F1LiveWidget.TRACK_FLAG])
     }
 
+    private fun labels(widget: WidgetType, settings: Settings) = widget.fields(widget.resolve(settings)).map { it.label }
+
+    private fun chips(widget: WidgetType, settings: Settings) =
+        widget.fields(widget.resolve(settings)).filterIsInstance<ShowField>().flatMap { show -> show.items.map { it.second } }
+
+    @Test
+    fun `the live widget's chips follow its layout, and every layout keeps the flag border`() {
+        for (layout in listOf("tower", "glance", "focus", "line", "track")) {
+            val chips = chips(F1LiveWidget, F1LiveWidget.defaults.with(F1LiveWidget.LAYOUT, layout))
+            assertTrue(layout, "Flag border" in chips)
+            assertEquals(layout, layout != "glance", "Flag and clock" in chips)
+            assertEquals(layout, layout == "tower" || layout == "focus", "Tyres" in chips)
+            assertEquals(layout, layout != "track", "Places gained" in chips)
+            assertTrue(layout, "Latest news" in chips)
+        }
+    }
+
+    @Test
+    fun `the weekend's start time is not offered on one line, where nothing shows it`() {
+        val classic = F1WeekendWidget.defaults.with(F1WeekendWidget.SHOW_START, true)
+        assertTrue(labels(F1WeekendWidget, classic).containsAll(listOf("Show the start time", "Time format")))
+        val minimal = classic.with(F1WeekendWidget.LAYOUT, "minimal")
+        assertTrue(labels(F1WeekendWidget, minimal).none { it == "Show the start time" || it == "Time format" })
+    }
+
+    @Test
+    fun `the weather offers a time format once it shows a time, and picks its layout from pictures`() {
+        assertTrue("Time format" !in labels(WeatherWidget, WeatherWidget.defaults))
+        assertTrue("Time format" in labels(WeatherWidget, WeatherWidget.defaults.with(WeatherWidget.LAYOUT, "hours")))
+        assertTrue("Time format" in labels(WeatherWidget, WeatherWidget.defaults.with(WeatherWidget.SHOW_SUNRISE, true)))
+        assertTrue("Time format" in labels(WeatherWidget, WeatherWidget.defaults.with(WeatherWidget.SHOW_SUNSET, true)))
+        val layout = WeatherWidget.fields(WeatherWidget.defaults).filterIsInstance<LayoutField>().single()
+        assertEquals(WeatherWidget.LAYOUTS, layout.options)
+        assertTrue(WeatherWidget.fields(WeatherWidget.defaults).none { it is StyleField })
+    }
+
+    @Test
+    fun `the agenda keeps only the chips it acts on`() {
+        val one = chips(EventWidget, EventWidget.defaults)
+        assertTrue(one.containsAll(listOf("Time", "Minutes away", "Progress while on", "Calendar colour", "Location")))
+        val agenda = chips(EventWidget, EventWidget.defaults.with(EventWidget.COUNT, 3))
+        assertTrue(agenda.none { it == "Time" || it == "Minutes away" || it == "Progress while on" })
+        assertTrue(agenda.containsAll(listOf("Calendar colour", "Location")))
+    }
+
+    @Test
+    fun `sunrise is offered on the prayer row and arc, not with the next prayer alone`() {
+        assertTrue("Sunrise" in chips(PrayerWidget, PrayerWidget.defaults.with(PrayerWidget.VIEW, "row")))
+        assertTrue("Sunrise" in chips(PrayerWidget, PrayerWidget.defaults.with(PrayerWidget.VIEW, "arc")))
+        val next = PrayerWidget.fields(PrayerWidget.defaults.with(PrayerWidget.VIEW, "next"))
+        assertTrue(next.none { it is ShowField })
+        assertTrue(next.any { it is ToggleField && it.key == PrayerWidget.SHOW_HIJRI })
+    }
+
+    @Test
+    fun `the sun and moon's time format goes with its sunrise and sunset`() {
+        assertTrue("Time format" in labels(SunMoonWidget, SunMoonWidget.defaults))
+        assertTrue("Time format" !in labels(SunMoonWidget, SunMoonWidget.defaults.with(SunMoonWidget.SHOW_TIMES, false)))
+    }
+
+    @Test
+    fun `the stat's accent colour is offered where there is a unit or a graph for it to paint`() {
+        for (metric in listOf("temp", "voltage", "power", "current", "level")) {
+            assertTrue(metric, "Accent colour" in labels(StatWidget, StatWidget.defaults.with(StatWidget.METRIC, metric)))
+        }
+        for (metric in listOf("time", "charger", "health", "cycles")) {
+            assertTrue(metric, "Accent colour" !in labels(StatWidget, StatWidget.defaults.with(StatWidget.METRIC, metric)))
+        }
+        assertTrue("Accent colour" in labels(StatWidget, StatWidget.defaults.with(StatWidget.METRIC, "level").with(StatWidget.SPARK, true)))
+    }
+
+    @Test
+    fun `a 24-hour clock offers no AM or PM, and a new clock follows the phone`() {
+        assertTrue("AM / PM" in chips(ClockWidget, ClockWidget.defaults))
+        assertTrue("AM / PM" in chips(ClockWidget, ClockWidget.defaults.with(Common.TIME_FORMAT, "12")))
+        val h24 = ClockWidget.fields(ClockWidget.resolve(ClockWidget.defaults.with(Common.TIME_FORMAT, "24")))
+        assertTrue(h24.none { it is ShowField })
+        assertTrue(h24.any { it is ToggleField && it.key == ClockWidget.LEADING_ZERO })
+        // Added fresh, a clock follows the phone's setting; one saved before the choice existed still keeps its 12 or 24 hours.
+        assertEquals("phone", ClockWidget.resolve(ClockWidget.defaults)[Common.TIME_FORMAT])
+        assertEquals("12", ClockWidget.resolve(Settings())[Common.TIME_FORMAT])
+    }
+
     @Test
     fun `the moon's phase is worked out to within a few hours of the real ones`() {
         fun near(expected: Double, at: String) {

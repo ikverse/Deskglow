@@ -100,8 +100,11 @@ object F1WeekendWidget : WidgetType {
         if (settings[LAYOUT] in TRACK_OPTIONAL) add(ToggleField("Show the track", SHOW_TRACK))
         add(ChoiceField("Between sessions", BETWEEN, listOf("countdown" to "Countdown", "top3" to "Latest session's top 3")))
         add(ChoiceField("Count down to", COUNT_TO, listOf("next" to "Next session", "race" to "Race only")))
-        add(ToggleField("Show the start time", SHOW_START))
-        if (settings[SHOW_START]) add(Common.timeFormatField())
+        // One line has no room for the start time, so it is not offered there.
+        if (settings[LAYOUT] != "minimal") {
+            add(ToggleField("Show the start time", SHOW_START))
+            if (settings[SHOW_START]) add(Common.timeFormatField())
+        }
         add(ChoiceField("Favourite driver", FAVOURITE, listOf("" to "My driver (from Home)", "none" to "None") + F1Roster.drivers.map { (code, name) -> code to "$code · $name" }))
         add(ToggleField("Team colour as accent", TEAM_ACCENT))
         add(ColourField("Accent colour", ACCENT))

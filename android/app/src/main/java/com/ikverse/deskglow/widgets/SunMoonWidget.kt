@@ -53,13 +53,14 @@ object SunMoonWidget : WidgetType {
     override val height = 88
     override val defaults: Settings = Common.base()
 
-    override fun fields(settings: Settings) = listOf(
-        ShowField("Show", listOf(SHOW_TIMES to "Sunrise and sunset", SHOW_LEFT to "Daylight left", SHOW_MOON to "Moon")),
-        Common.timeFormatField(),
-        ColourField("Accent colour", ACCENT),
-        Common.colourField,
-        Common.brightnessField,
-    )
+    override fun fields(settings: Settings) = buildList {
+        add(ShowField("Show", listOf(SHOW_TIMES to "Sunrise and sunset", SHOW_LEFT to "Daylight left", SHOW_MOON to "Moon")))
+        // The sun's times are the only times shown, so the format goes with them.
+        if (settings[SHOW_TIMES]) add(Common.timeFormatField())
+        add(ColourField("Accent colour", ACCENT))
+        add(Common.colourField)
+        add(Common.brightnessField)
+    }
 
     override fun note(settings: Settings) =
         "Sun times by Open-Meteo.com for your weather city (set on the Home screen). The moon is worked out on the phone."

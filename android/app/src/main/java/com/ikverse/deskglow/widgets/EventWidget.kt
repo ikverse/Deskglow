@@ -65,10 +65,15 @@ object EventWidget : WidgetType {
         SliderField("Events shown", COUNT, 1..5),
         ShowField(
             "Show",
-            listOf(
-                SHOW_HEADING to "NEXT heading", SHOW_TIME to "Time", SHOW_SOON to "Minutes away", SHOW_PROGRESS to "Progress while on",
-                SHOW_COLOUR to "Calendar colour", SHOW_LOCATION to "Location",
-            ),
+            // The agenda (more than one event) always has a time column and no room for the minutes away or a progress bar.
+            if (settings[COUNT] > 1) {
+                listOf(SHOW_HEADING to "UP NEXT heading", SHOW_COLOUR to "Calendar colour", SHOW_LOCATION to "Location")
+            } else {
+                listOf(
+                    SHOW_HEADING to "NEXT heading", SHOW_TIME to "Time", SHOW_SOON to "Minutes away", SHOW_PROGRESS to "Progress while on",
+                    SHOW_COLOUR to "Calendar colour", SHOW_LOCATION to "Location",
+                )
+            },
         ),
         Common.timeFormatField(),
         Common.alignField,

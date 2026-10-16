@@ -66,8 +66,10 @@ object PrayerWidget : WidgetType {
     override fun fields(settings: Settings) = buildList {
         add(ChoiceField("Method", METHOD, PrayerRepository.METHODS.map { (n, name) -> n.toString() to name }))
         add(ChoiceField("Asr", SCHOOL, listOf("0" to "Standard", "1" to "Hanafi")))
-        add(ShowField("Show", listOf(SHOW_SUNRISE to "Sunrise", SHOW_HIJRI to "Hijri date")))
         add(LayoutField("Layout", VIEW, listOf("next" to "Next only", "row" to "Row of five", "arc" to "Sun arc")))
+        // Sunrise is a slot on the row and the arc; the next prayer alone has nowhere to put it.
+        if (settings[VIEW] == "next") add(ToggleField("Hijri date", SHOW_HIJRI))
+        else add(ShowField("Show", listOf(SHOW_SUNRISE to "Sunrise", SHOW_HIJRI to "Hijri date")))
         addAll(Common.arabicFields(settings))
         add(Common.timeFormatField())
         add(Common.alignField)
