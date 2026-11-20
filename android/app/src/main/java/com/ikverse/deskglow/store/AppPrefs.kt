@@ -229,6 +229,11 @@ class AppPrefs(context: Context) {
         if (prefs.contains(legacyKey)) prefs.edit { remove(legacyKey) }
     }
 
+    /** When the updater last heard back from GitHub (milliseconds since 1970), or 0 if it never has. */
+    var lastUpdateCheck: Long
+        get() = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+        set(value) = prefs.edit { putLong(KEY_LAST_UPDATE_CHECK, value) }
+
     var pickedFonts: String?
         get() = prefs.getString(KEY_PICKED_FONTS, null)
         set(value) = prefs.edit { putString(KEY_PICKED_FONTS, value) }
@@ -247,6 +252,7 @@ class AppPrefs(context: Context) {
 
     private companion object {
         const val KEY_RECENT_COLOURS = "recent_colours"
+        const val KEY_LAST_UPDATE_CHECK = "last_update_check"
         const val MAX_RECENT_COLOURS = 8
         const val FILE_WEATHER = "weather.json"
         const val FILE_PRAYER = "prayer.json"

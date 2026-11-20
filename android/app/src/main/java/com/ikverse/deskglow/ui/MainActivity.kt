@@ -29,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.ikverse.deskglow.display.EXTRA_EDIT_ORIENTATION
 import com.ikverse.deskglow.display.EXTRA_EDIT_PAGE
 import com.ikverse.deskglow.display.WidgetHost
@@ -37,7 +39,7 @@ import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.ui.editor.EditorScreen
 import com.ikverse.deskglow.widgets.Common
 
-enum class Screen { Home, Editor, EditorLandscape, AutoStart, AlwaysOn, Permissions, City, F1, Brightness, Snapshots, About }
+enum class Screen { Home, Editor, EditorLandscape, AutoStart, AlwaysOn, Permissions, City, F1, Brightness, Snapshots, Updates, About }
 
 /** The editors draw edge to edge; every other screen stays inside the system bars. */
 private val Screen.isEditor: Boolean get() = this == Screen.Editor || this == Screen.EditorLandscape
@@ -56,6 +58,8 @@ class MainActivity : ComponentActivity() {
         // does not send the app back to the editor from wherever it had got to.
         val edit = if (savedInstanceState == null) intent.editRequest() else null
         setContent { DeskglowTheme { App(edit?.first ?: Screen.Home, edit?.second ?: 0) } }
+        // The quiet daily look for a newer version: at most once a day, and silent if GitHub cannot be reached.
+        lifecycleScope.launch { graph.updates.checkIfDue() }
     }
 
     override fun onResume() {
@@ -118,6 +122,7 @@ fun App(start: Screen = Screen.Home, startPage: Int = 0) {
                         Screen.F1 -> F1Screen(graph) { screen = Screen.Home }
                         Screen.Brightness -> BrightnessScreen(graph) { screen = Screen.Home }
                         Screen.Snapshots -> SnapshotsScreen(graph) { screen = Screen.Home }
+                        Screen.Updates -> UpdatesScreen(graph) { screen = Screen.Home }
                         Screen.About -> AboutScreen { screen = Screen.Home }
                     }
                 }

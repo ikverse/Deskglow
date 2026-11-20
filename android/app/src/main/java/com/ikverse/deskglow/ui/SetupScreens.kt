@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -55,6 +56,7 @@ import com.ikverse.deskglow.fonts.BundledFonts
 import com.ikverse.deskglow.store.Brightness
 import com.ikverse.deskglow.store.BrightnessMode
 import com.ikverse.deskglow.store.City
+import com.ikverse.deskglow.update.UpdateState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -443,5 +445,74 @@ fun AboutScreen(onBack: () -> Unit) {
                 if (i < BundledFonts.all.lastIndex) Rule()
             }
         }
+    }
+}
+
+/** What the home screen's Updates row says under its title. */
+fun updateSummary(state: UpdateState): String = when (state) {
+    is UpdateState.Available -> "Version ${state.release.version} is ready to install"
+    is UpdateState.Downloading -> "Downloading version ${state.release.version}"
+    is UpdateState.NeedsPermission -> "Version ${state.release.version} needs your OK to install"
+    is UpdateState.Handed -> "Version ${state.release.version} is ready to install"
+    is UpdateState.Failed -> state.release?.let { "Version ${it.version} is ready to install" } ?: "Version ${BuildConfig.VERSION_NAME}"
+    else -> "Version ${BuildConfig.VERSION_NAME}"
+}
+
+@Composable
+fun UpdatesScreen(graph: AppGraph, onBack: () -> Unit) {
+    val state by graph.updates.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    // The last successful check is read again each time the screen comes back, so it stays current after a check.
+    val resumes = rememberResumeCount()
+    val lastCheck = remember(resumes, state) { graph.prefs.lastUpdateCheck }
+    val release = when (val s = state) {
+        is UpdateState.Available -> s.release
+        is UpdateState.Downloading -> s.release
+        is UpdateState.NeedsPermission -> s.release
+        is UpdateState.Handed -> s.release
+        is UpdateState.Failed -> s.release
+        else -> null
+    }
+    val busy = state is UpdateState.Checking || state is UpdateState.Downloading
+    ScreenFrame("Updates", onBack) {
+        Section {
+            Body("Deskglow ${BuildConfig.VERSION_NAME}")
+            Small(
+                if (lastCheck > 0L) {
+                    "Last checked " + DateUtils.getRelativeTimeSpanString(lastCheck, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS) + "."
+                } else "Not checked yet.",
+            )
+            Small("Deskglow looks for a new version on GitHub about once a day. Installing always goes through Android's own installer, which asks you first.")
+        }
+        if (release != null) {
+            Section {
+                Body("Version ${release.version} is available")
+                if (release.notes.isNotBlank()) Small(release.notes)
+                val s = state
+                if (s is UpdateState.Downloading) {
+                    val percent = if (release.apkBytes > 0) (s.bytes * 100 / release.apkBytes).toInt() else 0
+                    Small("Downloading… $percent%")
+                }
+                if (s is UpdateState.NeedsPermission) {
+                    Small("Allow installs from Deskglow on the page that opened, then come back and tap Install again.")
+                }
+                AppButton(
+                    if (s is UpdateState.Downloading) "Downloading…" else "Install",
+                    { scope.launch { graph.updates.install() } },
+                    Modifier.fillMaxWidth(), kind = ButtonKind.Primary, enabled = !busy,
+                )
+            }
+        }
+        (state as? UpdateState.Failed)?.let { failed ->
+            Section { Text(failed.message, fontSize = Type.Small, color = Palette.Danger, lineHeight = 19.sp) }
+        }
+        if (state is UpdateState.UpToDate) {
+            Section { Small("Deskglow is up to date.") }
+        }
+        AppButton(
+            if (state is UpdateState.Checking) "Checking…" else "Check now",
+            { scope.launch { graph.updates.checkNow() } },
+            Modifier.fillMaxWidth(), enabled = !busy,
+        )
     }
 }

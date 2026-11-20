@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Weather (Open-Meteo) and the font library (Google Fonts). Nothing else goes online. -->
+    <!-- Weather (Open-Meteo), the font library (Google Fonts), F1 data, and GitHub for updates. Nothing else goes online. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Hand a downloaded update to Android's installer (which still asks the user before it installs anything). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Optional, for the Next event widget. Asked for only from the Permissions screen. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
@@ -118,6 +120,17 @@
                 android:name="android.service.dream"
                 android:resource="@xml/dream_info" />
         </service>
+
+        <!-- Lets the installer read the downloaded update from the app's cache, and nothing else. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
 
         <!-- Notification access, for notification icons and Now playing. Disconnects itself whenever the screen is not showing. -->
         <service

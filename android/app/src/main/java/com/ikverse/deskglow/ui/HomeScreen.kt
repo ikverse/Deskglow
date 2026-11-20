@@ -77,6 +77,7 @@ fun HomeScreen(
     val burnIn by graph.prefs.burnIn.collectAsStateWithLifecycle()
     val alwaysOn by graph.prefs.alwaysOn.collectAsStateWithLifecycle()
     val saved by graph.snapshots.snapshots.collectAsStateWithLifecycle()
+    val update by graph.updates.state.collectAsStateWithLifecycle()
     // Permissions and the screen saver are changed in Android's settings, so look again on every return.
     val resumes = rememberResumeCount()
     LifecycleResumeEffect(Unit) {
@@ -147,6 +148,7 @@ fun HomeScreen(
     }
     Card {
         CardRow(Glyph.Shield, "Permissions", permissions, { go(Screen.Permissions) })
+        CardRow(Glyph.Sparkle, "Updates", updateSummary(update), { go(Screen.Updates) })
         CardRow(Glyph.Info, "About and licences", null, { go(Screen.About) }, last = true)
     }
         }

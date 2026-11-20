@@ -37,6 +37,14 @@ import com.ikverse.deskglow.store.AppPrefs
 import com.ikverse.deskglow.store.MAX_PAGES
 import com.ikverse.deskglow.store.LayoutRepository
 import com.ikverse.deskglow.store.SnapshotRepository
+import com.ikverse.deskglow.update.AndroidApkInspector
+import com.ikverse.deskglow.update.AndroidInstallLauncher
+import com.ikverse.deskglow.update.ApkDownloader
+import com.ikverse.deskglow.update.AppVersion
+import com.ikverse.deskglow.update.UpdateChecker
+import com.ikverse.deskglow.update.UpdateController
+import com.ikverse.deskglow.update.UpdateMemory
+import com.ikverse.deskglow.update.UrlConnectionUpdateHttp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -149,6 +157,23 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     val fontLibrary = FontLibrary(app, prefs, http)
     val fonts = FontResolver(app, fontLibrary)
     val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather, prayer, f1, f1Live)
+
+    /** Looks for a newer release on GitHub and hands it to Android's installer. Nothing goes online until it is asked to check. */
+    val updates by lazy {
+        UpdateController(
+            installed = AppVersion.parse(BuildConfig.VERSION_NAME) ?: AppVersion(0, 0, 0),
+            source = UpdateChecker(UrlConnectionUpdateHttp),
+            downloader = ApkDownloader(UrlConnectionUpdateHttp, AndroidInstallLauncher.downloadDir(app)),
+            inspector = AndroidApkInspector(app),
+            launcher = AndroidInstallLauncher(app),
+            memory = object : UpdateMemory {
+                override suspend fun lastCheck() = prefs.lastUpdateCheck
+                override suspend fun saveLastCheck(time: Long) {
+                    prefs.lastUpdateCheck = time
+                }
+            },
+        )
+    }
 }
 
 /** Where the screen at [page] ends up when screen [from] is moved to [to]: the moved one lands on [to], those it passes shift by one. */
