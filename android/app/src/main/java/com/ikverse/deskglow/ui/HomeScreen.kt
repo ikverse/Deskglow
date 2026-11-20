@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -91,6 +92,9 @@ fun HomeScreen(
         if (off.isEmpty()) "All allowed" else off.joinToString(" and ") + " off"
     }
     val located = remember(resumes) { hasLocationAccess(context) }
+    // A layout file that could not be read was replaced by the default: say so once, rather than silently.
+    var resetNoticed by rememberSaveable { mutableStateOf(false) }
+    val reset = remember { graph.layouts.wasReset || graph.landscapeLayouts.wasReset }
     val shownCity = if (auto && located) detected ?: city else city
 
     // The Start button, the status chips and the cards: one column, in the page's order, wherever it sits.
@@ -104,6 +108,14 @@ fun HomeScreen(
         Text(
             "Full screen without the charger. Also on the home-screen widget, the app-icon shortcut and the Quick Settings tile.",
             fontSize = Type.Small, color = Palette.Muted, modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
+
+    if (reset && !resetNoticed) {
+        Text(
+            "A saved layout could not be read, so it was reset to the default. The unreadable file was kept in the app's storage. Tap to dismiss.",
+            fontSize = Type.Small, color = Palette.Danger,
+            modifier = Modifier.fillMaxWidth().pressable { resetNoticed = true }.padding(horizontal = 4.dp, vertical = 6.dp),
         )
     }
 

@@ -77,6 +77,30 @@ class SnapshotRepositoryTest {
     }
 
     @Test
+    fun `only the five newest snapshots made before a restore are kept, and the owner's own are untouched`() {
+        var time = 0L
+        val repo = SnapshotRepository(temp.newFolder("snapshots")) { time }
+        repo.save("Mine", portrait, landscape)
+        repeat(8) { time = 10L + it; repo.save("${SnapshotRepository.BEFORE_RESTORE} – $it", portrait, landscape) }
+        repo.pruneBeforeRestore()
+        val names = repo.snapshots.value.map { it.name }
+        assertEquals(6, names.size)
+        assertEquals(true, "Mine" in names)
+        assertEquals(true, "${SnapshotRepository.BEFORE_RESTORE} – 7" in names && "${SnapshotRepository.BEFORE_RESTORE} – 2" !in names)
+    }
+
+    @Test
+    fun `read in the background, the kept snapshots arrive, and one saved meanwhile is not lost`() {
+        val dir = temp.newFolder("snapshots")
+        SnapshotRepository(dir).save("Kept", portrait, landscape)
+        val repo = SnapshotRepository(dir, loadInBackground = true)
+        repo.save("New", portrait, landscape)
+        val deadline = System.currentTimeMillis() + 5_000
+        while (repo.snapshots.value.size < 2 && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertEquals(setOf("Kept", "New"), repo.snapshots.value.map { it.name }.toSet())
+    }
+
+    @Test
     fun `an unreadable file is skipped rather than breaking the list`() {
         val dir = temp.newFolder("snapshots")
         SnapshotRepository(dir).save("Good", portrait, landscape)

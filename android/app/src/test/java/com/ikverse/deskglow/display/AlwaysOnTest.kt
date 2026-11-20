@@ -140,6 +140,23 @@ class AlwaysOnTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun `a first cover after a clear first reading waits the usual delay`() = runTest {
+        val covered = MutableSharedFlow<Boolean>()
+        val changes = mutableListOf<Boolean>()
+        val job = launch { applyCoverDelay(covered, 5_000, 0) { changes += it } }
+        runCurrent()
+        covered.emit(false)
+        runCurrent()
+        covered.emit(true)
+        advanceTimeBy(4_000)
+        assertEquals(listOf(false), changes)
+        advanceTimeBy(1_100)
+        assertEquals(listOf(false, true), changes)
+        job.cancel()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun `a phone already covered when the display starts goes off at once, once`() = runTest {
         val covered = MutableSharedFlow<Boolean>()
         val changes = mutableListOf<Boolean>()

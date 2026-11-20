@@ -107,6 +107,7 @@ fun AlwaysOnScreen(graph: AppGraph, onBack: () -> Unit) {
     var prompts by remember { mutableIntStateOf(0) }
     val missing = remember(resumes, prompts) { alwaysOnMissing(context) }
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { prompts++ }
+    val notificationsSettings = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     val thisApp = Uri.parse("package:${context.packageName}")
     ScreenFrame("Always on", onBack) {
         Section {
@@ -147,7 +148,10 @@ fun AlwaysOnScreen(graph: AppGraph, onBack: () -> Unit) {
             Section {
                 Body("Notifications")
                 Small("Android shows a quiet notification while a service runs. Without this permission it still runs, but you cannot see it.")
-                AppButton("Allow", { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }, Modifier.fillMaxWidth())
+                // Refused before: Android may not ask again, so the app's notification settings are the way.
+                AppButton(if (prompts > 0) "Allow in settings" else "Allow", {
+                    if (prompts > 0) context.open(notificationsSettings) else askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }, Modifier.fillMaxWidth())
             }
         }
         Section {
@@ -271,7 +275,8 @@ fun CityScreen(graph: AppGraph, onBack: () -> Unit) {
         results?.takeIf { it.isNotEmpty() }?.let { found ->
             Card {
                 found.forEachIndexed { i, city ->
-                    Column(Modifier.fillMaxWidth().pressable { graph.prefs.setCity(city); onBack() }.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    // A city picked by name is the one wanted: the phone's position no longer wins over it.
+                    Column(Modifier.fillMaxWidth().pressable { graph.prefs.setCity(city); graph.prefs.setAutoLocation(false); onBack() }.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text(city.name, fontSize = Type.Body)
                         Small(city.region)
                     }
@@ -294,13 +299,16 @@ fun F1Screen(graph: AppGraph, onBack: () -> Unit) {
         SectionLabel("Broadcast delay")
         Card {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Saved when let go, not on every step of the drag.
+                var dragging by remember { mutableStateOf<Int?>(null) }
                 Slider(
-                    value = delay.toFloat(),
-                    onValueChange = { graph.prefs.setBroadcastDelay(it.roundToInt()) },
+                    value = (dragging ?: delay).toFloat(),
+                    onValueChange = { dragging = it.roundToInt() },
+                    onValueChangeFinished = { dragging?.let(graph.prefs::setBroadcastDelay); dragging = null },
                     valueRange = 0f..MAX_BROADCAST_DELAY.toFloat(),
                     modifier = Modifier.weight(1f),
                 )
-                Text("$delay s", color = Palette.Muted, modifier = Modifier.padding(start = 10.dp))
+                Text("${dragging ?: delay} s", color = Palette.Muted, modifier = Modifier.padding(start = 10.dp))
             }
         }
         Small("Every live F1 widget shows the timing this many seconds behind, to line up with a TV picture that lags it.")
@@ -360,13 +368,16 @@ fun BrightnessScreen(graph: AppGraph, onBack: () -> Unit) {
             if (brightness.mode == BrightnessMode.Custom) {
                 Rule()
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Saved when let go, not on every step of the drag.
+                    var dragging by remember { mutableStateOf<Int?>(null) }
                     Slider(
-                        value = brightness.level.toFloat(),
-                        onValueChange = { graph.prefs.setBrightness(Brightness(BrightnessMode.Custom, it.toInt())) },
+                        value = (dragging ?: brightness.level).toFloat(),
+                        onValueChange = { dragging = it.roundToInt() },
+                        onValueChangeFinished = { dragging?.let { graph.prefs.setBrightness(Brightness(BrightnessMode.Custom, it)) }; dragging = null },
                         valueRange = 1f..100f,
                         modifier = Modifier.weight(1f),
                     )
-                    Text("${brightness.level}%", color = Palette.Muted, modifier = Modifier.padding(start = 10.dp))
+                    Text("${dragging ?: brightness.level}%", color = Palette.Muted, modifier = Modifier.padding(start = 10.dp))
                 }
             }
         }
@@ -394,7 +405,8 @@ fun BrightnessScreen(graph: AppGraph, onBack: () -> Unit) {
                     Body("Blank in a dark room")
                     Small("With Match the room's light: after 10 minutes in the dark with no touch the screen fades to black. A touch, or the light coming on, brings it back.")
                 }
-                Switch(checked = blankInDark, onCheckedChange = graph.prefs::setBlankInDark)
+                // It works from the light sensor's reading, which only Match the room's light takes.
+                Switch(checked = blankInDark, onCheckedChange = graph.prefs::setBlankInDark, enabled = brightness.mode == BrightnessMode.Auto)
             }
         }
     }

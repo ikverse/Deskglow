@@ -16,6 +16,7 @@ import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.asin
 import kotlin.math.cos
@@ -29,7 +30,20 @@ enum class Prayer(val english: String, val arabic: String) {
 }
 
 /** The five times for one day, in the place's own time. */
-data class PrayerDay(val date: LocalDate, val times: Map<Prayer, LocalTime>, /** Sunrise (Shuruq), when the answer had it. */ val sunrise: LocalTime? = null)
+data class PrayerDay(
+    val date: LocalDate,
+    val times: Map<Prayer, LocalTime>,
+    /** Sunrise (Shuruq), when the answer had it. */
+    val sunrise: LocalTime? = null,
+    /** The place's time zone, when the answer named it, so the times are compared with the place's clock and not the phone's. */
+    val zone: ZoneId? = null,
+)
+
+/** The phone's [phoneNow] on the clock of the place [days] are for: the same, unless they name another time zone. */
+fun placeTime(days: List<PrayerDay>, phoneNow: LocalDateTime): LocalDateTime {
+    val zone = days.firstNotNullOfOrNull { it.zone } ?: return phoneNow
+    return phoneNow.atZone(ZoneId.systemDefault()).withZoneSameInstant(zone).toLocalDateTime()
+}
 
 sealed interface PrayerState {
     data object NoLocation : PrayerState
@@ -52,6 +66,8 @@ class PrayerRepository(
     private val today: () -> LocalDate = LocalDate::now,
     /** Where the phone is, or null when that is unknown or not allowed. Blocks; called off the main thread. */
     private val locate: () -> City? = { null },
+    /** Whether the phone's position may be read now; while it may not, a place found before is not used either. */
+    private val canLocate: () -> Boolean = { true },
 ) {
 
     /** Times by Aladhan's [method] number and Asr [school] (0 Shafi, 1 Hanafi). */
@@ -65,8 +81,9 @@ class PrayerRepository(
         var last = cached()?.takeIf { it.key == key }
         last?.let { emit(PrayerState.Ready(it.city, it.days)) }
         while (true) {
-            val found = if (auto) runCatching(locate).getOrNull()?.also(prefs::setDetectedCity) else null
-            val here = found ?: (if (auto) prefs.detectedCity.value else null) ?: manual
+            val allowed = auto && canLocate()
+            val found = if (allowed) runCatching(locate).getOrNull()?.also(prefs::setDetectedCity) else null
+            val here = found ?: (if (allowed) prefs.detectedCity.value else null) ?: manual
             if (here == null) {
                 emit(PrayerState.NoLocation)
                 delay(RETRY_MS)
@@ -78,7 +95,8 @@ class PrayerRepository(
                 if (last == null) emit(PrayerState.Loading(here))
                 val fresh = runCatching { listOf(fetch(here, date, method, school), fetch(here, date.plusDays(1), method, school)) }.getOrNull()
                 if (fresh == null) {
-                    emit(PrayerState.Failed(here, last?.takeIf { it.date == date }?.days))
+                    // Yesterday's answer already holds today's times (today and tomorrow are fetched together), so past midnight it still serves.
+                    emit(PrayerState.Failed(here, last?.days?.takeIf { days -> days.any { it.date == date } }))
                     delay(RETRY_MS)
                     continue
                 }
@@ -111,6 +129,7 @@ class PrayerRepository(
                     PrayerDay(
                         LocalDate.parse(day.getString("date")), Prayer.entries.associateWith { LocalTime.parse(day.getString(it.name)) },
                         day.optString("Sunrise").takeIf { it.isNotEmpty() }?.let { LocalTime.parse(it) },
+                        day.optString("zone").takeIf { it.isNotEmpty() }?.let { runCatching { ZoneId.of(it) }.getOrNull() },
                     )
                 },
             )
@@ -119,7 +138,7 @@ class PrayerRepository(
 
     private fun cacheJson(c: Cached): String = JSONObject()
         .put("key", c.key).put("date", c.date.toString()).put("city", c.city.toJson())
-        .put("days", JSONArray(c.days.map { day -> JSONObject().put("date", day.date.toString()).also { o -> day.times.forEach { (p, t) -> o.put(p.name, t.toString()) }; day.sunrise?.let { o.put("Sunrise", it.toString()) } } }))
+        .put("days", JSONArray(c.days.map { day -> JSONObject().put("date", day.date.toString()).also { o -> day.times.forEach { (p, t) -> o.put(p.name, t.toString()) }; day.sunrise?.let { o.put("Sunrise", it.toString()) }; day.zone?.let { o.put("zone", it.id) } } }))
         .toString()
 
     companion object {
@@ -139,10 +158,12 @@ class PrayerRepository(
 }
 
 internal fun parsePrayerDay(body: String, date: LocalDate): PrayerDay {
-    val timings = JSONObject(body).getJSONObject("data").getJSONObject("timings")
+    val data = JSONObject(body).getJSONObject("data")
+    val timings = data.getJSONObject("timings")
+    val zone = data.optJSONObject("meta")?.optString("timezone")?.takeIf { it.isNotEmpty() }?.let { runCatching { ZoneId.of(it) }.getOrNull() }
     // Times come as "04:31", or "04:31 (EET)" when a time zone is asked for.
     val sunrise = timings.optString("Sunrise").takeIf { it.length >= 5 }?.let { runCatching { LocalTime.parse(it.take(5)) }.getOrNull() }
-    return PrayerDay(date, Prayer.entries.associateWith { LocalTime.parse(timings.getString(it.name).take(5)) }, sunrise)
+    return PrayerDay(date, Prayer.entries.associateWith { LocalTime.parse(timings.getString(it.name).take(5)) }, sunrise, zone)
 }
 
 /** The next prayer after [now], and when. Null only when the days given are all in the past. */

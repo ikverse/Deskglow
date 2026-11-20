@@ -1,8 +1,11 @@
 package com.ikverse.deskglow.display
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.view.Window
+import android.view.WindowManager
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import com.ikverse.deskglow.store.BrightnessMode
@@ -17,6 +20,9 @@ import kotlinx.coroutines.launch
  * Whatever the owner's brightness, cover and presence settings ask for is handled here, so a fix lands in
  * all three, and the next host (a second display, a tile) is three calls.
  */
+/** How often a held cover lock is taken afresh: well inside its 12-hour backstop timeout. */
+private const val COVER_RENEW_MS = 11 * 60 * 60 * 1000L
+
 internal class DisplayHost(private val context: Context, private val window: Window) {
     private val dark = mutableStateOf(false)
 
@@ -28,7 +34,11 @@ internal class DisplayHost(private val context: Context, private val window: Win
     private var presence = false
 
     /** Whether the proximity lock that turns the screen off while covered is held right now. */
-    val coverHeld: Boolean get() = coverLock != null
+    val coverHeld: Boolean get() = coverLock?.isHeld == true
+
+    /** The lock times out as a backstop; while the display stays up it is taken again before it does. */
+    private val handler = Handler(Looper.getMainLooper())
+    private val renewCover = Runnable { if (coverLock != null) setCover(true) }
 
     /**
      * The window as the display wants it: the owner's brightness, no system bars, the panel's normal rate.
@@ -40,6 +50,9 @@ internal class DisplayHost(private val context: Context, private val window: Win
         val level = windowBrightness(brightness)
         if (level != null && (!onlyCustom || brightness.mode == BrightnessMode.Custom)) {
             window.attributes = window.attributes.apply { screenBrightness = level }
+        } else if (!onlyCustom && brightness.mode == BrightnessMode.System) {
+            // Called again when the display comes back: a level set before the owner switched to the phone's own is let go.
+            window.attributes = window.attributes.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
         }
         hideSystemBars(window)
         window.setRefreshRate(context, fast = false)
@@ -63,8 +76,10 @@ internal class DisplayHost(private val context: Context, private val window: Win
 
     /** Holds the proximity lock ([held]) or lets it go. A host that decides when to hold it (Always on) calls this itself. */
     fun setCover(held: Boolean) {
+        handler.removeCallbacks(renewCover)
         coverLock.letGo()
         coverLock = if (held) context.holdCoverOff() else null
+        if (coverLock != null) handler.postDelayed(renewCover, COVER_RENEW_MS)
     }
 
     /** The display is no longer on screen: stop counting it, release the lock and stop reading the light. */

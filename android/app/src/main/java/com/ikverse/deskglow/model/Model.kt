@@ -98,6 +98,8 @@ class ColourKey(name: String, default: Int) : Key<Int>(name, default) {
 
 fun parseHexColour(text: String): Int? {
     val hex = text.removePrefix("#")
+    // Digits only: toLongOrNull would also take a sign, and read "-FFFFF" as a colour.
+    if (!hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return null
     val value = hex.toLongOrNull(16) ?: return null
     return when (hex.length) {
         6 -> (0xFF000000 or value).toInt()

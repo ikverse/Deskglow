@@ -315,11 +315,18 @@ class WidgetSettingsTest {
 
     @Test
     fun `a 24-hour clock offers no AM or PM, and a new clock follows the phone`() {
+        Common.phone24Hour = false
         assertTrue("AM / PM" in chips(ClockWidget, ClockWidget.defaults))
         assertTrue("AM / PM" in chips(ClockWidget, ClockWidget.defaults.with(Common.TIME_FORMAT, "12")))
+        // A 24-hour clock always has its leading zero, so neither detail is offered: they would do nothing.
         val h24 = ClockWidget.fields(ClockWidget.resolve(ClockWidget.defaults.with(Common.TIME_FORMAT, "24")))
         assertTrue(h24.none { it is ShowField })
-        assertTrue(h24.any { it is ToggleField && it.key == ClockWidget.LEADING_ZERO })
+        assertTrue(h24.none { it is ToggleField && it.key == ClockWidget.LEADING_ZERO })
+        // Following a phone set to 24 hours is the same.
+        Common.phone24Hour = true
+        assertTrue(ClockWidget.fields(ClockWidget.resolve(ClockWidget.defaults)).none { it is ShowField })
+        assertTrue("AM / PM" in chips(ClockWidget, ClockWidget.defaults.with(Common.TIME_FORMAT, "12")))
+        Common.phone24Hour = false
         // Added fresh, a clock follows the phone's setting; one saved before the choice existed still keeps its 12 or 24 hours.
         assertEquals("phone", ClockWidget.resolve(ClockWidget.defaults)[Common.TIME_FORMAT])
         assertEquals("12", ClockWidget.resolve(Settings())[Common.TIME_FORMAT])

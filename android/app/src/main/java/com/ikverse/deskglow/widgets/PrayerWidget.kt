@@ -35,6 +35,7 @@ import com.ikverse.deskglow.data.PrayerDay
 import com.ikverse.deskglow.data.PrayerRepository
 import com.ikverse.deskglow.data.PrayerState
 import com.ikverse.deskglow.data.nextPrayer
+import com.ikverse.deskglow.data.placeTime
 import com.ikverse.deskglow.data.untilText
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
@@ -99,7 +100,8 @@ object PrayerWidget : WidgetType {
                 is PrayerState.Failed -> s.last ?: return@BoxWithConstraints EditorHint("No prayer times yet", h * 0.18f)
                 is PrayerState.Ready -> s.days
             }
-            val now = minute
+            // The times are the place's: a city picked in another time zone is read on its own clock.
+            val now = placeTime(days, minute)
             val next = nextPrayer(days, now) ?: return@BoxWithConstraints EditorHint("No prayer times yet", h * 0.18f)
             val direction = if (settings[Common.ARABIC]) LayoutDirection.Rtl else LayoutDirection.Ltr
             CompositionLocalProvider(LocalLayoutDirection provides direction) {

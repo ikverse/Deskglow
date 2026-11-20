@@ -209,7 +209,7 @@ fun MoreFontsSheet(kind: StyleKind, state: EditorState, graph: AppGraph, modifie
         }
     }
 
-    Column(modifier.background(Palette.Page).statusBarsPadding()) {
+    Column(modifier.blockTouches().background(Palette.Page).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(if (arabic) "More Arabic fonts" else "More fonts", fontSize = 17.sp, modifier = Modifier.weight(1f))
             TextButton(onClick = { state.moreFonts = null }) { Text("Cancel", color = Palette.Select, fontSize = 15.sp) }
@@ -248,7 +248,11 @@ fun MoreFontsSheet(kind: StyleKind, state: EditorState, graph: AppGraph, modifie
                                     state.set(keyOf(kind), picked.id)
                                     state.moreFonts = null
                                 }
-                                .onFailure { state.toast = Toast("Couldn't download ${font.family}. Check the connection.") }
+                                .onFailure {
+                                    // Closing the sheet cancels the download's coroutine: that is not a failed download.
+                                    if (it is kotlinx.coroutines.CancellationException) throw it
+                                    state.toast = Toast("Couldn't download ${font.family}. Check the connection.")
+                                }
                             downloading = null
                         }
                     }

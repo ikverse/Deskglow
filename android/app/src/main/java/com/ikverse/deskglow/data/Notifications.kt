@@ -1,5 +1,6 @@
 package com.ikverse.deskglow.data
 
+import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.service.notification.NotificationListenerService
@@ -32,7 +33,7 @@ object NotificationHub {
     private const val ICON_PX = 64
     private const val MAX_APPS = 12
 
-    internal val apps = MutableStateFlow<List<NotifiedApp>>(emptyList())
+    internal val apps = MutableStateFlow(NotificationState.Apps(emptyList()))
     private var watchers = 0
     private var service = WeakReference<NotificationWatcher>(null)
 
@@ -69,14 +70,15 @@ object NotificationHub {
     internal fun refresh(watcher: NotificationWatcher) {
         val active = runCatching { watcher.activeNotifications?.toList().orEmpty() }.getOrDefault(emptyList())
         val counts = notificationCounts(watcher.packageName, active)
-        apps.value = notifiedApps(watcher.packageName, active).take(MAX_APPS).map { sbn ->
+        val all = notifiedApps(watcher.packageName, active)
+        apps.value = NotificationState.Apps(all.take(MAX_APPS).map { sbn ->
             icons.getOrPut(sbn.packageName) {
                 val icon = runCatching {
                     sbn.notification.smallIcon?.loadDrawable(watcher)?.toBitmap(ICON_PX, ICON_PX)?.asImageBitmap()
                 }.getOrNull()
                 NotifiedApp(sbn.packageName, icon)
             }.copy(count = counts[sbn.packageName] ?: 1)
-        }
+        }, total = all.size)
     }
 
     /**
@@ -92,8 +94,9 @@ object NotificationHub {
     internal fun notificationCounts(ownPackage: String, active: List<StatusBarNotification>): Map<String, Int> =
         worthShowing(ownPackage, active).groupingBy { it.packageName }.eachCount()
 
+    // A bundle's summary is not a notification of its own: one message in a bundle is one, not two.
     private fun worthShowing(ownPackage: String, active: List<StatusBarNotification>) =
-        active.filter { !it.isOngoing && it.packageName != ownPackage }
+        active.filter { !it.isOngoing && it.packageName != ownPackage && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
 }
 
 /** The notification listener Android talks to. All it does is tell [NotificationHub] when things change. */
@@ -117,7 +120,7 @@ fun notificationUpdates(context: Context): Flow<NotificationState> = callbackFlo
         return@callbackFlow
     }
     NotificationHub.startWatching(context)
-    val job = launch { NotificationHub.apps.collectLatest { send(NotificationState.Apps(it)) } }
+    val job = launch { NotificationHub.apps.collectLatest { send(it) } }
     awaitClose {
         job.cancel()
         NotificationHub.stopWatching()

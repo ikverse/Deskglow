@@ -43,6 +43,9 @@ import com.ikverse.deskglow.data.countdownText
 import com.ikverse.deskglow.data.feedStatus
 import com.ikverse.deskglow.data.heldBack
 import com.ikverse.deskglow.data.trackRace
+import com.ikverse.deskglow.data.endedBy
+import com.ikverse.deskglow.data.F1LiveState
+import com.ikverse.deskglow.data.LiveSession
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.Settings
@@ -113,7 +116,9 @@ object F1ScheduleWidget : WidgetType {
                 is F1State.Ready -> s.data
             }
             val roughNow = minute.atZone(ZoneId.systemDefault()).toInstant()
-            val race = trackRace(data, roughNow) ?: return@BoxWithConstraints Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+            // A weekend whose session the feed says is still on (a red-flagged race past its slot) stays shown until the feed says it is over.
+            val onAir = feedStatus(data.races, pulse, roughNow - lag)?.takeIf { it.phase != LivePhase.PreStart }
+            val race = onAir?.let { f -> data.races.firstOrNull { f.session in it.sessions } } ?: trackRace(data, roughNow) ?: return@BoxWithConstraints Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 Text("No races scheduled", color = Muted, fontSize = pxToSp(hint * 1.4f), maxLines = 1)
             }
             // The countdown shows seconds only in the last hour, so only then is the second tick read.
@@ -125,7 +130,7 @@ object F1ScheduleWidget : WidgetType {
             } else roughNow - lag
             val h24 = when (settings[CLOCK]) { "12" -> false; "24" -> true; else -> phone24 }
             // The live-timing feed says whether the session is delayed or stopped, and that it is still on after its slot.
-            val plan = Plan(race, now, settings, h24, feedStatus(data.races, pulse, now))
+            val plan = Plan(race, now, settings, h24, feedStatus(data.races, pulse, now), (pulse as? F1LiveState.Result)?.session)
             val unit = canvasUnit(w, width)
             // Measured afresh when the settings or the weekend change, not as the countdown ticks.
             val key = listOf(settings, h24, race.name, plan.sessions.size, plan.chip != null)
@@ -140,7 +145,7 @@ object F1ScheduleWidget : WidgetType {
 }
 
 /** One weekend at one moment: which session is running or next, how each is shaded, and how times read. */
-private class Plan(val race: F1Race, val now: Instant, settings: Settings, h24: Boolean, fed: FeedStatus? = null) {
+private class Plan(val race: F1Race, val now: Instant, settings: Settings, h24: Boolean, fed: FeedStatus? = null, result: LiveSession? = null) {
     val colour = Color(settings[Common.COLOUR])
     val accent = Color(settings[F1ScheduleWidget.ACCENT])
     val dates = settings[F1ScheduleWidget.SHOW_DATES]
@@ -148,7 +153,8 @@ private class Plan(val race: F1Race, val now: Instant, settings: Settings, h24: 
     val sessions = F1ScheduleWidget.sessionsOf(race, settings)
     /** The session the feed says is on (delayed, stopped or running), else the one the calendar says is. */
     private val onAir = fed?.takeIf { it.phase != LivePhase.PreStart && it.session in sessions }
-    private val live = onAir?.session ?: sessions.firstOrNull { it.liveAt(now) }
+    // A session whose finished result is in is over, though the calendar's slot for it has not run out.
+    private val live = onAir?.session ?: sessions.firstOrNull { it.liveAt(now) && !endedBy(result, it) }
     private val next = sessions.firstOrNull { it.start.isAfter(now) }
     /** The session running, or else the next to start; lit in the accent colour. */
     val current = live ?: next
@@ -232,7 +238,7 @@ private fun ListLayout(plan: Plan, w: Float, h: Float, unit: Float) {
             Row(Modifier.fillMaxWidth().height(pxToDp(row)), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (newDay) plan.day(session) else "", color = Muted, fontSize = pxToSp(text * 0.8f), fontWeight = FontWeight.Medium,
-                    letterSpacing = 0.08.em, maxLines = 1, softWrap = false, modifier = Modifier.width(pxToDp(text * if (plan.dates) 5.4f else 2.6f)),
+                    letterSpacing = 0.08.em, maxLines = 1, softWrap = false, modifier = Modifier.width(pxToDp(text * if (plan.dates) 6.4f else 2.6f)),
                 )
                 Text(
                     shortKind(session.kind), color = shade, fontSize = pxToSp(text), fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,

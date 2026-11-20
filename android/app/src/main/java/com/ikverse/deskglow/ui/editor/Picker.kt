@@ -27,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,6 +70,9 @@ private fun categoryOf(id: String) = when {
 /** Dp per canvas unit that every preview is drawn at, so a clock and a stat are in true proportion to each other. */
 private const val PREVIEW_SCALE = 0.36f
 
+/** A screen laid over the editor takes every touch on it, so none reaches the canvas or the buttons beneath. */
+internal fun Modifier.blockTouches(): Modifier = pointerInput(Unit) { detectTapGestures { } }
+
 /**
  * The add-widget picker: every kind of widget drawn live, all at one scale, with a search box and
  * category chips to narrow them.
@@ -80,7 +85,7 @@ internal fun AddPicker(state: EditorState, modifier: Modifier) {
         (category == "All" || categoryOf(type.id) == category) &&
             (query.isBlank() || type.label.contains(query.trim(), ignoreCase = true) || type.blurb.contains(query.trim(), ignoreCase = true))
     }
-    Column(modifier.background(Palette.Sheet).statusBarsPadding()) {
+    Column(modifier.blockTouches().background(Palette.Sheet).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Add a widget", fontSize = Type.Heading, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f).padding(vertical = 14.dp))
             IconAction(Glyph.Close, "Close", { state.pickerOpen = false }, Modifier.testTag("close picker"), tint = Palette.Muted)

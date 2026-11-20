@@ -172,7 +172,8 @@ class F1Repository(
                 val fresh = runCatching { fetch(raw.takeIf { !needCalendar }, now) }.getOrNull()
                 val parsed = fresh?.let { runCatching { parseF1(it) }.getOrNull() }
                 if (fresh == null || parsed == null) {
-                    emit(F1State.Failed(data))
+                    // What was shown stays as it was, the circuit's outline with it.
+                    emit(F1State.Failed(data?.let(::withTrack)))
                     delay(RETRY_MS)
                     continue
                 }
@@ -200,7 +201,10 @@ class F1Repository(
         val weekend = data.races.any { now.isAfter(it.first.start.minus(Duration.ofDays(1))) && now.isBefore(it.race.end.plus(Duration.ofDays(1))) }
         if (nowMs - fetchedAt > if (weekend) WEEKEND_MS else DAY_MS) return true
         // Results reach the API a little after the flag, so look two hours on.
-        return data.races.any { val settled = it.race.end.plus(Duration.ofHours(2)).toEpochMilli(); settled in (fetchedAt + 1)..nowMs }
+        if (data.races.any { val settled = it.race.end.plus(Duration.ofHours(2)).toEpochMilli(); settled in (fetchedAt + 1)..nowMs }) return true
+        // Looked then, but the round was not in yet: look again every so often for a day or two, not only in six hours.
+        val settled = data.races.lastOrNull { !it.race.end.plus(Duration.ofHours(2)).isAfter(now) }
+        return settled != null && data.round < settled.round && now.isBefore(settled.race.end.plus(Duration.ofDays(2))) && nowMs - fetchedAt > SOON_MS
     }
 
     /** Everything, or everything but the calendar when [keep] still has a fresh one. */
@@ -235,6 +239,8 @@ class F1Repository(
         const val WEEKEND_MS = 6 * 60 * 60 * 1000L
         const val DAY_MS = 24 * 60 * 60 * 1000L
         const val CALENDAR_MS = 7 * DAY_MS
+        /** How often standings still missing a finished race's round are looked for again. */
+        const val SOON_MS = 30 * 60 * 1000L
     }
 }
 

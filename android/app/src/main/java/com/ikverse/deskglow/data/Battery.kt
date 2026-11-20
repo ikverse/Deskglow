@@ -24,11 +24,13 @@ fun batteryUpdates(context: Context, pollCurrent: Boolean = false): Flow<Battery
     val manager = context.getSystemService(BatteryManager::class.java)
     var latest: Intent? = null
 
+    val units = CurrentUnits.of(context)
+
     fun publish() {
         val intent = latest ?: return
         val raw = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: Int.MIN_VALUE
         val timeToFull = manager?.computeChargeTimeRemaining() ?: -1L
-        trySend(batteryState(intent, raw, timeToFull))
+        trySend(batteryState(intent, raw, timeToFull, units))
     }
 
     val receiver = object : BroadcastReceiver() {
@@ -64,10 +66,11 @@ fun currentBattery(context: Context): BatteryState {
         intent,
         manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: Int.MIN_VALUE,
         manager?.computeChargeTimeRemaining() ?: -1L,
+        CurrentUnits.of(context),
     )
 }
 
-internal fun batteryState(intent: Intent, rawCurrent: Int, timeToFullMs: Long): BatteryState {
+internal fun batteryState(intent: Intent, rawCurrent: Int, timeToFullMs: Long, units: CurrentUnits? = null): BatteryState {
     val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
     val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100).takeIf { it > 0 } ?: 100
     val status = chargeStatus(intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN))
@@ -78,7 +81,7 @@ internal fun batteryState(intent: Intent, rawCurrent: Int, timeToFullMs: Long): 
         plugged = plugged,
         voltageMv = normaliseVoltage(intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0)),
         temperatureTenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0),
-        currentMa = normaliseCurrent(rawCurrent),
+        currentMa = units?.toMilliamps(rawCurrent) ?: normaliseCurrent(rawCurrent),
         timeToFullMs = timeToFullMs.takeIf { it > 0 && status == ChargeStatus.Charging },
         plugSource = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0),
         healthCode = intent.getIntExtra(BatteryManager.EXTRA_HEALTH, 0),
@@ -100,10 +103,40 @@ internal fun normaliseVoltage(raw: Int): Int = if (raw in 1..99) raw * 1000 else
 /**
  * Android documents the current in microamps, but Samsung (and others) report milliamps. No phone
  * charges or drains at 10 A, so anything that large must be microamps. Returned as mA, positive.
- * Null where the phone does not report a current at all.
+ * Null where the phone does not report a current at all. With [microamps] known, a small reading
+ * (a phone nearly full, trickling 8 mA as 8000 µA) is read as microamps too.
  */
-internal fun normaliseCurrent(raw: Int): Int? = when {
+internal fun normaliseCurrent(raw: Int, microamps: Boolean = false): Int? = when {
     raw == Int.MIN_VALUE -> null
-    abs(raw) >= 10_000 -> abs(raw) / 1000
+    microamps || abs(raw) >= 10_000 -> abs(raw) / 1000
     else -> abs(raw)
+}
+
+/**
+ * Which unit this phone reports its current in. A reading of 10 000 or more can only be microamps, and
+ * once one has been seen it is remembered, so the small readings of a nearly full battery are not then
+ * taken for milliamps and shown a thousand times too large.
+ */
+internal class CurrentUnits(private val load: () -> Boolean, private val store: () -> Unit) {
+    @Volatile private var microamps: Boolean? = null
+
+    fun toMilliamps(raw: Int): Int? {
+        val known = microamps ?: load().also { microamps = it }
+        if (!known && raw != Int.MIN_VALUE && abs(raw) >= 10_000) {
+            microamps = true
+            store()
+        }
+        return normaliseCurrent(raw, microamps == true)
+    }
+
+    companion object {
+        @Volatile private var shared: CurrentUnits? = null
+
+        fun of(context: Context): CurrentUnits = shared ?: synchronized(this) {
+            shared ?: run {
+                val prefs = context.applicationContext.getSharedPreferences("battery", Context.MODE_PRIVATE)
+                CurrentUnits({ prefs.getBoolean("microamps", false) }, { prefs.edit().putBoolean("microamps", true).apply() })
+            }.also { shared = it }
+        }
+    }
 }

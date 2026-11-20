@@ -102,11 +102,13 @@ internal const val COVER_DELAY_MS = 5_000L
  * in a pocket when the display starts should not light up first.
  */
 internal suspend fun applyCoverDelay(covered: Flow<Boolean>, delayMs: Long, firstDelayMs: Long, setOff: (Boolean) -> Unit) {
+    // Only the sensor's very first reading: a first cover that comes after a clear reading is a hand, not a pocket.
     var first = true
     covered.distinctUntilChanged().collectLatest { isCovered ->
+        val quick = first
+        first = false
         if (isCovered) {
-            delay(if (first) firstDelayMs else delayMs)
-            first = false
+            delay(if (quick) firstDelayMs else delayMs)
             setOff(true)
         } else {
             setOff(false)
@@ -155,8 +157,9 @@ internal object DeskglowPresence {
         if (showing.remove(owner)) lastEnd = SystemClock.elapsedRealtime()
     }
 
+    // An always-on screen already closing (double-tapped away) is not showing, though it may not be destroyed yet.
     @Synchronized fun wasShowing(now: Long): Boolean =
-        showing.isNotEmpty() || alwaysOn?.get() != null || now - lastEnd <= GRACE_MS
+        showing.isNotEmpty() || alwaysOn?.get()?.isFinishing == false || now - lastEnd <= GRACE_MS
 
     @Synchronized fun registerAlwaysOn(activity: Activity) { alwaysOn = WeakReference(activity) }
 
@@ -229,9 +232,15 @@ class AlwaysOnService : Service() {
         }
     }
 
+    private var listening = false
+
     override fun onCreate() {
         super.onCreate()
-        goForeground()
+        // Android can refuse a foreground service started from the background; then this stops rather than crashing the app.
+        if (!goForeground()) {
+            stopSelf()
+            return
+        }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
@@ -240,6 +249,7 @@ class AlwaysOnService : Service() {
             addAction(Intent.ACTION_DREAMING_STOPPED)
         }
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        listening = true
         // Started while the screen is already off (after an update, say): show the display now.
         if (!getSystemService(PowerManager::class.java).isInteractive) screenOff()
     }
@@ -249,11 +259,22 @@ class AlwaysOnService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        goForeground()
+        if (!goForeground()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
 
-    private fun goForeground() {
+    /** Shows the service's notification and runs in the foreground; false if Android does not allow it just now. */
+    private fun goForeground(): Boolean = try {
+        startInForeground()
+        true
+    } catch (_: RuntimeException) {
+        false
+    }
+
+    private fun startInForeground() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, "Always on", NotificationManager.IMPORTANCE_MIN).apply { setShowBadge(false) },
@@ -317,7 +338,7 @@ class AlwaysOnService : Service() {
     }
 
     override fun onDestroy() {
-        unregisterReceiver(receiver)
+        if (listening) unregisterReceiver(receiver)
         scope.cancel()
         super.onDestroy()
     }

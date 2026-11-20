@@ -307,6 +307,22 @@ class PackerTest {
     }
 
     @Test
+    fun `a box pushed off the bottom while tidying goes to a free spot, never over another`() {
+        // B is pushed below A, off the canvas; pulled straight back up it would overlap A.
+        val tidied = Packer.tidy(listOf(Placed("a", Box(0, 300, 100, 112)), Placed("b", Box(0, 350, 100, 60))), Orientation.Landscape)
+        assertEquals(Box(0, 300, 100, 112), tidied.getValue("a"))
+        assertTidy(tidied.values, Orientation.Landscape)
+        assertEquals(2, tidied.size)
+    }
+
+    @Test
+    fun `a box larger than the canvas is brought onto it, and one with no room anywhere is left out`() {
+        val tidied = Packer.tidy(listOf(Placed("huge", Box(-50, 0, 2000, 900)), Placed("small", Box(0, 0, 40, 40))), Orientation.Landscape)
+        assertEquals(Box(0, 0, 848, 412), tidied.getValue("huge"))
+        assertNull(tidied["small"])
+    }
+
+    @Test
     fun `the window's shape picks the canvas`() {
         assertEquals(Orientation.Portrait, Orientation.of(412, 848))
         assertEquals(Orientation.Landscape, Orientation.of(848, 412))

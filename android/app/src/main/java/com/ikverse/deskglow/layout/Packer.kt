@@ -169,17 +169,45 @@ object Packer {
         )
     }
 
-    /** A layout saved before overlaps were prevented, tidied once: top to bottom, each steps aside from or drops below what it touches. */
+    /**
+     * A layout saved before overlaps were prevented (or written by hand), tidied once: each box is first
+     * brought onto the canvas, then top to bottom each steps aside from or drops below what it touches.
+     * One pushed off the bottom goes to the first free spot instead, from the top left. One with no free
+     * spot anywhere is left out of the result, so the caller can hide it rather than let it overlap.
+     */
     fun tidy(items: List<Placed>, orientation: Orientation = Orientation.Portrait): Map<String, Box> {
         val placed = ArrayList<Box>(items.size)
         val out = LinkedHashMap<String, Box>()
         for (item in items.sortedWith(compareBy({ it.box.y }, { it.box.x }))) {
-            var box = clear(item.box, placed, orientation.width)
-            box = box.copy(y = minOf(box.y, orientation.height - box.h).coerceAtLeast(0))
+            val start = onCanvas(item.box, orientation)
+            var box = clear(start, placed, orientation.width)
+            if (box.bottom > orientation.height) box = freeSpot(start.w, start.h, placed, orientation) ?: continue
             placed += box
             out[item.id] = box
         }
         return out
+    }
+
+    /** [box] no larger than the canvas and wholly on it. */
+    private fun onCanvas(box: Box, orientation: Orientation): Box {
+        val w = box.w.coerceIn(1, orientation.width)
+        val h = box.h.coerceIn(1, orientation.height)
+        return Box(box.x.coerceIn(0, orientation.width - w), box.y.coerceIn(0, orientation.height - h), w, h)
+    }
+
+    /** The first place, row by row from the top left on the [Stage.GRID], where a [w] by [h] box overlaps nothing in [placed]. */
+    private fun freeSpot(w: Int, h: Int, placed: List<Box>, orientation: Orientation): Box? {
+        var y = 0
+        while (y + h <= orientation.height) {
+            var x = 0
+            while (x + w <= orientation.width) {
+                val box = Box(x, y, w, h)
+                if (placed.none { it.overlaps(box) }) return box
+                x += Stage.GRID
+            }
+            y += Stage.GRID
+        }
+        return null
     }
 }
 

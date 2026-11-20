@@ -17,6 +17,7 @@ import com.ikverse.deskglow.data.NotificationState
 import com.ikverse.deskglow.data.PrayerRepository
 import com.ikverse.deskglow.data.PrayerState
 import com.ikverse.deskglow.data.alarmUpdates
+import com.ikverse.deskglow.data.hasLocationAccess
 import com.ikverse.deskglow.data.currentAlarm
 import com.ikverse.deskglow.data.UrlConnectionHttp
 import com.ikverse.deskglow.data.WeatherRepository
@@ -139,10 +140,10 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     }
 
     /** Named pairs of layouts the user saved, one file each. */
-    val snapshots by lazy { SnapshotRepository(File(app.filesDir, "snapshots")) }
+    val snapshots by lazy { SnapshotRepository(File(app.filesDir, "snapshots"), loadInBackground = true) }
     private val locationFinder = LocationFinder(app)
-    val weather = WeatherRepository(prefs, http, locate = locationFinder::locate)
-    val prayer = PrayerRepository(prefs, http, locate = locationFinder::locate)
+    val weather = WeatherRepository(prefs, http, locate = locationFinder::locate, canLocate = { hasLocationAccess(app) })
+    val prayer = PrayerRepository(prefs, http, locate = locationFinder::locate, canLocate = { hasLocationAccess(app) })
     val f1 = F1Repository(prefs, http)
     val f1Live = F1LiveRepository(prefs, F1LiveTimingFeed, http)
     val fontLibrary = FontLibrary(app, prefs, http)

@@ -28,6 +28,8 @@ object DateWidget : WidgetType {
     override val height = 24
     override val defaults: Settings = Common.base(0xFFD8D8D8).with(Common.ALIGN, "center")
     override val smallText = false
+    /** The date already fills its box: a main size over 100% would have nowhere to grow. */
+    override val mainGrows = false
 
     override fun fields(settings: Settings): List<Field> = buildList {
         add(StyleField("Font", FONT, StyleKind.Date))

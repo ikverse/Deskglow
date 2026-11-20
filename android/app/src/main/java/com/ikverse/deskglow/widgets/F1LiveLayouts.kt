@@ -489,7 +489,7 @@ private fun GlanceFace(b: Board, unit: Float) {
     val status = b.status
     val leader = session.rows.firstOrNull()
     val me = b.me?.takeIf { it !== leader }
-    val footer = if (b.live) b.news else b.next?.let { "Next · $it" }
+    val footer = if (b.live) b.news?.takeIf { b.settings[F1LiveWidget.NEWS] } else b.next?.let { "Next · $it" }
     val newsSlot = footer == null && b.live && b.settings[F1LiveWidget.NEWS] && LocalEditing.current
     val label = if (b.live) status.label else if (b.phase == LivePhase.Finished) "Finished" else "Result"
     val parts = listOfNotNull(
@@ -651,7 +651,7 @@ private fun FocusFace(b: Board, unit: Float) {
     }
     val tyreSlot = tyre == null && b.settings[F1LiveWidget.TYRES] && editing
     val showTop = b.settings[F1LiveWidget.SHOW_FLAG]
-    val news = if (b.live) b.news else b.next?.let { "Next · $it" }
+    val news = if (b.live) b.news?.takeIf { b.settings[F1LiveWidget.NEWS] } else b.next?.let { "Next · $it" }
     val newsSlot = news == null && b.live && b.settings[F1LiveWidget.NEWS] && editing
     val parts = listOfNotNull(FocusPart.Tyre.takeIf { tyre != null || tyreSlot }, FocusPart.News.takeIf { news != null || newsSlot })
     Fit(unit, fitKey(b, parts, me.code, ahead != null, behind != null, session.cutoff, showTop), arrangements = 2, levels = parts.size) { f ->
@@ -720,12 +720,13 @@ private fun FocusFace(b: Board, unit: Float) {
 
         @Composable
         fun Ahead() {
-            if (raceLike && ahead != null) NeighbourLine(b, ahead, gapText(me.interval), closingRate(me, ahead)?.takeIf { b.live }, behind = false, s, gap, f.probing)
+            // Ahead, the closing that matters is the followed car's on it; behind, that car's on the followed one.
+            if (raceLike && ahead != null) NeighbourLine(b, ahead, gapText(me.interval), closingRate(me, ahead)?.takeIf { b.live }, me.catching, behind = false, s, gap, f.probing)
         }
 
         @Composable
         fun Behind() {
-            if (raceLike && behind != null) NeighbourLine(b, behind, gapText(behind.interval), closingRate(behind, me)?.takeIf { b.live }, behind = true, s, gap, f.probing)
+            if (raceLike && behind != null) NeighbourLine(b, behind, gapText(behind.interval), closingRate(behind, me)?.takeIf { b.live }, behind.catching, behind = true, s, gap, f.probing)
             if (!raceLike) QualifyingFocus(b, me, s, f)
         }
 
@@ -756,10 +757,10 @@ private fun FocusFace(b: Board, unit: Float) {
 
 /** A car beside the followed one: its place and name, the gap, and how the gap is changing; the change lit green when it favours the followed car, red when it does not. */
 @Composable
-private fun NeighbourLine(b: Board, row: LiveRow, gap: String, rate: Double?, behind: Boolean, s: Scale, space: Float, probing: Boolean) {
+private fun NeighbourLine(b: Board, row: LiveRow, gap: String, rate: Double?, catching: Boolean, behind: Boolean, s: Scale, space: Float, probing: Boolean) {
     // Ahead: the followed car closing is good. Behind: that car closing is not.
-    val change = rate?.let(::gapChangeText) ?: if (b.live && row.catching) "closing" else ""
-    val closing = (rate ?: if (row.catching) 1.0 else 0.0) > 0.05
+    val change = rate?.let(::gapChangeText) ?: if (b.live && catching) "closing" else ""
+    val closing = (rate ?: if (catching) 1.0 else 0.0) > 0.05
     val shade = when {
         !closing -> Muted
         behind -> Loss
@@ -885,9 +886,17 @@ private fun LineFace(b: Board, unit: Float) {
         val px = f.scale.main
         val twoLines = f.arrangement == 1
 
+        // With "Flag and clock" off the state is left out; a lost signal is still said.
+        val stateShown = session.signalLost || b.settings[F1LiveWidget.SHOW_FLAG]
+
         @Composable
         fun RowScope.State() {
-            if (session.signalLost) StateChip("NO SIGNAL", Muted, px * 0.8f) else StateChip(short, if (b.status.filled) b.status.shade else if (b.live && b.phase == LivePhase.Running) b.accent else Muted, px * 0.8f)
+            if (session.signalLost) {
+                StateChip("NO SIGNAL", Muted, px * 0.8f)
+                return
+            }
+            if (!stateShown) return
+            StateChip(short, if (b.status.filled) b.status.shade else if (b.live && b.phase == LivePhase.Running) b.accent else Muted, px * 0.8f)
             if (b.status.detail.isNotEmpty()) {
                 Spacer(Modifier.width(pxToDp(px * 0.5f)))
                 Text(b.status.detail, color = b.colour, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
@@ -900,7 +909,7 @@ private fun LineFace(b: Board, unit: Float) {
         @Composable
         fun RowScope.Who() {
             if (leader != null) {
-                if (!twoLines) Text("  ·  ", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
+                if (!twoLines && stateShown) Text("  ·  ", color = Muted, fontSize = pxToSp(px), maxLines = 1, softWrap = false)
                 Text(driverName(leader, b.names), color = b.colour, fontSize = pxToSp(px), fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
                 val note = when {
                     b.live -> "leads"
@@ -936,7 +945,7 @@ private fun LineFace(b: Board, unit: Float) {
             }
         }
 
-        if (twoLines) {
+        if (twoLines && stateShown) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) { State() }
                 Spacer(Modifier.height(pxToDp(px * 0.35f * f.scale.space)))

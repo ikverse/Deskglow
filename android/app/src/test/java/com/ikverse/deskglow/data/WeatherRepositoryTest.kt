@@ -55,6 +55,45 @@ class WeatherRepositoryTest {
     }
 
     @Test
+    fun `with location no longer allowed, a city found before gives way to the one picked by name`() = runBlocking {
+        val prefs = prefs()
+        prefs.setAutoLocation(true)
+        prefs.setDetectedCity(City("London", "UK", 51.5, -0.12))
+        val http = CountingHttp(forecast)
+        val state = withTimeout(10_000) {
+            WeatherRepository(prefs, http, { 1_000L }, locate = { null }, canLocate = { false }).updates().first { it is WeatherState.Ready } as WeatherState.Ready
+        }
+        assertEquals(cairo, state.city)
+    }
+
+    @Test
+    fun `the sun's times say whether it is day, and without them the reading's own flag does`() {
+        val w = Weather(20.0, 0, isDay = true, 25.0, 15.0, 0, sunrise = java.time.LocalDateTime.of(2026, 10, 10, 5, 42), sunset = java.time.LocalDateTime.of(2026, 10, 10, 17, 30))
+        assertEquals(false, w.isDayAt(java.time.LocalDateTime.of(2026, 10, 10, 17, 45)))
+        assertEquals(true, w.isDayAt(java.time.LocalDateTime.of(2026, 10, 10, 12, 0)))
+        assertEquals(false, w.copy(isDay = false).isDayAt(java.time.LocalDateTime.of(2026, 10, 11, 12, 0))) // another day's times say nothing
+        assertEquals(true, w.copy(sunrise = null).isDayAt(java.time.LocalDateTime.of(2026, 10, 10, 23, 0)))
+    }
+
+    @Test
+    fun `past midnight with no connection, yesterday's answer still gives today's prayer times`() = runBlocking {
+        val prefs = prefs()
+        val day = """{"code":200,"data":{"timings":{"Fajr":"04:27","Sunrise":"05:49","Dhuhr":"11:40","Asr":"15:00","Maghrib":"17:31","Isha":"18:48"},"meta":{"timezone":"Africa/Cairo"}}}"""
+        var online = true
+        val http = object : Http {
+            override fun get(url: String): ByteArray = if (online) day.toByteArray() else throw java.io.IOException("offline")
+        }
+        var today = java.time.LocalDate.of(2026, 10, 7)
+        val first = withTimeout(10_000) { PrayerRepository(prefs, http, { today }).updates(5, 0).first { it is PrayerState.Ready } as PrayerState.Ready }
+        assertEquals(java.time.ZoneId.of("Africa/Cairo"), first.days[0].zone)
+        online = false
+        today = today.plusDays(1)
+        val later = withTimeout(10_000) { PrayerRepository(prefs, http, { today }).updates(5, 0).first { it is PrayerState.Failed } as PrayerState.Failed }
+        assertEquals(true, later.last?.any { it.date == today })
+        assertEquals(java.time.ZoneId.of("Africa/Cairo"), later.last?.first()?.zone) // kept with the times
+    }
+
+    @Test
     fun `an answer kept before the hours were asked for is fetched again at once`() = runBlocking {
         val prefs = prefs()
         prefs.weatherCache = """{"city":${org.json.JSONObject.quote(cairo.toJson())},"weather":{"t":20.0,"code":1,"day":true,"hi":25.0,"lo":15.0,"at":1000}}"""

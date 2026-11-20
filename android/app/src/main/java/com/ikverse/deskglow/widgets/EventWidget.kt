@@ -123,7 +123,14 @@ object EventWidget : WidgetType {
                             color = Muted, fontSize = pxToSp(s.second * 1.05f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align),
                         )
                     }
-                    if (event != null && settings[SHOW_TIME] && settings[SHOW_LOCATION] && event.location.isBlank()) {
+                    // With the time off, the place has a line of its own.
+                    if (event != null && !settings[SHOW_TIME] && settings[SHOW_LOCATION] && event.location.isNotBlank()) {
+                        Text(
+                            f.sample(event.location, 30),
+                            color = Muted, fontSize = pxToSp(s.second * 1.05f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign(align),
+                        )
+                    }
+                    if (event != null && settings[SHOW_LOCATION] && event.location.isBlank()) {
                         EditorSlot("Location", s.small * 0.95f)
                     }
                     if (event != null && settings[SHOW_PROGRESS] && !running) {
@@ -209,10 +216,11 @@ private fun Agenda(events: List<EventState.Next>, now: LocalDateTime, h24: Boole
     }
 }
 
-/** "8:30 PM" today, "Fri 9:00 AM" another day, "All day" for a whole day. */
+/** "8:30 PM" today, "Fri 9:00 AM" another day, "All day" for a whole day today and "Fri all day" for one later. */
 fun agendaTime(event: EventState.Next, now: LocalDateTime, h24: Boolean): String {
-    if (event.allDay) return "All day"
+    // An event under way since an earlier day is today's.
+    val sameDay = !event.start.toLocalDate().isAfter(now.toLocalDate())
+    if (event.allDay) return if (sameDay) "All day" else event.start.format(DateTimeFormatter.ofPattern("EEE", Locale.UK)) + " all day"
     val time = DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US)
-    val sameDay = event.start.toLocalDate() == now.toLocalDate()
     return if (sameDay) event.start.format(time) else event.start.format(DateTimeFormatter.ofPattern("EEE", Locale.UK)) + " " + event.start.format(time)
 }

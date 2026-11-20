@@ -55,6 +55,7 @@ import com.ikverse.deskglow.data.weekendViewWithFeed
 import com.ikverse.deskglow.data.feedStatus
 import com.ikverse.deskglow.data.teamColour
 import com.ikverse.deskglow.data.weekendView
+import com.ikverse.deskglow.data.endedBy
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.Settings
@@ -137,8 +138,18 @@ object F1WeekendWidget : WidgetType {
                 is F1State.Ready -> s.data
             }
             val roughNow = minute.atZone(ZoneId.systemDefault()).toInstant()
-            // Seconds only matter in the last hour before a session, so only then is the second tick read.
-            val view = weekendView(data, roughNow)
+            val raceOnly = settings[COUNT_TO] == "race"
+            // The session the feed has the finished result of is over, though its calendar slot is not.
+            val ended = (pulse as? F1LiveState.Result)?.session
+            fun countedAt(at: Instant) = weekendView(data, at).let { v ->
+                if (v !is WeekendView.Upcoming) v
+                else v.copy(
+                    live = v.live?.takeIf { !endedBy(ended, it) },
+                    next = if (raceOnly) v.race.race.takeIf { it.start.isAfter(at) } else v.next,
+                )
+            }
+            // Seconds only matter in the last hour before the session counted down to, so only then is the second tick read.
+            val view = countedAt(roughNow)
             val fine = view is WeekendView.Upcoming && view.next != null && Duration.between(roughNow, view.next.start) < Duration.ofMinutes(61)
             val now = if (fine) {
                 val second by feeds.second.collectAsStateWithLifecycle()
@@ -146,15 +157,19 @@ object F1WeekendWidget : WidgetType {
             } else roughNow - lag
             // The live-timing feed (read above) says whether a session is on, delayed or stopped, and has the results; it is asked for only a few topics, and only while a session runs.
             val latest = if (settings[BETWEEN] == "top3") (pulse as? F1LiveState.Result)?.session else null
-            val counted = weekendView(data, now).let { v ->
-                if (settings[COUNT_TO] == "race" && v is WeekendView.Upcoming) v.copy(next = v.race.race.takeIf { it.start.isAfter(now) }) else v
-            }
+            val counted = countedAt(now)
             val shown = weekendViewWithFeed(counted, data.races, feedStatus(data.races, pulse, now))
             val favourite = effectiveFavourite(settings[FAVOURITE], app.driver)
+            // Following only a team (no driver, or one not in the standings yet), its colour is the team's.
+            val team = if (data.drivers.none { it.id == favourite }) app.team else ""
             val styled = settings.with(FAVOURITE, favourite).let { s ->
-                if (settings[TEAM_ACCENT]) favouriteColour(data, favourite, "")?.let { s.with(ACCENT, it) } ?: s else s
+                if (settings[TEAM_ACCENT]) favouriteColour(data, favourite, team)?.let { s.with(ACCENT, it) } ?: s else s
             }
-            WeekendFace(styled, data, shown, sessionTop(data.races, latest, now), now)
+            // With the race only counted down to, the top 3 points to the next race rather than the next session.
+            val top = sessionTop(data.races, latest, now)?.let { t ->
+                if (!raceOnly) t else data.races.firstOrNull { it.race.start.isAfter(now) }.let { r -> t.copy(nextRace = r, next = r?.race) }
+            }
+            WeekendFace(styled, data, shown, top, now, raceOnly)
         }
     }
 }
@@ -164,7 +179,12 @@ private class Look(
     val colour: Color, val accent: Color, val favourite: String, val start: ((F1Session) -> String)? = null, val note: String? = null,
     /** Pixels to a canvas unit, and what the words are measured afresh for (see [Fit]). */
     val unit: Float = 1f, val key: Any? = null,
-)
+    /** Counting down to the race only: a weekend still to come is counted to its race, not its first session. */
+    val raceOnly: Boolean = false,
+) {
+    /** The session of [race] a countdown to that weekend counts to. */
+    fun countedOf(race: F1Race): F1Session = if (raceOnly) race.race else race.first
+}
 
 /** The badge for a session on: "LIVE", or what the feed says it is. */
 private fun badgeOf(view: WeekendView.Upcoming, look: Look): Pair<String, Color> = when (view.feed?.phase) {
@@ -208,7 +228,7 @@ private fun placesText(places: List<Place>) = places.joinToString("  ") { "${it.
  * outline has arrived. [sessionTop], when given, is shown in place of the countdown until a race's podium is in.
  */
 @Composable
-private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, sessionTop: SessionTop?, now: Instant) {
+private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, sessionTop: SessionTop?, now: Instant, raceOnly: Boolean = false) {
     val h24 = Common.use24Hour(settings)
     val startText: ((F1Session) -> String)? = if (settings[F1WeekendWidget.SHOW_START]) ({ session: F1Session -> startLabel(session, h24) }) else null
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -216,13 +236,13 @@ private fun WeekendFace(settings: Settings, data: F1Data, view: WeekendView, ses
         val w = constraints.maxWidth.toFloat()
         // A delayed session says when it is to start, as race control has announced it.
         val note = (view as? WeekendView.Upcoming)?.feed?.takeIf { it.phase == LivePhase.Delayed }?.live?.let { l ->
-            l.restart?.let { "${l.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }
+            l.restartAfter(now)?.let { "${l.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }
         }
         // Measured afresh when the settings or the kind of view change, not as a countdown ticks.
         val key = listOf(settings, view.javaClass, (view as? WeekendView.Upcoming)?.live != null, sessionTop != null, note != null, h24)
         val look = Look(
             Color(settings[Common.COLOUR]), Color(settings[F1WeekendWidget.ACCENT]), settings[F1WeekendWidget.FAVOURITE], startText, note,
-            canvasUnit(w, F1WeekendWidget.width), key,
+            canvasUnit(w, F1WeekendWidget.width), key, raceOnly,
         )
         // A race's podium, once it has arrived, wins over its top 3 from timing.
         val top = sessionTop?.takeIf { view !is WeekendView.AfterRace }
@@ -394,7 +414,7 @@ private fun HeroContent(view: WeekendView, top: SessionTop?, now: Instant, look:
                 }
                 is WeekendView.AfterRace -> Table(
                     view.result.raceName, "Result", placesOf(view.result),
-                    view.next?.let { next -> "Next · ${next.name} · in ${countdownText(now, next.first.start)}" },
+                    view.next?.let { next -> "Next · ${next.name} · in ${countdownText(now, look.countedOf(next).start)}" },
                 )
             }
         }
@@ -454,7 +474,7 @@ private fun CountdownContent(view: WeekendView, top: SessionTop?, data: F1Data, 
                     if (next == null) {
                         Podium(view.result, null, data, now, look, small, big, spread = false)
                     } else {
-                        BlocksWithLine(next, next.first, "${view.result.raceName} · ${placesText(placesOf(view.result))}")
+                        BlocksWithLine(next, look.countedOf(next), "${view.result.raceName} · ${placesText(placesOf(view.result))}")
                     }
                 }
             }
@@ -621,7 +641,7 @@ private fun PodiumEntry(place: Place, look: Look, px: Float) {
 @Composable
 private fun Podium(result: F1Result, next: F1Race?, data: F1Data, now: Instant, look: Look, small: Float, big: Float, spread: Boolean) {
     val after = when {
-        next != null -> "Next · ${next.name} · in ${countdownText(now, next.first.start)}"
+        next != null -> "Next · ${next.name} · in ${countdownText(now, look.countedOf(next).start)}"
         data.races.any { it.round == result.round } -> "Season complete"
         else -> null
     }

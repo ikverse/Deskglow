@@ -61,8 +61,10 @@ fun WidgetHost(graph: AppGraph, content: @Composable () -> Unit) {
 fun DisplayContent(layout: Layout, burnIn: Boolean, modifier: Modifier = Modifier, orientation: Orientation = Orientation.Portrait) {
     val minute = LocalFeeds.current.minute.collectAsStateWithLifecycle()
     BoxWithConstraints(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        val unit = min(constraints.maxWidth / orientation.width.toFloat(), constraints.maxHeight / orientation.height.toFloat())
         val density = LocalDensity.current
+        // With the drift on, the canvas is drawn a drift's width in from every edge, so a widget against an edge is never cut off.
+        val margin = if (burnIn) 2 * MAX_SHIFT_DP * density.density else 0f
+        val unit = min((constraints.maxWidth - margin) / orientation.width.toFloat(), (constraints.maxHeight - margin) / orientation.height.toFloat())
         // The canvas is a drawing in fixed coordinates, not text: it is never mirrored for a right-to-left
         // phone, or every widget would swap sides and "left" would mean right.
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -123,6 +125,9 @@ val WidgetTextStyle = TextStyle(
     lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
     platformStyle = PlatformTextStyle(includeFontPadding = false),
 )
+
+/** The furthest [SHIFTS] moves the layout from the centre, in dp. */
+private const val MAX_SHIFT_DP = 4f
 
 /** Eight resting places on a small circle, one per minute: about 4 dp from the centre at most. */
 private val SHIFTS = listOf(0f to 0f, 3f to -2f, 4f to 1f, 2f to 4f, -2f to 4f, -4f to 1f, -3f to -2f, 0f to -4f)

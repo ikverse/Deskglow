@@ -468,6 +468,73 @@ class EditorStateTest {
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }
 
+    @Test
+    fun `undoing a copy also removes the empty screens it added to reach this screen's number`() {
+        val dir = java.nio.file.Files.createTempDirectory("copy").toFile()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+        val target = com.ikverse.deskglow.store.LayoutRepository(java.io.File(dir, "l.json"), scope, kotlinx.coroutines.Dispatchers.Unconfined, Orientation.Landscape) { Layout(emptyList()) }
+        val pages = mutableListOf(Layout(listOf(WidgetItem("w1", "clock", Box(0, 0, 100, 40)))))
+        // The editor is on screen 3: copying first makes the other orientation's screens 2 and 3.
+        val s = EditorState(DefaultLayout.create(), Orientation.Portrait, target, beforeCopy = { while (pages.size < 3) pages += Layout(emptyList()) }, screenTarget = screens(pages)) {}
+        s.copyToOther()
+        assertEquals(3, pages.size)
+        s.toast!!.undo!!()
+        assertEquals(1, pages.size)
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
+    @Test
+    fun `a toast's undo does not step back through history when the layout only came back to the same value`() {
+        val clock = state.layout.items.first { it.type == "clock" }
+        state.delete(clock.id)
+        val undoDelete = state.toast!!.undo!!
+        // Something else changes and changes back: the layout equals what it was just after the delete.
+        val date = state.layout.items.first { it.type == "date" }
+        state.select(date.id)
+        state.set(Common.COLOUR, 0xFF112233.toInt())
+        Thread.sleep(1_100) // past the merge window, so the second change is its own step
+        state.set(Common.COLOUR, date.settings[Common.COLOUR])
+        undoDelete()
+        assertNotNull(state.layout.find(clock.id))
+    }
+
+    @Test
+    fun `a cancelled picker puts the widget back and leaves nothing to undo`() {
+        val date = state.layout.items.first { it.type == "date" }
+        state.select(date.id)
+        val before = state.layout
+        val canUndoBefore = state.canUndo
+        val mark = state.mark()
+        state.set(Common.COLOUR, 0xFF112233.toInt())
+        Thread.sleep(1_100)
+        state.set(Common.COLOUR, 0xFF445566.toInt())
+        state.revert(mark)
+        assertEquals(before, state.layout)
+        assertEquals(canUndoBefore, state.canUndo)
+    }
+
+    @Test
+    fun `a colour and accent set together are one step back`() {
+        val ring = state.layout.items.first { it.type == "ring" }
+        state.select(ring.id)
+        val before = state.layout
+        state.set(Common.COLOUR, 0xFF112233.toInt(), com.ikverse.deskglow.widgets.RingWidget.ACCENT, 0xFF445566.toInt())
+        state.undo()
+        assertEquals(before, state.layout)
+    }
+
+    @Test
+    fun `the hex field takes a colour with or without hash and spaces, reads an eight-digit one, and refuses the rest`() {
+        assertEquals("#44B98A" to 0xFF44B98A.toInt(), hexTyped(" #44b98a "))
+        assertEquals("#44B98A" to 0xFF44B98A.toInt(), hexTyped("44B98A"))
+        assertEquals("#44B98A" to 0xFF44B98A.toInt(), hexTyped("#8044B98A")) // with its opacity, as other apps copy it
+        assertEquals("-FFFFF" to null, hexTyped("-FFFFF"))
+        assertEquals("#000000" to null, hexTyped("#000000")) // lost on the black display
+        assertEquals("#44B9" to null, hexTyped("#44B9")) // still being typed
+        assertNull(hexTyped("#1234567890"))
+        assertNull(com.ikverse.deskglow.model.parseHexColour("+12345"))
+    }
+
     /** A stand-in for the other orientation's screens, holding [pages] and refusing more than [limit]. */
     private fun screens(pages: MutableList<Layout>, limit: Int = 5) = ScreenTarget(
         add = { if (pages.size >= limit) null else { pages += it; pages.lastIndex } },

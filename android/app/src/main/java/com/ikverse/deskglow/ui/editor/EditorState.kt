@@ -109,6 +109,11 @@ class EditorState(
         private set
     /** The layout as a drag began; it becomes a history step on the drag's first change, so a drag that moves nothing leaves none. */
     private var dragBase: Layout? = null
+    /**
+     * Counts every change to the layout. A toast's Undo steps straight back through the history only when
+     * nothing has changed since its action: a layout that merely came back to the same value does not count.
+     */
+    private var revision = 0
     /** The last setting changed and when, so a slider dragged through many values is one step. */
     private var lastMerge: Pair<String, Long>? = null
 
@@ -139,6 +144,7 @@ class EditorState(
     }
 
     private fun goTo(target: Layout) {
+        revision++
         layout = target
         save(target)
         lastMerge = null
@@ -158,6 +164,7 @@ class EditorState(
     /** [mergeKey]: changes in quick succession under the same key share one history step. */
     private fun commit(next: Layout, mergeKey: String? = null) {
         if (next != layout) {
+            revision++
             val now = System.currentTimeMillis()
             val base = dragBase
             when {
@@ -230,14 +237,20 @@ class EditorState(
         }
         val previous = moved.mapValues { (id, _) -> layout.find(id)!!.box }
         commit(layout.withBoxes(boxes))
-        val after = layout
+        val after = revision
         // Straight back through the history if nothing else has changed since; otherwise move just these back.
-        toast = Toast("Aligned ${members.size} widgets", undo = { if (layout == after) undo() else commit(layout.withBoxes(previous)) })
+        toast = Toast("Aligned ${members.size} widgets", undo = { if (revision == after) undo() else commit(layout.withBoxes(previous)) })
     }
 
     /** Moves every visible widget's corners onto the nearest dots of the background grid. Undo moves them back. */
     fun snapAllToGrid() {
-        val boxes = Packer.snapToGrid(visiblePlaced(), orientation)
+        val visible = visiblePlaced()
+        val boxes = Packer.snapToGrid(visible, orientation)
+        // Snapping can make small widgets larger; if that leaves one with no room, nothing is snapped.
+        if (boxes.size < visible.size) {
+            toast = Toast(NO_ROOM_TO_SNAP)
+            return
+        }
         val moved = boxes.filter { (id, box) -> layout.find(id)?.box != box }
         if (moved.isEmpty()) {
             toast = Toast("Already on the grid")
@@ -245,8 +258,8 @@ class EditorState(
         }
         val previous = moved.mapValues { (id, _) -> layout.find(id)!!.box }
         commit(layout.withBoxes(boxes))
-        val after = layout
-        toast = Toast("Snapped ${moved.size} widgets to grid", undo = { if (layout == after) undo() else commit(layout.withBoxes(previous)) })
+        val after = revision
+        toast = Toast("Snapped ${moved.size} widgets to grid", undo = { if (revision == after) undo() else commit(layout.withBoxes(previous)) })
     }
 
     /** Which arrangement Auto-arrange shows next; every press moves on to a different one. */
@@ -269,10 +282,10 @@ class EditorState(
         }
         val arranged = result ?: return
         commit(arranged.layout)
-        val after = layout
+        val after = revision
         val note = if (arranged.hidden > 0) " ${arranged.hidden} did not fit and ${if (arranged.hidden == 1) "was" else "were"} hidden." else ""
         // Straight back through the history if nothing else has changed since; otherwise put the old layout back.
-        toast = Toast("Arranged: ${arranged.name}.$note", undo = { if (layout == after) undo() else commit(before) })
+        toast = Toast("Arranged: ${arranged.name}.$note", undo = { if (revision == after) undo() else commit(before) })
     }
 
     // ---- dragging: every step is worked out from where everything was when the drag began ----
@@ -358,9 +371,9 @@ class EditorState(
         commit(Layout(layout.items.toMutableList().apply { add(index + 1, copy) }).withBoxes(boxes))
         justAdded = newId
         select(newId)
-        val after = layout
+        val after = revision
         toast = Toast("${titleOf(copy)} duplicated", undo = {
-            if (layout == after) undo() else {
+            if (revision == after) undo() else {
                 commit(Layout(layout.items.filter { it.id != newId }))
                 groupIds -= newId
                 if (selectedId == newId) select(null)
@@ -375,10 +388,10 @@ class EditorState(
         commit(Layout(layout.items.filterIndexed { i, _ -> i != index }))
         groupIds -= id
         if (selectedId == id) select(null)
-        val after = layout
+        val after = revision
         // Straight back through the history if nothing else has changed since; otherwise put it back where it was.
         toast = Toast("${titleOf(item)} deleted", undo = {
-            if (layout == after) {
+            if (revision == after) {
                 undo()
                 select(item.id)
             } else restore(item, index)
@@ -422,17 +435,46 @@ class EditorState(
         commit(layout.replace(item.copy(settings = next)), mergeKey = "${item.id}:${key.name}")
     }
 
+    /** Two settings changed as one step (a colour and its accent picked as a pair): one Undo takes both back. */
+    fun <A : Any, B : Any> set(first: Key<A>, firstValue: A, second: Key<B>, secondValue: B) {
+        val item = selected ?: return
+        val type = typeOf(item) ?: return
+        val next = type.normalise(settingsOf(item).with(first, firstValue).with(second, secondValue))
+        commit(layout.replace(item.copy(settings = next)), mergeKey = "${item.id}:${first.name}+${second.name}")
+    }
+
+    /** Where the history stands, so a dialog that is cancelled can put things back as they were with no step left behind. */
+    class Mark internal constructor(internal val steps: Int, internal val layout: Layout)
+
+    fun mark(): Mark = Mark(undoStack.size, layout)
+
+    /** Back to [mark], dropping the steps taken since rather than adding one more. */
+    fun revert(mark: Mark) {
+        if (dragId != null || layout == mark.layout) return
+        while (undoStack.size > mark.steps) undoStack.removeLast()
+        redoStack.clear()
+        goTo(mark.layout)
+    }
+
     /** Replaces the other orientation's layout with this one rearranged to suit it. Undo puts the old one back. */
     fun copyToOther() {
         copyConfirm = false
         val target = copyTarget ?: return
+        val screensBefore = screenTarget?.count()
         beforeCopy()
         val before = target.layout.value
         val converted = Retarget.convert(layout, orientation, orientation.other)
         target.update(converted.layout)
         val name = orientation.other.name.lowercase()
         val note = if (converted.hidden > 0) " ${converted.hidden} did not fit and ${if (converted.hidden == 1) "was" else "were"} hidden." else ""
-        toast = Toast("Copied to $name.$note", undo = { target.update(before) })
+        toast = Toast("Copied to $name.$note", undo = {
+            target.update(before)
+            // The copy may have added empty screens to reach this screen's number: those go again, if still empty.
+            val screens = screenTarget
+            if (screens != null && screensBefore != null) {
+                while (screens.count() > screensBefore && screens.read(screens.count() - 1).items.isEmpty()) screens.remove(screens.count() - 1)
+            }
+        })
     }
 
     /**
@@ -467,6 +509,7 @@ class EditorState(
     companion object {
         const val NO_ROOM = "No room for it. Shrink or remove a widget first."
         const val NO_ALIGN = "Those would overlap. Try another alignment."
+        const val NO_ROOM_TO_SNAP = "No room to snap everything to the grid. Shrink or remove a widget first."
 
         /** How many steps back the history keeps. */
         const val HISTORY_LIMIT = 50

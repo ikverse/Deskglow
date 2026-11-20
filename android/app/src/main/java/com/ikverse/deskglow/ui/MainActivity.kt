@@ -35,6 +35,7 @@ import com.ikverse.deskglow.display.WidgetHost
 import com.ikverse.deskglow.graph
 import com.ikverse.deskglow.model.Orientation
 import com.ikverse.deskglow.ui.editor.EditorScreen
+import com.ikverse.deskglow.widgets.Common
 
 enum class Screen { Home, Editor, EditorLandscape, AutoStart, AlwaysOn, Permissions, City, F1, Brightness, Snapshots, About }
 
@@ -55,6 +56,12 @@ class MainActivity : ComponentActivity() {
         // does not send the app back to the editor from wherever it had got to.
         val edit = if (savedInstanceState == null) intent.editRequest() else null
         setContent { DeskglowTheme { App(edit?.first ?: Screen.Home, edit?.second ?: 0) } }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Settings sheets offer only what has an effect, which for a clock following the phone depends on this.
+        Common.phone24Hour = android.text.format.DateFormat.is24HourFormat(this)
     }
 }
 

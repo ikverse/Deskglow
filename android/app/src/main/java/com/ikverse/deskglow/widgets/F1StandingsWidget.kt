@@ -90,11 +90,16 @@ object F1StandingsWidget : WidgetType {
     override fun note(settings: Settings) = "F1 data from the Jolpica F1 API (api.jolpi.ca). Not affiliated with Formula 1."
 
     /** "341", "341.5", or for the gap "−24" ("—" for the leader). */
-    fun valueText(points: Double, leader: Double, gap: Boolean): String {
+    fun valueText(points: Double, leader: Double, gap: Boolean, first: Boolean = true): String {
         fun fmt(v: Double) = if (v % 1.0 == 0.0) String.format(Locale.US, "%d", v.toLong()) else String.format(Locale.US, "%.1f", v)
         if (!gap) return fmt(points)
         val behind = leader - points
-        return if (behind <= 0.0) "—" else "−" + fmt(behind)
+        // Level on points with the one it is counted from is a tie ("="), not the lead ("—").
+        return when {
+            behind > 0.0 -> "−" + fmt(behind)
+            first -> "—"
+            else -> "="
+        }
     }
 
     @Composable
@@ -113,30 +118,34 @@ object F1StandingsWidget : WidgetType {
             val entries = if (teams) data.constructors else data.drivers
             if (entries.isEmpty()) return@BoxWithConstraints EditorHint("Standings start after the first race", min(h * 0.1f, w * 0.08f))
             val favourite = effectiveFavourite(settings[if (teams) FAV_TEAM else FAV_DRIVER], if (teams) app.team else app.driver)
-            val (top, extra) = standingRows(entries, if (teams) data.previousConstructors else data.previousDrivers, settings[ROWS], favourite)
+            val previous = if (teams) data.previousConstructors else data.previousDrivers
+            var rows = standingRows(entries, previous, settings[ROWS], favourite)
 
             val colour = Color(settings[Common.COLOUR])
             val accent = Color((if (settings[TEAM_ACCENT]) (if (teams) favouriteColour(data, "", favourite) else favouriteColour(data, favourite, "")) else null) ?: settings[ACCENT])
             val unit = canvasUnit(w, width)
             val columnGap = w * 0.06f
             // Rows are left off the bottom until one is tall enough to read; two columns wherever they make the rows taller.
-            fun rowFor(n: Int, two: Boolean): Float {
+            fun rowFor(n: Int, two: Boolean, extra: Boolean): Float {
                 val columnW = if (two) (w - columnGap) / 2 else w
-                val slots = (if (two) (n + 1) / 2 else n) + 1.2f + (if (extra != null) 1.3f else 0f)
+                val slots = (if (two) (n + 1) / 2 else n) + 1.2f + (if (extra) 1.3f else 0f)
                 return min(min(h / slots, columnW * 0.16f), Fitting.LARGEST_ROW * unit)
             }
-            fun arrange(n: Int): Pair<Boolean, Float> {
-                val one = rowFor(n, false)
-                val two = if (n > 5) rowFor(n, true) else 0f
+            fun arrange(n: Int, extra: Boolean): Pair<Boolean, Float> {
+                val one = rowFor(n, false, extra)
+                val two = if (n > 5) rowFor(n, true, extra) else 0f
                 return if (two > one * 1.05f) true to two else false to one
             }
-            var count = top.size
-            var (twoColumns, row) = arrange(count)
+            var count = rows.first.size
+            var (twoColumns, row) = arrange(count, rows.second != null)
+            // Rows left off to fit are worked out again each time, so a favourite they push off the table comes back as the extra row.
             while (row < Fitting.SMALLEST_ROW * unit && count > 3) {
                 count--
-                arrange(count).let { twoColumns = it.first; row = it.second }
+                rows = standingRows(entries, previous, count, favourite)
+                arrange(count, rows.second != null).let { twoColumns = it.first; row = it.second }
             }
-            val shown = top.take(count)
+            val shown = rows.first
+            val extra = rows.second
             val (left, right) = if (twoColumns) standingColumns(shown) else shown to emptyList()
             val sizes = LocalTextSizes.current
             val text = rowText(row, 0.56f, sizes.main)
@@ -170,7 +179,7 @@ object F1StandingsWidget : WidgetType {
                         color = if (fav) accent else colour, fontSize = pxToSp(text), fontWeight = if (fav) FontWeight.Bold else FontWeight.Medium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
-                    Text(valueText(r.entry.points, reference(r), mode != "points"), color = if (fav) accent else Muted, fontSize = pxToSp(text * 0.92f), maxLines = 1, softWrap = false)
+                    Text(valueText(r.entry.points, reference(r), mode != "points", first = r.entry.id == entries.first().id), color = if (fav) accent else Muted, fontSize = pxToSp(text * 0.92f), maxLines = 1, softWrap = false)
                     if (moves) {
                         val move = r.move ?: 0
                         Text(

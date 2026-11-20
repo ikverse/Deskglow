@@ -57,6 +57,9 @@ interface WidgetType {
     /** Whether it has small text beside its main text, and so a "Small text size" slider. */
     val smallText: Boolean get() = true
 
+    /** Whether its main text can grow past 100%; one that already fills its box offers only smaller. */
+    val mainGrows: Boolean get() = true
+
     /** The controls in its settings sheet. May depend on the current settings (Arabic adds a numerals choice). */
     fun fields(settings: Settings): List<Field>
 
@@ -119,6 +122,17 @@ object Common {
     /** "phone" follows the phone's 12 or 24-hour setting. */
     val TIME_FORMAT = TextKey("timeFormat", "phone")
 
+    /**
+     * The phone's own 12 or 24-hour setting, as last seen by the app, for settings sheets (which have no
+     * context) to know what "Phone" means. Kept up to date by [use24Hour] and by the app's screens.
+     */
+    @Volatile
+    var phone24Hour: Boolean = false
+
+    /** Whether the choice stored at [key] reads as a 24-hour clock, by [phone24Hour] for "Phone". Not for drawing: see [use24Hour]. */
+    fun is24Hour(settings: Settings, key: TextKey = TIME_FORMAT): Boolean =
+        when (settings[key]) { "12" -> false; "24" -> true; else -> phone24Hour }
+
     fun timeFormatField(key: TextKey = TIME_FORMAT) =
         ChoiceField("Time format", key, listOf("phone" to "Phone", "12" to "12-hour", "24" to "24-hour"))
 
@@ -126,6 +140,7 @@ object Common {
     @Composable
     fun use24Hour(settings: Settings, key: TextKey = TIME_FORMAT): Boolean {
         val phone = DateFormat.is24HourFormat(LocalContext.current)
+        phone24Hour = phone
         return when (settings[key]) { "12" -> false; "24" -> true; else -> phone }
     }
 
@@ -136,7 +151,7 @@ object Common {
 
     /** The size sliders the settings sheet adds after a widget's own [WidgetType.fields]. */
     fun sizeFields(type: WidgetType): List<Field> = buildList {
-        add(SliderField("Main size", MAIN_SIZE, SIZE_RANGE, "%"))
+        add(SliderField("Main size", MAIN_SIZE, if (type.mainGrows) SIZE_RANGE else SIZE_RANGE.first..100, "%"))
         if (type.smallText) add(SliderField("Small text size", SMALL_SIZE, SIZE_RANGE, "%"))
     }
 

@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -74,23 +75,23 @@ object SunMoonWidget : WidgetType {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val h = constraints.maxHeight.toFloat()
             val w = constraints.maxWidth.toFloat()
-            val weather = when (val s = state) {
+            val (city, weather) = when (val s = state) {
                 WeatherState.NoCity -> return@BoxWithConstraints EditorHint("Set your city on the Home screen", h * 0.2f)
                 is WeatherState.Loading -> return@BoxWithConstraints EditorHint("Loading sun times…", h * 0.2f)
-                is WeatherState.Failed -> s.last ?: return@BoxWithConstraints EditorHint("No sun times yet", h * 0.2f)
-                is WeatherState.Ready -> s.weather
+                is WeatherState.Failed -> s.city to (s.last ?: return@BoxWithConstraints EditorHint("No sun times yet", h * 0.2f))
+                is WeatherState.Ready -> s.city to s.weather
             }
             val rise = weather.sunrise
             val set = weather.sunset
             if (rise == null || set == null) return@BoxWithConstraints EditorHint("Loading sun times…", h * 0.2f)
-            SunMoonFace(settings, rise, set, weather.cityTime(minute), minute, h24, w, h)
+            SunMoonFace(settings, rise, set, weather.cityTime(minute), minute, h24, w, h, south = city.latitude < 0)
         }
     }
 }
 
 /** The arc with its words under it, and the moon beside it when asked for. */
 @Composable
-private fun SunMoonFace(settings: Settings, rise: LocalDateTime, set: LocalDateTime, now: LocalDateTime, phoneNow: LocalDateTime, h24: Boolean, w: Float, h: Float) {
+private fun SunMoonFace(settings: Settings, rise: LocalDateTime, set: LocalDateTime, now: LocalDateTime, phoneNow: LocalDateTime, h24: Boolean, w: Float, h: Float, south: Boolean = false) {
     val colour = Color(settings[Common.COLOUR])
     val accent = Color(settings[SunMoonWidget.ACCENT])
     val moon = settings[SunMoonWidget.SHOW_MOON]
@@ -98,7 +99,8 @@ private fun SunMoonFace(settings: Settings, rise: LocalDateTime, set: LocalDateT
     val setText = sunTime(set, h24)
     val leftText = daylightText(rise, set, now)
     val times = settings[SunMoonWidget.SHOW_TIMES]
-    val wantsLeft = settings[SunMoonWidget.SHOW_LEFT]
+    // Sun times from an earlier day (no weather fetched since) cannot say how long is left today.
+    val wantsLeft = settings[SunMoonWidget.SHOW_LEFT] && !rise.toLocalDate().isBefore(now.toLocalDate())
     val daylight = daylightFraction(rise, set, now)
     // The moon beside the arc in a wide box, above it in a tall one; the daylight left is the first thing left out.
     Fit(canvasUnit(w, SunMoonWidget.width), listOf(settings, h24), arrangements = if (moon) 2 else 1, levels = if (wantsLeft) 1 else 0, align = 0.5f) { f ->
@@ -129,7 +131,7 @@ private fun SunMoonFace(settings: Settings, rise: LocalDateTime, set: LocalDateT
         fun MoonPart() {
             val phase = Moon.phase(phoneNow.atZone(java.time.ZoneId.systemDefault()).toInstant())
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                MoonDisc(phase, colour, Modifier.size(pxToDp(moonSize)))
+                MoonDisc(phase, colour, Modifier.size(pxToDp(moonSize)), south)
                 Spacer(Modifier.height(pxToDp(small * 0.25f)))
                 Text("${Moon.illumination(phase)}%", color = Muted, fontSize = pxToSp(small * 0.9f), maxLines = 1, softWrap = false)
             }
@@ -195,10 +197,10 @@ private fun SunArc(daylight: Float?, accent: Color, modifier: Modifier) {
     }
 }
 
-/** The moon with the lit part of it in [lit], as seen from the northern hemisphere. */
+/** The moon with the lit part of it in [lit], as seen from the northern hemisphere, or mirrored as seen from the [south]. */
 @Composable
-fun MoonDisc(phase: Double, lit: Color, modifier: Modifier) {
-    Canvas(modifier) {
+fun MoonDisc(phase: Double, lit: Color, modifier: Modifier, south: Boolean = false) {
+    Canvas(if (south) modifier.graphicsLayer { scaleX = -1f } else modifier) {
         val r = size.minDimension / 2
         val c = Offset(size.width / 2, size.height / 2)
         drawCircle(Color(0xFF1E1E1E), r, c)

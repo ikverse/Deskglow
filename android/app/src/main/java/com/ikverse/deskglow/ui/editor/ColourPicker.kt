@@ -77,6 +77,25 @@ internal val SWATCH_NAMES = listOf("White", "Green", "Sky blue", "Amber", "Coral
 /** The colour pad never goes darker than this: the display is black, and a darker colour is lost on it. */
 private const val LEAST_VALUE = 0.2f
 
+/**
+ * What typing [typed] in the hex field leaves there, and the colour to apply if it is a whole one: six
+ * hex digits, with or without "#", spaces around it ignored. Eight digits (a colour with its opacity, as
+ * other apps copy it) give the colour without the opacity. A colour too dark to see on the black display
+ * is not applied, as the pad does not offer one. Null to leave the field as it was (more than a colour's
+ * worth of characters).
+ */
+internal fun hexTyped(typed: String): Pair<String, Int?>? {
+    val text = typed.trim()
+    val digits = text.removePrefix("#")
+    if (digits.length > 8) return null
+    val hexOnly = digits.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+    if (!hexOnly || digits.length != 6 && digits.length != 8) return text to null
+    val rgb = digits.takeLast(6)
+    val argb = parseHexColour(rgb) ?: return text to null
+    val shown = "#" + rgb.uppercase()
+    return shown to argb.takeIf { Hsv.of(it).value >= LEAST_VALUE }
+}
+
 /** A colour setting: seven quick swatches and a tile that opens the full picker, lit when the colour is one of its own. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -140,7 +159,8 @@ private fun ColourPicker(field: ColourField, item: WidgetItem, settings: Setting
     // The widget's other colour, if it has one: the accent for the colour, the colour for the accent.
     val partner: ColourKey? = type?.fields(settings)?.filterIsInstance<ColourField>()?.firstOrNull { it.key != field.key }?.key
     val start = remember { settings[field.key] }
-    val partnerStart = remember { partner?.let { settings[it] } }
+    // Cancel goes back to here, leaving nothing in the history.
+    val opened = remember { state.mark() }
     val live = state.layout.find(item.id) ?: item
     val liveSettings = state.settingsOf(live)
     val current = liveSettings[field.key]
@@ -150,15 +170,19 @@ private fun ColourPicker(field: ColourField, item: WidgetItem, settings: Setting
     var hex by remember { mutableStateOf(formatHexColour(start)) }
     val recents by graph.prefs.recentColours.collectAsStateWithLifecycle()
 
-    fun apply(argb: Int, fromPad: Boolean = false) {
+    /** The pad, the strip and the text show [argb]; the widget is not changed. */
+    fun show(argb: Int, fromPad: Boolean = false) {
         if (!fromPad) hsv = Hsv.of(argb).let { it.copy(value = maxOf(it.value, LEAST_VALUE)) }
         hex = formatHexColour(argb)
+    }
+
+    fun apply(argb: Int, fromPad: Boolean = false) {
+        show(argb, fromPad)
         state.set(field.key, argb)
     }
 
     fun cancel() {
-        state.set(field.key, start)
-        if (partner != null && partnerStart != null) state.set(partner, partnerStart)
+        state.revert(opened)
         onClose()
     }
 
@@ -208,8 +232,8 @@ private fun ColourPicker(field: ColourField, item: WidgetItem, settings: Setting
                         val mine = if (field.key.name == "accent") duo.accent else duo.colour
                         val theirs = if (field.key.name == "accent") duo.colour else duo.accent
                         PairTile(duo.name, duo.colour, duo.accent, selected = mine == current && theirs == partnerColour, description = "Duo ${duo.name}") {
-                            state.set(partner, theirs)
-                            apply(mine)
+                            show(mine)
+                            state.set(field.key, mine, partner, theirs)
                         }
                     }
                 }
@@ -231,10 +255,7 @@ private fun ColourPicker(field: ColourField, item: WidgetItem, settings: Setting
                 Spacer(Modifier.width(12.dp))
                 OutlinedTextField(
                     value = hex,
-                    onValueChange = { typed ->
-                        hex = typed.take(7)
-                        parseHexColour(hex.trim())?.takeIf { hex.trim().removePrefix("#").length == 6 }?.let { apply(it) }
-                    },
+                    onValueChange = { typed -> hexTyped(typed)?.let { (text, argb) -> hex = text; if (argb != null) apply(argb) } },
                     singleLine = true,
                     label = { Text("Hex") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),

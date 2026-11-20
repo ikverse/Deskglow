@@ -153,14 +153,17 @@ object MediaWidget : WidgetType {
     }
 }
 
-/** Where the track is now: moves on by itself every few seconds while playing, worked out from when the position was read. */
+/**
+ * Where the track is now: moves on by itself every [stepMs] while playing, worked out from when the
+ * position was read. A bar moves too little to need it often; written times need it every second.
+ */
 @Composable
-private fun rememberPosition(track: MediaState.Track): Long {
+private fun rememberPosition(track: MediaState.Track, stepMs: Long = 5_000): Long {
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(track) {
+    LaunchedEffect(track, stepMs) {
         while (track.playing) {
             now = SystemClock.elapsedRealtime()
-            delay(5_000)
+            delay(stepMs)
         }
     }
     return if (track.playing) track.positionMs + ((now - track.positionAtElapsedMs) * track.speed).toLong() else track.positionMs
@@ -178,7 +181,7 @@ private fun Progress(track: MediaState.Track, color: Color, modifier: Modifier) 
 /** "1:23 / 3:45". */
 @Composable
 private fun ProgressTimes(track: MediaState.Track, size: Float, align: String) {
-    val position = rememberPosition(track).coerceIn(0L, track.durationMs)
+    val position = rememberPosition(track, stepMs = 1_000).coerceIn(0L, track.durationMs)
     Text("${mediaTime(position)} / ${mediaTime(track.durationMs)}", color = Muted, fontSize = pxToSp(size), maxLines = 1, softWrap = false, textAlign = textAlign(align))
 }
 

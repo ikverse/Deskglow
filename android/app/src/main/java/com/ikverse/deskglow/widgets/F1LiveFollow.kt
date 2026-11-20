@@ -52,8 +52,11 @@ internal class FollowTracker {
     private var before: LiveSession? = null
     private var latest: LiveEvent? = null
 
-    /** Looks at [session] against the last one seen; returns the newest news so far (the caller says whether it is still fresh). */
-    fun observe(session: LiveSession, followed: String, now: Instant): LiveEvent? {
+    /**
+     * Looks at [session] against the last one seen; returns the newest news so far (the caller says whether it is still fresh).
+     * A new fastest lap is news only for a car [ours] accepts, so the opening laps' swaps between others do not crowd out the followed car's.
+     */
+    fun observe(session: LiveSession, followed: String, now: Instant, ours: (LiveRow) -> Boolean = { it.code == followed }): LiveEvent? {
         val was = before
         before = session
         if (was == null || was.key != session.key || !session.isRace) {
@@ -77,7 +80,7 @@ internal class FollowTracker {
             }
         }
         val holder = session.rows.firstOrNull { it.fastest }
-        if (holder != null && holder.code != was.rows.firstOrNull { it.fastest }?.code && was.rows.any { it.fastest }) {
+        if (holder != null && ours(holder) && holder.code != was.rows.firstOrNull { it.fastest }?.code && was.rows.any { it.fastest }) {
             latest = LiveEvent(EventKind.Fastest, "Fastest lap [${holder.code}] ${holder.bestLap}", now)
         }
         return latest

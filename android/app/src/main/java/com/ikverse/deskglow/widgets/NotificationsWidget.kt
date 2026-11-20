@@ -75,7 +75,7 @@ object NotificationsWidget : WidgetType {
                 NotificationState.NoAccess -> EditorHint("Allow notification access", h * 0.42f)
                 is NotificationState.Apps -> {
                     val shown = s.apps.take(settings[MAX])
-                    val extra = s.apps.size - shown.size
+                    val extra = s.total.coerceAtLeast(s.apps.size) - shown.size
                     val colour = Color(settings[Common.COLOUR])
                     val style = settings[STYLE]
                     if (shown.isEmpty()) {

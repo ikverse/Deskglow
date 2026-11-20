@@ -691,7 +691,8 @@ fun sessionTop(races: List<F1Race>, result: LiveSession?, now: Instant): Session
     if (!result.finished || result.rows.isEmpty()) return null
     val sessions = races.flatMap { race -> race.sessions.map { race to it } }
     val (race, session) = sessions.lastOrNull { !it.second.start.isAfter(now) } ?: return null
-    if (session.liveAt(now) || Duration.between(start, session.start).abs() > SAME_SESSION) return null
+    // The result is this session's and finished: the session is over, whatever slot the calendar gave it.
+    if (Duration.between(start, session.start).abs() > SAME_SESSION) return null
     val after = sessions.firstOrNull { it.second.start.isAfter(now) }
     if (after != null) {
         val lead = if (after.first == race) TOP_THREE_UNTIL else UPCOMING_LEAD
@@ -699,6 +700,21 @@ fun sessionTop(races: List<F1Race>, result: LiveSession?, now: Instant): Session
     }
     return SessionTop(race, session, result.rows.take(3), after?.first, after?.second)
 }
+
+/** Whether [result] is the finished classification of the calendar's [session]: then it is over, whatever slot the calendar gave it. */
+fun endedBy(result: LiveSession?, session: F1Session): Boolean {
+    val start = result?.start ?: return false
+    return result.finished && Duration.between(start, session.start).abs() <= SAME_SESSION
+}
+
+/** The weekend in [races] that [session] belongs to, by when it started; null if the calendar does not list it. */
+fun raceOf(races: List<F1Race>, session: LiveSession): F1Race? {
+    val start = session.start ?: return null
+    return races.firstOrNull { race -> race.sessions.any { Duration.between(it.start, start).abs() <= SAME_SESSION } }
+}
+
+/** The session that ended last by [now], or null if none has. */
+internal fun lastEnded(races: List<F1Race>, now: Instant): F1Session? = races.asSequence().flatMap { it.sessions }.lastOrNull { !it.end.isAfter(now) }
 
 /** What the feed says about the calendar's session [session]: [live] is the feed's own view of it. */
 data class FeedStatus(val session: F1Session, val phase: LivePhase, val live: LiveSession)
@@ -711,6 +727,8 @@ data class FeedStatus(val session: F1Session, val phase: LivePhase, val live: Li
 fun feedStatus(races: List<F1Race>, state: F1LiveState, now: Instant): FeedStatus? {
     val live = (state as? F1LiveState.Live)?.session ?: return null
     val start = live.start ?: return null
+    // A connection lost and never back, past the session's window, says nothing about now.
+    if (live.signalLost && liveWindowSession(races, now) == null) return null
     val session = races.asSequence().flatMap { it.sessions }.minByOrNull { Duration.between(it.start, start).abs() } ?: return null
     if (Duration.between(session.start, start).abs() > SAME_SESSION) return null
     return FeedStatus(session, live.phase(now), live)
@@ -868,6 +886,15 @@ class F1LiveRepository(
 
         var done: Instant? = null
         var lastCatchUp = Long.MIN_VALUE / 2
+        // A feed that keeps refusing is tried less and less often, up to every couple of minutes.
+        var retry = RETRY_MS
+        // A session missed whose result never turns up (cancelled, say) is given up on after a few tries.
+        var missed: Instant? = null
+        var missedTries = 0
+        var gaveUpOn: Instant? = null
+        // The classification at the flag is provisional: it is fetched once more a while later, penalties applied.
+        var finalAt: Long? = null
+        var finalKey: Int? = null
         while (true) {
             val now = Instant.ofEpochMilli(clock())
             val races = when (val s = calendar.value) {
@@ -876,15 +903,24 @@ class F1LiveRepository(
                 F1State.Loading -> null
             }
             val window = races?.let { liveWindowSession(it, now) }
+            if (races != null && window == null && seen.shown != null) {
+                // The window closed with the connection still down: back to the last result, not a live state frozen in place.
+                seen.shown = null
+                send(result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
+            }
             if (races != null && window != null && window.start != done) {
+                val heard = seen.at
                 val outcome = runCatching { follow(races, window, detail, seen) }
                 outcome.exceptionOrNull()?.let { if (it is CancellationException) throw it }
                 if (outcome.isFailure) {
                     // Dropped: say so over what was last seen, and try again.
                     seen.shown?.let { send(F1LiveState.Live(it.copy(signalAt = seen.at, signalLost = true))) }
-                    delay(RETRY_MS)
+                    if (seen.at != heard) retry = RETRY_MS
+                    delay(retry)
+                    retry = (retry * 2).coerceAtMost(MAX_RETRY_MS)
                     continue
                 }
+                retry = RETRY_MS
                 when (val followed = outcome.getOrThrow()) {
                     Followed.Reconnect -> Unit
                     is Followed.Over -> {
@@ -895,8 +931,13 @@ class F1LiveRepository(
                             send(result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
                             done = window.start
                         } else {
-                            if (ended.rows.isNotEmpty()) keep(ended)
-                            else {
+                            if (ended.rows.isNotEmpty()) {
+                                keep(ended)
+                                if (ended.status != "Finalised") {
+                                    finalAt = clock() + FINAL_AFTER_MS
+                                    finalKey = ended.key
+                                }
+                            } else {
                                 // Followed without the timing: the classification is fetched whole, at once.
                                 send(result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
                                 lastCatchUp = Long.MIN_VALUE / 2
@@ -909,9 +950,22 @@ class F1LiveRepository(
                 }
                 continue
             }
-            if ((races == null && result == null || races != null && needsCatchUp(result, races, now)) && clock() - lastCatchUp > CATCH_UP_MS) {
+            val last = races?.let { lastEnded(it, now)?.start }
+            if ((races == null && result == null || races != null && needsCatchUp(result, races, now) && last != gaveUpOn) && clock() - lastCatchUp > CATCH_UP_MS) {
                 lastCatchUp = clock()
                 latestResult()?.let { keep(it) }
+                if (races != null && last != null && needsCatchUp(result, races, now)) {
+                    if (last != missed) {
+                        missed = last
+                        missedTries = 0
+                    }
+                    if (++missedTries >= CATCH_UP_TRIES) gaveUpOn = last
+                }
+            }
+            val finalDue = finalAt
+            if (finalDue != null && clock() >= finalDue) {
+                finalAt = null
+                latestResult()?.takeIf { it.key == finalKey }?.let { keep(it) }
             }
             // Looked at again in a minute, or as soon as the calendar changes: on starting it is still
             // loading for a moment, and a session on now should not wait a minute for it.
@@ -1021,6 +1075,11 @@ class F1LiveRepository(
         const val CHECK_MS = 60_000L
         const val SHOW_EVERY_MS = 1_000L
         const val RETRY_MS = 15_000L
+        const val MAX_RETRY_MS = 120_000L
+        /** How many times a missed session's result is looked for before it is taken not to have happened. */
+        const val CATCH_UP_TRIES = 3
+        /** How long after the flag the final classification is fetched. */
+        const val FINAL_AFTER_MS = 45 * 60_000L
         const val STALE_MS = 30_000L
         const val CATCH_UP_MS = 10 * 60_000L
         const val OUTLINE_RETRY_MS = 5 * 60_000L

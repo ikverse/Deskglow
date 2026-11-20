@@ -34,6 +34,19 @@ class LightLevelTest {
     }
 
     @Test
+    fun `one reading after the lights go off still takes the screen all the way down`() {
+        val room = RoomLight()
+        room.onLux(100f)
+        // The sensor says it once and then nothing more: settling carries the level the rest of the way.
+        var last = room.onLux(0f) ?: 1f
+        assertTrue(last > 0.1f)
+        repeat(60) { room.settle()?.let { last = it } }
+        assertTrue(room.settled)
+        assertEquals(brightnessForLux(0f), last, 0.03f)
+        assertNull(room.settle())
+    }
+
+    @Test
     fun `a brief shadow does not move the screen far but a lasting change does`() {
         val room = RoomLight()
         val steady = room.onLux(500f)!!

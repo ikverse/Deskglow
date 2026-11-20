@@ -22,6 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,16 +49,18 @@ import com.ikverse.deskglow.widgets.Common
 @Composable
 fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val snapshots by graph.snapshots.snapshots.collectAsStateWithLifecycle()
     var name by remember { mutableStateOf(SnapshotRepository.proposeName(System.currentTimeMillis())) }
     var message by remember { mutableStateOf<String?>(null) }
     var renaming by remember { mutableStateOf<Snapshot?>(null) }
     var deleting by remember { mutableStateOf<Snapshot?>(null) }
     var restoring by remember { mutableStateOf<Snapshot?>(null) }
-    var exporting by remember { mutableStateOf<Snapshot?>(null) }
+    // Kept by id across the app being recreated while the file picker is open, which would otherwise lose it.
+    var exporting by rememberSaveable { mutableStateOf<String?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        val snapshot = exporting
+        val snapshot = exporting?.let { id -> graph.snapshots.snapshots.value.firstOrNull { it.id == id } }
         exporting = null
         if (uri == null || snapshot == null) return@rememberLauncherForActivityResult
         message = runCatching {
@@ -80,9 +85,12 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
         OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppButton("Save now", {
-                val saved = graph.snapshots.save(name, graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape))
-                message = "Saved “${saved.name}”."
-                name = SnapshotRepository.proposeName(System.currentTimeMillis())
+                runCatching { graph.snapshots.save(name, graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape)) }
+                    .onSuccess {
+                        message = "Saved “${it.name}”."
+                        name = SnapshotRepository.proposeName(System.currentTimeMillis())
+                    }
+                    .onFailure { message = COULD_NOT_SAVE }
             }, Modifier.weight(1f), kind = ButtonKind.Primary)
             AppButton("Import file", { importLauncher.launch(arrayOf("*/*")) }, Modifier.weight(1f))
         }
@@ -107,7 +115,7 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
                         Chip("Restore", { restoring = snapshot })
                         Chip("Rename", { renaming = snapshot })
                         Chip("Export", {
-                            exporting = snapshot
+                            exporting = snapshot.id
                             exportLauncher.launch("deskglow-" + snapshot.name.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-') + ".json")
                         })
                         Spacer(Modifier.weight(1f))
@@ -127,8 +135,18 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
                 TextButton(onClick = {
                     restoring = null
                     val stamp = SnapshotRepository.proposeName(System.currentTimeMillis()).removePrefix("Layout – ")
-                    graph.snapshots.save("Before restore – $stamp", graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape))
+                    // The current layouts are kept first; if they cannot be, nothing is replaced.
+                    val kept = runCatching {
+                        graph.snapshots.save("${SnapshotRepository.BEFORE_RESTORE} – $stamp", graph.pagesOf(Orientation.Portrait), graph.pagesOf(Orientation.Landscape))
+                    }
+                    if (kept.isFailure) {
+                        message = COULD_NOT_SAVE
+                        return@TextButton
+                    }
+                    graph.snapshots.pruneBeforeRestore()
                     graph.restorePages(snapshot.portrait, snapshot.landscape)
+                    // A font picked from Google Fonts on another phone, or before a reinstall, is fetched again.
+                    scope.launch { graph.fontLibrary.fetchMissing(fontIdsOf(snapshot.portrait + snapshot.landscape)) }
                     message = "Restored “${snapshot.name}”."
                 }) { Text("Restore", color = Palette.Select) }
             },
@@ -144,7 +162,7 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
             text = { OutlinedTextField(text, { text = it }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = {
-                    graph.snapshots.rename(snapshot.id, text)
+                    if (runCatching { graph.snapshots.rename(snapshot.id, text) }.isFailure) message = COULD_NOT_SAVE
                     renaming = null
                 }) { Text("Rename", color = Palette.Select) }
             },
@@ -168,6 +186,12 @@ fun SnapshotsScreen(graph: AppGraph, onBack: () -> Unit) {
         )
     }
 }
+
+private const val COULD_NOT_SAVE = "That could not be saved. The phone may be out of space."
+
+/** Every font named in [layouts]' widgets. */
+private fun fontIdsOf(layouts: List<Layout>): Set<String> =
+    layouts.flatMap { it.items }.flatMap { item -> item.settings.values.values.filterIsInstance<String>() }.filter { it.startsWith("g:") }.toSet()
 
 /**
  * A snapshot's screen as boxes in the widgets' colours on black. A live drawing of every widget, twice per

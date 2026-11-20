@@ -103,9 +103,11 @@ private fun query(context: Context, now: Long): List<CalendarEntry> {
 private const val MAX_LATER = 4
 
 /**
- * The event to show: the earliest timed event that has not ended, or failing that the earliest
- * all-day one that has not ended; with the ones after it, timed before all-day, for an agenda.
- * All-day entries are stored at UTC midnights and are read as dates.
+ * The event to show: the earliest that has not ended, day by day, and within a day the timed ones
+ * before the all-day ones; with the ones after it in the same order, for an agenda. So today's
+ * meetings come first, then today's all-day events, then tomorrow's. An event that began on an
+ * earlier day and is still on counts as today's. All-day entries are stored at UTC midnights and are
+ * read as dates.
  */
 internal fun nextEvent(entries: List<CalendarEntry>, nowMs: Long, zone: ZoneId): EventState {
     fun local(ms: Long, allDay: Boolean): LocalDateTime =
@@ -115,7 +117,9 @@ internal fun nextEvent(entries: List<CalendarEntry>, nowMs: Long, zone: ZoneId):
     val nowLocal = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
     val timed = entries.filter { !it.allDay && it.endMs > nowMs }.sortedBy { it.beginMs }
     val allDay = entries.filter { it.allDay && local(it.endMs, true) > nowLocal }.sortedBy { it.beginMs }
-    val ordered = timed + allDay
+    val today = nowLocal.toLocalDate()
+    fun day(e: CalendarEntry) = local(e.beginMs, e.allDay).toLocalDate().let { if (it.isBefore(today)) today else it }
+    val ordered = (timed + allDay).sortedWith(compareBy({ day(it) }, { it.allDay }, { it.beginMs }))
     fun event(e: CalendarEntry, later: List<EventState.Next> = emptyList()) =
         EventState.Next(e.title, local(e.beginMs, e.allDay), local(e.endMs, e.allDay), e.allDay, e.colour, e.location, later)
     val first = ordered.firstOrNull() ?: return EventState.None

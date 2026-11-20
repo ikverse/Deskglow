@@ -22,6 +22,19 @@ class DataParsingTest {
     }
 
     @Test
+    fun `once a phone has shown it reports microamps, its small readings are read as microamps too`() {
+        var stored = false
+        val units = CurrentUnits({ stored }, { stored = true })
+        assertEquals(296, units.toMilliamps(296)) // nothing seen yet: could be milliamps
+        assertEquals(1850, units.toMilliamps(1_850_000))
+        assertTrue(stored)
+        assertEquals(8, units.toMilliamps(8_000)) // a nearly full battery trickling 8 mA, not 8 A
+        assertNull(units.toMilliamps(Int.MIN_VALUE))
+        // Remembered across a restart.
+        assertEquals(8, CurrentUnits({ stored }, {}).toMilliamps(8_000))
+    }
+
+    @Test
     fun `voltage in volts is turned into millivolts`() {
         assertEquals(4224, normaliseVoltage(4224))
         assertEquals(4000, normaliseVoltage(4))
@@ -129,6 +142,20 @@ class DataParsingTest {
         val next = nextEvent(entries, ms(now), zone) as EventState.Next
         assertEquals("Team call", next.title)
         assertEquals(now.withHour(20).withMinute(30), next.start)
+    }
+
+    @Test
+    fun `today's all-day event comes before next week's meetings, and is labelled with its day when later`() {
+        val now = LocalDateTime.of(2026, 10, 7, 20, 0)
+        val entries = listOf(
+            CalendarEntry("Meeting", ms(now.plusDays(6).withHour(9)), ms(now.plusDays(6).withHour(10)), false),
+            CalendarEntry("Holiday", utcMs(now.toLocalDate().atStartOfDay()), utcMs(now.toLocalDate().plusDays(1).atStartOfDay()), true),
+            CalendarEntry("Trip", utcMs(now.toLocalDate().plusDays(2).atStartOfDay()), utcMs(now.toLocalDate().plusDays(3).atStartOfDay()), true),
+        )
+        val next = nextEvent(entries, ms(now), zone) as EventState.Next
+        assertEquals(listOf("Holiday", "Trip", "Meeting"), listOf(next.title) + next.later.map { it.title })
+        assertEquals("All day", com.ikverse.deskglow.widgets.agendaTime(next, now, false))
+        assertEquals("Fri all day", com.ikverse.deskglow.widgets.agendaTime(next.later[0], now, false))
     }
 
     @Test
@@ -306,6 +333,8 @@ class DataParsingTest {
         assertEquals("331", w.valueText(331.0, 331.0, gap = false))
         assertEquals("200.5", w.valueText(200.5, 331.0, gap = false))
         assertEquals("—", w.valueText(331.0, 331.0, gap = true))
+        // Level on points with the one counted from, but not the leader: a tie.
+        assertEquals("=", w.valueText(200.0, 200.0, gap = true, first = false))
         assertEquals("−130.5", w.valueText(200.5, 331.0, gap = true))
     }
 
@@ -511,6 +540,30 @@ class DataParsingTest {
         assertEquals("Qualifying", saturday.session.kind)
         assertEquals("Race", saturday.next!!.kind)
         assertNull(sessionTop(f1.races, quali, utc(2026, 10, 11, 4, 5)))
+    }
+
+    @Test
+    fun `a session whose finished result is in is over, though its calendar slot has not run out`() {
+        val japan = f1.races[1]
+        val qualiSlot = japan.sessions.first { it.kind == "Qualifying" }
+        val quali = finished("Qualifying", "Qualifying", qualiSlot.start)
+        // Forty minutes into an hour's slot, the classification is in: the top 3 shows, and the session counts as ended.
+        val early = qualiSlot.start.plusSeconds(40 * 60)
+        assertTrue(qualiSlot.liveAt(early))
+        assertTrue(endedBy(quali, qualiSlot))
+        assertNotNull(sessionTop(f1.races, quali, early))
+        assertFalse(endedBy(quali.copy(finished = false), qualiSlot))
+        assertFalse(endedBy(quali, japan.race))
+    }
+
+    @Test
+    fun `a live state whose connection was lost says nothing once the session's window has closed`() {
+        val fp2Slot = f1.races[1].sessions.first { it.kind == "FP2" }
+        val lost = finished("Practice 2", "Practice", fp2Slot.start).copy(status = "Started", finished = false, signalLost = true)
+        val during = fp2Slot.start.plusSeconds(30 * 60)
+        assertNotNull(feedStatus(f1.races, F1LiveState.Live(lost), during))
+        val longAfter = fp2Slot.end.plus(LIVE_OVERRUN).plusSeconds(60)
+        assertNull(feedStatus(f1.races, F1LiveState.Live(lost), longAfter))
     }
 
     @Test

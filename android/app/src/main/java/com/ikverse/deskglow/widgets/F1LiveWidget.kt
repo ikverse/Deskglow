@@ -20,6 +20,7 @@ import com.ikverse.deskglow.data.TrackFlag
 import com.ikverse.deskglow.data.countdownText
 import com.ikverse.deskglow.data.effectiveFavourite
 import com.ikverse.deskglow.data.heldBack
+import com.ikverse.deskglow.data.raceOf
 import com.ikverse.deskglow.model.ColourKey
 import com.ikverse.deskglow.model.FlagKey
 import com.ikverse.deskglow.model.IntKey
@@ -167,13 +168,17 @@ object F1LiveWidget : WidgetType {
             val followed = followedRow(session, driver, team)
             val noticed = if (live && !sample) {
                 val tracker = remember { FollowTracker() }
-                remember(session, followed?.code) { tracker.observe(session, followed?.code.orEmpty(), now) }
+                // A new fastest lap is news only when it is the followed driver's or team's.
+                remember(session, followed?.code) {
+                    tracker.observe(session, followed?.code.orEmpty(), now) { row -> driver.isNotEmpty() && row.code == driver || teamMatches(team, row.team) }
+                }
             } else null
             val calendar = if (!live || onMap) feeds.f1.collectAsStateWithLifecycle().value else null
             val next = if (live) null else calendar?.let { nextSession(it, minute.atZone(zone).toInstant()) }
-            // The map's outline: the one fetched for this session, else the race-weekend widget's for this weekend, else the sample's in the editor.
+            // The map's outline: the one fetched for this session, else the race-weekend widget's for this weekend (for a
+            // result, only while that is still this result's circuit), else the sample's in the editor.
             val track = if (!onMap) null else session.track
-                ?: (calendar as? F1State.Ready)?.data?.track?.takeIf { live }
+                ?: (calendar as? F1State.Ready)?.data?.let { d -> d.track?.takeIf { t -> live || raceOf(d.races, session)?.let(t::isFor) == true } }
                 ?: F1LiveSample.track.takeIf { sample }
             val colour = if (settings[TEAM_ACCENT]) followed?.teamColour else null
             val styled = if (colour != null) settings.with(ACCENT, colour.toInt()) else settings
@@ -234,6 +239,9 @@ internal data class Status(val label: String, val detail: String, val shade: Col
 internal fun timeText(at: Instant?, h24: Boolean): String =
     at?.atZone(ZoneId.systemDefault())?.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.US)).orEmpty()
 
+/** The restart time race control last gave, while it is still ahead (a minute's grace); an old one says nothing about now. */
+internal fun LiveSession.restartAfter(now: Instant): Instant? = restart?.takeIf { now.isBefore(it.plusSeconds(60)) }
+
 /** Where [session] stands, in the words and colour of a flag. */
 internal fun statusOf(session: LiveSession, phase: LivePhase, now: Instant, h24: Boolean): Status {
     val progress = sessionProgress(session, now)
@@ -244,13 +252,13 @@ internal fun statusOf(session: LiveSession, phase: LivePhase, now: Instant, h24:
             Status(label, "", Muted, false)
         }
         LivePhase.Delayed -> Status(
-            "Delayed", session.restart?.let { "${session.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }.orEmpty(), Amber, true,
+            "Delayed", session.restartAfter(now)?.let { "${session.restartLabel.ifEmpty { "Starts" }} ${timeText(it, h24)}" }.orEmpty(), Amber, true,
         )
-        LivePhase.Break -> Status("Break", session.restart?.let { "${session.restartLabel.ifEmpty { "Resumes" }} ${timeText(it, h24)}" }.orEmpty(), Muted, false)
+        LivePhase.Break -> Status("Break", session.restartAfter(now)?.let { "${session.restartLabel.ifEmpty { "Resumes" }} ${timeText(it, h24)}" }.orEmpty(), Muted, false)
         LivePhase.Running -> if (session.flag == TrackFlag.Yellow) Status("Yellow flag", progress, FlagYellow, true) else Status("Green flag", progress, FlagGreen, false)
         LivePhase.SafetyCar -> Status("Safety car", progress, Amber, true)
         LivePhase.VirtualSafetyCar -> Status(if (session.flag == TrackFlag.VscEnding) "VSC ending" else "VSC", progress, Amber, true)
-        LivePhase.Red -> Status("Red flag", session.restart?.let { "Resumes ${timeText(it, h24)}" } ?: progress, FlagRed, true)
+        LivePhase.Red -> Status("Red flag", session.restartAfter(now)?.let { "Resumes ${timeText(it, h24)}" } ?: progress, FlagRed, true)
         LivePhase.Finished -> Status("Finished", "Provisional", Muted, false)
         LivePhase.Final -> Status("Final", "", Muted, false)
     }

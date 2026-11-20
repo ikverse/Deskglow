@@ -323,6 +323,23 @@ class EditorScreenTest {
     }
 
     @Test
+    fun `deleting the first of several screens shows the one that moved up, and leaves it as it was`() {
+        val (a, b, c) = threeScreens()
+        val gone = a.items.first { it.visible && b.find(it.id) == null }
+        compose.onNodeWithTag("widget ${gone.id}").assertExists()
+        compose.onNodeWithTag("screens").performClick()
+        compose.onNodeWithTag("delete screen").performClick()
+        compose.onNodeWithTag("confirm delete screen").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("widget ${gone.id}").assertDoesNotExist()
+        assertEquals(listOf(b, c), graph.pagesOf(Orientation.Portrait))
+        // An edit now lands on the screen shown, not on the deleted one's layout.
+        compose.onNodeWithTag("widget ${b.items.first().id}").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(b, c), graph.pagesOf(Orientation.Portrait))
+    }
+
+    @Test
     fun `holding a screen in the switcher and dragging it down puts it later in the order, and the editor stays on it`() {
         val (a, b, c) = threeScreens()
         val row = with(compose.density) { 48.dp.toPx() }

@@ -90,6 +90,9 @@ class LayoutRepository(
     /** What a screen holds before anything has been saved: the stock layout for the first, nothing for an added one. */
     private val default: () -> Layout = { DefaultLayout.create(orientation) },
 ) {
+    /** Whether the saved file could not be read and this started from the default instead (the file is kept beside it). */
+    var wasReset = false
+        private set
     private val state = MutableStateFlow(load())
     val layout: StateFlow<Layout> = state.asStateFlow()
     private var pendingSave: Job? = null
@@ -120,6 +123,7 @@ class LayoutRepository(
             // Keep the unreadable file for inspection rather than overwriting it on the next save.
             Log.w(TAG, "Saved layout could not be read; starting from the default", e)
             file.renameTo(File(file.parentFile, file.name + ".unreadable"))
+            wasReset = true
             default()
         }
     }
@@ -140,10 +144,18 @@ class LayoutRepository(
         private const val TAG = "LayoutRepository"
         private const val SAVE_DELAY_MS = 300L
 
-        /** A layout whose widgets overlap (one written by hand, or by a version before overlaps were prevented) is tidied. */
+        /**
+         * A layout whose widgets overlap (one written by hand, or by a version before overlaps were prevented) is tidied.
+         * A widget with no room left anywhere is hidden, not left overlapping: it can be brought back from the widget list.
+         */
         fun tidied(layout: Layout, orientation: Orientation = Orientation.Portrait): Layout {
             val boxes = Packer.tidy(layout.items.filter { it.visible }.map { Placed(it.id, it.box) }, orientation)
-            return layout.withBoxes(boxes)
+            return Layout(layout.items.map { item ->
+                when {
+                    !item.visible -> item
+                    else -> boxes[item.id]?.let { item.copy(box = it) } ?: item.copy(visible = false)
+                }
+            })
         }
     }
 }

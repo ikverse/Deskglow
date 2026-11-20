@@ -29,8 +29,9 @@ private enum class WidgetSize(val layout: Int, val minWidth: Float, val minHeigh
     Large(R.layout.start_widget_large, 130f, 130f),
 }
 
+/** The largest look that fits, or the smallest if even that does not (a launcher can report a size under it). */
 private fun widgetSizeFor(widthDp: Float, heightDp: Float): WidgetSize =
-    WidgetSize.entries.last { widthDp >= it.minWidth && heightDp >= it.minHeight }
+    WidgetSize.entries.lastOrNull { widthDp >= it.minWidth && heightDp >= it.minHeight } ?: WidgetSize.Small
 
 /**
  * The home-screen widget: a branded button that starts the display, resizable up to 2x2 and

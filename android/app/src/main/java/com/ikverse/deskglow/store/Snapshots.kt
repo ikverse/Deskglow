@@ -5,6 +5,7 @@ import com.ikverse.deskglow.model.Layout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -62,10 +63,22 @@ object SnapshotCodec {
     }
 }
 
-/** The named snapshots kept on the phone, newest first. Each is its own file in [dir]. */
-class SnapshotRepository(private val dir: File, private val now: () -> Long = System::currentTimeMillis) {
-    private val state = MutableStateFlow(load())
+/**
+ * The named snapshots kept on the phone, newest first. Each is its own file in [dir]. With
+ * [loadInBackground] the files are read on a thread of their own, so opening the app does not wait on them.
+ */
+class SnapshotRepository(private val dir: File, loadInBackground: Boolean = false, private val now: () -> Long = System::currentTimeMillis) {
+    private val state = MutableStateFlow(if (loadInBackground) emptyList() else load())
     val snapshots: StateFlow<List<Snapshot>> = state.asStateFlow()
+    /** Deleted while the files were still being read, so not brought back by that reading. */
+    private val deleted = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    init {
+        if (loadInBackground) kotlin.concurrent.thread(name = "snapshots") {
+            val loaded = load()
+            state.update { current -> (current + loaded).distinctBy { it.id }.filter { it.id !in deleted }.sortedByDescending { it.created } }
+        }
+    }
 
     fun save(name: String, portrait: List<Layout>, landscape: List<Layout>): Snapshot {
         val created = now()
@@ -89,13 +102,19 @@ class SnapshotRepository(private val dir: File, private val now: () -> Long = Sy
     }
 
     fun delete(id: String) {
+        deleted += id
         File(dir, "$id.json").delete()
-        publish(state.value.filter { it.id != id })
+        state.update { list -> list.filter { it.id != id } }
+    }
+
+    /** Keeps only the [keep] newest snapshots made automatically before a restore; the owner's own are never touched. */
+    fun pruneBeforeRestore(keep: Int = 5) {
+        state.value.filter { it.name.startsWith(BEFORE_RESTORE) }.sortedByDescending { it.created }.drop(keep).forEach { delete(it.id) }
     }
 
     private fun add(snapshot: Snapshot) {
         write(snapshot)
-        publish(state.value + snapshot)
+        state.update { list -> (list + snapshot).sortedByDescending { it.created } }
     }
 
     private fun publish(list: List<Snapshot>) {
@@ -122,6 +141,9 @@ class SnapshotRepository(private val dir: File, private val now: () -> Long = Sy
     }
 
     companion object {
+        /** How the snapshot saved automatically before a restore is named. */
+        const val BEFORE_RESTORE = "Before restore"
+
         private val format = DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.ENGLISH)
 
         /** The name offered when saving, e.g. "Layout – 8 Oct, 14:32". */

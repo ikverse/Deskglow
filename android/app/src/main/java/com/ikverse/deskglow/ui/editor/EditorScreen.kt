@@ -156,8 +156,10 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
     var addingPage by remember { mutableStateOf(false) }
     var deletingPage by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
+    // Bumped when screens are deleted or moved: the same screen number may now hold another screen's layout.
+    var generation by remember { mutableIntStateOf(0) }
     val repository = graph.layoutsFor(orientation, page)
-    val state = remember(orientation, page) {
+    val state = remember(orientation, page, generation) {
         EditorState(repository.layout.value, orientation, copyTarget = graph.layoutsFor(orientation.other, page), save = repository::update,
             // The other layout may have fewer screens: the copy lands on the same screen number, so it is made first.
             beforeCopy = { graph.ensurePages(orientation.other, page + 1) },
@@ -178,6 +180,7 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
         onMove = { from, to ->
             graph.movePage(orientation, from, to)
             requestedPage = pageAfterMove(page, from, to)
+            generation++
         },
     )
     HoldOrientation(orientation)
@@ -201,7 +204,9 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
             else -> onDone()
         }
     }
-    CompositionLocalProvider(LocalEditing provides true) {
+    // Everything below belongs to one screen's state: a new state starts it afresh, so no gesture or
+    // remembered action is left holding the screen that was open before (widget ids repeat across screens).
+    key(state) { CompositionLocalProvider(LocalEditing provides true) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             // The arrangement follows how the phone is actually held, not which layout is being edited.
             if (maxWidth > maxHeight) {
@@ -251,6 +256,7 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
                         TextButton(onClick = {
                             deletingPage = false
                             graph.deletePage(orientation, page)
+                            generation++
                         }, modifier = Modifier.testTag("confirm delete screen")) { Text("Delete", color = Palette.Danger) }
                     },
                     dismissButton = { TextButton(onClick = { deletingPage = false }) { Text("Cancel") } },
@@ -277,7 +283,7 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
             // is drawn over the whole screen, last, rather than under it. That list has no toolbar to hide.
             if (state.moreFonts != null) state.toast?.let { ToastBar(state, it, Modifier.align(Alignment.BottomCenter)) }
         }
-    }
+    } }
 }
 
 /** Room under the canvas for the dock that floats there, so nothing on the canvas is ever covered by it. */

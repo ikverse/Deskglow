@@ -301,16 +301,19 @@ private fun Modifier.doubleOrTripleTap(onDouble: () -> Unit, onTriple: () -> Uni
     val secondTapWait = viewConfiguration.doubleTapTimeoutMillis
     awaitEachGesture {
         var taps = 0
-        awaitFirstDown()
+        var down = awaitFirstDown()
         while (true) {
-            waitForUpOrCancellation() ?: return@awaitEachGesture
+            val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+            // A finger that moved (a swipe, a wipe of the screen) or stayed down is not a tap.
+            val moved = (up.position - down.position).getDistance() > viewConfiguration.touchSlop
+            if (moved || up.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) return@awaitEachGesture
             taps++
             if (taps == 3) {
                 onTriple()
                 return@awaitEachGesture
             }
             val wait = if (taps == 1) secondTapWait else THIRD_TAP_WAIT_MS
-            if (withTimeoutOrNull(wait) { awaitFirstDown() } == null) {
+            down = withTimeoutOrNull(wait) { awaitFirstDown() } ?: run {
                 if (taps == 2) onDouble()
                 return@awaitEachGesture
             }
@@ -485,6 +488,8 @@ class DisplayActivity : ComponentActivity() {
     // Held only while this is the screen being shown, so covering the phone in another app is never affected.
     override fun onResume() {
         super.onResume()
+        // The brightness may have been changed in the app while this waited behind it.
+        host.prepare()
         host.start(lifecycleScope)
     }
 
@@ -513,7 +518,8 @@ class AlwaysOnActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        fromOff = intent.getBooleanExtra(EXTRA_FROM_OFF, false)
+        // Only as it first comes up: turning the phone recreates this, and that is not the screen coming on in a pocket.
+        fromOff = savedInstanceState == null && intent.getBooleanExtra(EXTRA_FROM_OFF, false)
         DeskglowPresence.registerAlwaysOn(this)
         onBackPressedDispatcher.addCallback(this) {}
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -532,12 +538,26 @@ class AlwaysOnActivity : ComponentActivity() {
     }
 
     private fun unlockThen(open: () -> Unit) {
-        getSystemService(KeyguardManager::class.java).requestDismissKeyguard(
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        // With no screen lock set there is nothing to dismiss, and Android reports that as an error.
+        if (!keyguard.isKeyguardLocked) {
+            open()
+            finish()
+            return
+        }
+        keyguard.requestDismissKeyguard(
             this,
             object : KeyguardManager.KeyguardDismissCallback() {
                 override fun onDismissSucceeded() {
                     open()
                     finish()
+                }
+
+                override fun onDismissError() {
+                    if (!keyguard.isKeyguardLocked) {
+                        open()
+                        finish()
+                    }
                 }
             },
         )
@@ -546,6 +566,7 @@ class AlwaysOnActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // Always on keeps its own presence bookkeeping, and the cover lock waits on the delay below.
+        host.prepare()
         host.start(lifecycleScope, presence = false, cover = false)
         if (!graph.prefs.coverOff.value) return
         val first = if (fromOff) 0L else COVER_DELAY_MS

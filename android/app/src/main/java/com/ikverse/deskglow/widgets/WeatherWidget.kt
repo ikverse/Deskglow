@@ -135,12 +135,10 @@ object WeatherWidget : WidgetType {
                 is WeatherState.Failed -> s.city to (s.last ?: return@BoxWithConstraints EditorHint("No weather yet", h * 0.22f))
                 is WeatherState.Ready -> s.city to s.weather
             }
-            // Only the forecast layout reads the clock: it picks the hours still to come.
-            val now = if (settings[LAYOUT] == "hours") {
-                val minute by LocalFeeds.current.minute.collectAsStateWithLifecycle()
-                weather.cityTime(minute)
-            } else null
-            WeatherBody(settings, city.name, weather, now)
+            // The clock picks the forecast's hours still to come, and day or night for the icon from the sun's times.
+            val minute by LocalFeeds.current.minute.collectAsStateWithLifecycle()
+            val now = weather.cityTime(minute)
+            WeatherBody(settings, city.name, weather.copy(isDay = weather.isDayAt(now)), now)
         }
     }
 

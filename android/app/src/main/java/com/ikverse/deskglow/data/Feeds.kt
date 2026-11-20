@@ -85,7 +85,8 @@ data class NotifiedApp(val packageName: String, val icon: ImageBitmap?, /** How 
 
 sealed interface NotificationState {
     data object NoAccess : NotificationState
-    data class Apps(val apps: List<NotifiedApp>) : NotificationState
+    /** [total]: how many apps have notifications up, which may be more than the [apps] whose icons are kept. */
+    data class Apps(val apps: List<NotifiedApp>, val total: Int = apps.size) : NotificationState
 }
 
 sealed interface MediaState {
@@ -145,6 +146,17 @@ data class Weather(
     /** The city's offset from UTC, for turning the phone's clock into the city's. */
     val utcOffsetSeconds: Int = 0,
 ) {
+    /**
+     * Whether it is day in the city at [cityNow], from today's sunrise and sunset where they are known
+     * (the reading's own day flag can be half an hour old), and otherwise from that flag.
+     */
+    fun isDayAt(cityNow: LocalDateTime): Boolean {
+        val rise = sunrise ?: return isDay
+        val set = sunset ?: return isDay
+        if (rise.toLocalDate() != cityNow.toLocalDate()) return isDay
+        return !cityNow.isBefore(rise) && cityNow.isBefore(set)
+    }
+
     /** The city's clock when the phone's reads [phoneNow]. */
     fun cityTime(phoneNow: LocalDateTime): LocalDateTime =
         LocalDateTime.ofInstant(phoneNow.atZone(ZoneId.systemDefault()).toInstant(), ZoneOffset.ofTotalSeconds(utcOffsetSeconds))

@@ -27,6 +27,8 @@ class WeatherRepository(
     private val clock: () -> Long = System::currentTimeMillis,
     /** Where the phone is, or null when that is unknown or not allowed. Blocks; called off the main thread. */
     private val locate: () -> City? = { null },
+    /** Whether the phone's position may be read now; while it may not, a city found before is not used either. */
+    private val canLocate: () -> Boolean = { true },
 ) {
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -40,18 +42,19 @@ class WeatherRepository(
      * picked by name, which is the fallback while there is no position.
      */
     private fun forCity(manual: City?, auto: Boolean): Flow<WeatherState> = flow {
-        var city = (if (auto) prefs.detectedCity.value else null) ?: manual
+        var city = (if (auto && canLocate()) prefs.detectedCity.value else null) ?: manual
         var last = city?.let(::cached)
         city?.let { emit(if (last != null) WeatherState.Ready(it, last) else WeatherState.Loading(it)) }
         while (true) {
             if (auto) {
-                val found = runCatching(locate).getOrNull()
-                if (found != null) {
-                    prefs.setDetectedCity(found)
-                    if (found != city) {
-                        city = found
-                        last = cached(found)
-                    }
+                // Location taken away since: the city picked by name, as the City screen then says.
+                val allowed = canLocate()
+                val found = if (allowed) runCatching(locate).getOrNull() else null
+                if (found != null) prefs.setDetectedCity(found)
+                val now = if (allowed) found ?: city ?: manual else manual
+                if (now != city) {
+                    city = now
+                    last = now?.let(::cached)
                 }
             }
             val here = city

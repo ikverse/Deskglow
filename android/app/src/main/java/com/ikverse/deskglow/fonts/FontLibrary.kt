@@ -84,6 +84,20 @@ class FontLibrary(
         picked
     }
 
+    /**
+     * Downloads every library font in [ids] that is not on the phone (a restored backup from another phone,
+     * or from before a reinstall). Each that cannot be had is skipped; the widget draws in the phone's font meanwhile.
+     */
+    suspend fun fetchMissing(ids: Collection<String>) {
+        val missing = ids.mapNotNull { id -> FontIds.parseGoogle(id)?.takeIf { fileFor(id)?.exists() == false } }
+        if (missing.isEmpty()) return
+        val families = runCatching { catalog() }.getOrNull()?.associateBy { it.family } ?: return
+        for ((family, weight) in missing) {
+            val font = families[family] ?: continue
+            runCatching { pick(font, weight) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        }
+    }
+
     /** Where a picked font's file lives; null for ids that are not library fonts. */
     fun fileFor(id: String): File? {
         val (family, weight) = FontIds.parseGoogle(id) ?: return null
