@@ -22,8 +22,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -1006,7 +1011,8 @@ private fun TrackFace(b: Board, w: Float, h: Float, unit: Float) {
     val live = b.live
     val editing = LocalEditing.current
     val turn = settings[F1LiveWidget.TRACK_TURN]
-    val track = remember(b.track, turn) { turned(b.track ?: F1Track.ring(), turn.toIntOrNull() ?: 0) }
+    // A plain ring stands in only while a live session's outline is on its way, so the cars can still be seen going round; a result without one says so.
+    val track = remember(b.track, turn, live) { (b.track ?: F1Track.ring().takeIf { live })?.let { turned(it, turn.toIntOrNull() ?: 0) } }
     val flagShade = b.status.shade.takeIf { live && b.status.filled }
     val border = flagShade?.takeIf { settings[F1LiveWidget.BORDER] }
     val borderHint = editing && border == null && settings[F1LiveWidget.BORDER]
@@ -1030,14 +1036,14 @@ private fun TrackFace(b: Board, w: Float, h: Float, unit: Float) {
         MapHeader(b, text)
         if (wide) {
             Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                TrackMap(b, track, Modifier.weight(1f).fillMaxHeight(), text)
+                if (track != null) TrackMap(b, track, Modifier.weight(1f).fillMaxHeight(), text) else NoMap(Modifier.weight(1f).fillMaxHeight(), text)
                 if (side != "none") {
                     Spacer(Modifier.width(pxToDp(text * 0.6f)))
                     MapSide(b, side, listText, Modifier.width(pxToDp(w * 0.28f)))
                 }
             }
         } else {
-            TrackMap(b, track, Modifier.fillMaxWidth().weight(1f), text)
+            if (track != null) TrackMap(b, track, Modifier.fillMaxWidth().weight(1f), text) else NoMap(Modifier.fillMaxWidth().weight(1f), text)
             if (side != "none") MapSide(b, side, listText, Modifier.fillMaxWidth().padding(top = pxToDp(listText * 0.4f)))
         }
         if (news != null) {
@@ -1079,6 +1085,14 @@ private fun MapHeader(b: Board, text: Float) {
     }
 }
 
+/** In place of the map, when the circuit's outline could not be had. */
+@Composable
+private fun NoMap(modifier: Modifier, text: Float) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Text("No circuit map for this session", color = Muted, fontSize = pxToSp(text * 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 /** The outline, and on it the start line, the corner numbers and the cars. */
 @Composable
 private fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) {
@@ -1115,6 +1129,17 @@ private fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) 
     val cornerStyle = TextStyle(color = Muted, fontSize = with(density) { (text * 0.55f).toSp() })
     val startLine = settings[F1LiveWidget.START_LINE]
     val showCorners = settings[F1LiveWidget.CORNERS]
+    // The cars move on every frame (about 30 a second), not only when the time ticks over each second:
+    // read in the drawing only, so it redraws the map and nothing else. Not in the editor, whose time stands still.
+    val moving = running.isNotEmpty() && !LocalEditing.current
+    val motion = remember { MapMotion() }
+    var frameNanos by remember { mutableLongStateOf(System.nanoTime()) }
+    LaunchedEffect(moving) {
+        if (!moving) return@LaunchedEffect
+        while (true) withFrameNanos { if (it - frameNanos >= MapMotion.FRAME_NANOS) frameNanos = it }
+    }
+    // When this second's time came in, so the cars can be carried on from it until the next.
+    val tickedAt = remember(b.now) { System.nanoTime() }
 
     BoxWithConstraints(modifier) {
         val w = constraints.maxWidth.toFloat()
@@ -1153,8 +1178,13 @@ private fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) 
                 drawText(measurer.measure(number, cornerStyle.copy(fontSize = cornerStyle.fontSize * p.share)), topLeft = p.topLeft)
             }
             val radius = min(size.width, size.height) * carShare
+            val frame = if (moving) frameNanos else tickedAt
+            val at = if (moving) b.now.plusMillis(((frame - tickedAt) / 1_000_000).coerceIn(0, 2_000)) else b.now
+            if (moving) motion.keepOnly(running.mapTo(HashSet()) { it.number })
             val cars = running.mapNotNull { r ->
-                val fraction = r.lapFraction(b.now, r.lastLapMs ?: lapMs) ?: return@mapNotNull null
+                val pace = r.lastLapMs ?: lapMs
+                val target = r.lapFraction(at, pace) ?: return@mapNotNull null
+                val fraction = if (moving) motion.place(r.number, target, pace, frame) else target
                 val big = highlighted(r)
                 MapCar(r, fit.at(track.pointAt(fraction)), big, dim && !big, named(r))
             }.sortedWith(compareBy({ it.big }, { -it.row.position }))

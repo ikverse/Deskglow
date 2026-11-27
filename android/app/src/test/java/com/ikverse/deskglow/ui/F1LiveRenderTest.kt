@@ -264,6 +264,8 @@ class F1LiveRenderTest {
 
     @Test
     fun `the track map puts the cars on the outline, wide and tall, with each thing beside it`() {
+        // The cars move on every frame while they run, so the test's clock is held still or it would never be idle.
+        compose.mainClock.autoAdvance = false
         at(F1LiveSample.AT.plusSeconds(3))
         feeds.f1Live.value = F1LiveState.Live(F1LiveSample.race.copy(track = F1LiveSample.track))
         show(

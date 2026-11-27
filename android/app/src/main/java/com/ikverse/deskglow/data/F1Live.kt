@@ -150,7 +150,7 @@ data class LiveSession(
     val signalLost: Boolean = false,
     /** The feed's number for the circuit, which MultiViewer files its outline under. */
     val circuit: Int? = null,
-    /** The circuit's outline, once fetched; only while the session is followed live. */
+    /** The circuit's outline, once fetched: while the session is followed live, and kept with its result. */
     val track: F1Track? = null,
 ) {
     val isRace: Boolean get() = type == "Race"
@@ -224,10 +224,11 @@ data class LiveSession(
                 )
             }
         })
+        .putOpt("circuit", circuit).putOpt("track", track?.toJson())
         .toString()
 
     companion object {
-        /** A saved classification; the clock, flag and news are not kept, as only finished sessions are saved. */
+        /** A saved classification, with its circuit and outline; the clock, flag and news are not kept, as only finished sessions are saved. */
         fun fromJson(text: String): LiveSession {
             val j = JSONObject(text)
             val rows = j.getJSONArray("rows").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.map { r ->
@@ -246,6 +247,8 @@ data class LiveSession(
             return LiveSession(
                 j.getInt("key"), j.getString("meeting"), j.getString("name"), j.getString("type"),
                 if (j.has("start")) Instant.ofEpochMilli(j.getLong("start")) else null, j.getString("status"), j.getBoolean("finished"), rows,
+                circuit = j.optInt("circuit").takeIf { it > 0 },
+                track = j.optString("track").takeIf { it.isNotEmpty() }?.let { runCatching { F1Track.fromJson(it) }.getOrNull() },
             )
         }
     }
@@ -874,11 +877,14 @@ class F1LiveRepository(
             window != null && sameSession(shown, window)
         }
         send(resumed?.let { F1LiveState.Live(it) } ?: result?.let { F1LiveState.Result(it) } ?: F1LiveState.Waiting)
+        // When the result's outline was last looked for; it is looked for again a while after a miss.
+        var outlineTriedAt = Long.MIN_VALUE / 2
 
         suspend fun keep(session: LiveSession) {
             // A finished result gives way only to a later finished one with its classification ("Finalised" after "Finished").
             if (!(session.key == result?.key && result?.finished == true) || session.finished && session.rows.isNotEmpty()) {
-                result = session
+                outlineTriedAt = clock()
+                result = withOutline(session)
                 prefs.f1LiveResult = session.toJson()
             }
             send(F1LiveState.Result(result ?: session))
@@ -949,6 +955,16 @@ class F1LiveRepository(
                     }
                 }
                 continue
+            }
+            // A result shown without its circuit's outline (it could not be had when the result came in) gets it once it can be.
+            result?.takeIf { it.track == null && it.circuit != null && clock() - outlineTriedAt > OUTLINE_RETRY_MS }?.let { r ->
+                outlineTriedAt = clock()
+                val mapped = withOutline(r)
+                if (mapped.track != null) {
+                    result = mapped
+                    prefs.f1LiveResult = mapped.toJson()
+                    send(F1LiveState.Result(mapped))
+                }
             }
             val last = races?.let { lastEnded(it, now)?.start }
             if ((races == null && result == null || races != null && needsCatchUp(result, races, now) && last != gaveUpOn) && clock() - lastCatchUp > CATCH_UP_MS) {
@@ -1047,6 +1063,21 @@ class F1LiveRepository(
             continuation.invokeOnCancellation { close() }
         }
 
+    /**
+     * [session] with its circuit's outline: the one already fetched while it was followed live when it
+     * is the same circuit, else fetched now. As it was when the outline cannot be had.
+     */
+    private fun withOutline(session: LiveSession): LiveSession {
+        if (session.track != null) return session
+        val circuit = session.circuit ?: return session
+        outline.track?.takeIf { outline.circuit == circuit }?.let { return session.copy(track = it) }
+        val season = (session.start ?: Instant.ofEpochMilli(clock())).atZone(ZoneOffset.UTC).year
+        val fetched = runCatching { fetchCircuit(http, circuit, season) }.getOrNull() ?: return session
+        outline.track = fetched
+        outline.circuit = circuit
+        return session.copy(track = fetched)
+    }
+
     /** The last session's result: from the feed's snapshot between sessions, or else from OpenF1. */
     private fun latestResult(): LiveSession? =
         runCatching { snapshot() }.getOrNull()?.takeIf { it.finished && it.rows.isNotEmpty() }
@@ -1131,6 +1162,8 @@ internal fun parseOpenF1Result(session: JSONObject, meeting: String, results: St
         status = "Finalised",
         finished = true,
         rows = out,
+        // OpenF1 numbers circuits as F1's own feed does, which is what MultiViewer files outlines under.
+        circuit = session.optInt("circuit_key").takeIf { it > 0 },
     )
 }
 

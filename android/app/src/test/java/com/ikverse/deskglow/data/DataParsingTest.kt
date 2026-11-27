@@ -598,18 +598,32 @@ class DataParsingTest {
     fun `a saved result comes back as it was`() {
         val s = snapshotOf(sprintQuali).session()!!
         val back = LiveSession.fromJson(s.toJson())
-        assertEquals(s.copy(flag = TrackFlag.Clear, part = null, remaining = null, clockAt = null, clockRunning = false, circuit = null), back)
+        assertEquals(s.copy(flag = TrackFlag.Clear, part = null, remaining = null, clockAt = null, clockRunning = false), back)
+    }
+
+    @Test
+    fun `a saved result keeps its circuit and outline, so the map can be drawn between sessions`() {
+        val outline = F1Track(0, 0, listOf(0f to 0f, 1f to 0f, 1f to 0.5f), 2f, listOf(F1Corner(1, 1f, 0f)))
+        val s = snapshotOf(sprintQuali).session()!!.copy(circuit = 61, track = outline)
+        val back = LiveSession.fromJson(s.toJson())
+        assertEquals(61, back.circuit)
+        assertEquals(outline, back.track)
+        // One saved before either was kept comes back without them.
+        val old = org.json.JSONObject(s.toJson()).apply { remove("circuit"); remove("track") }.toString()
+        assertNull(LiveSession.fromJson(old).circuit)
+        assertNull(LiveSession.fromJson(old).track)
     }
 
     @Test
     fun `an OpenF1 result is read, qualifying times and race gaps alike`() {
-        val session = org.json.JSONObject("""{"session_key":11379,"session_type":"Qualifying","session_name":"Sprint Qualifying","date_start":"2026-10-09T12:30:00+00:00","meeting_key":1296}""")
+        val session = org.json.JSONObject("""{"session_key":11379,"session_type":"Qualifying","session_name":"Sprint Qualifying","date_start":"2026-10-09T12:30:00+00:00","meeting_key":1296,"circuit_key":61}""")
         val drivers = """[{"driver_number":1,"name_acronym":"VER","team_colour":"4781D7"},{"driver_number":63,"name_acronym":"RUS","team_colour":"00D7B6"},{"driver_number":55,"name_acronym":"SAI","team_colour":"1868DB"}]"""
         val results = """[{"position":2,"driver_number":63,"gap_to_leader":[0.096,0.368,0.12],"duration":[93.573,92.614,91.276]},
             {"position":1,"driver_number":1,"gap_to_leader":[0,0,0],"duration":[93.477,92.701,91.156]},
             {"position":22,"driver_number":55,"gap_to_leader":[3.899,null,null],"duration":[97.376,null,null],"dns":false}]"""
         val s = parseOpenF1Result(session, "Singapore Grand Prix", results, drivers)!!
         assertEquals("Singapore GP", s.meeting)
+        assertEquals(61, s.circuit)
         assertTrue(s.finished)
         assertEquals(listOf("VER", "RUS", "SAI"), s.rows.map { it.code })
         assertEquals("1:31.156", s.rows[0].gap)
