@@ -163,6 +163,14 @@ fun EditorScreen(graph: AppGraph, orientation: Orientation = Orientation.Portrai
         EditorState(repository.layout.value, orientation, copyTarget = graph.layoutsFor(orientation.other, page), save = repository::update,
             // The other layout may have fewer screens: the copy lands on the same screen number, so it is made first.
             beforeCopy = { graph.ensurePages(orientation.other, page + 1) },
+            // A widget that fills the canvas goes on a new screen of its own, and the editor turns to it.
+            ownScreen = { made ->
+                graph.addPage(orientation)?.let {
+                    graph.layoutsFor(orientation, it).update(made)
+                    requestedPage = it
+                    true
+                } ?: false
+            },
             screenTarget = ScreenTarget(
                 add = { copied -> graph.addPage(orientation.other)?.also { graph.layoutsFor(orientation.other, it).update(copied) } },
                 remove = { graph.deletePage(orientation.other, it) },
@@ -597,7 +605,7 @@ private fun EditableWidgetBody(state: EditorState, item: WidgetItem, unit: Float
         ) {
             WidgetBody(item, Modifier.fillMaxSize())
         }
-        if (selected) {
+        if (selected && state.typeOf(item)?.fullCanvas != true) {
             // Resize from any corner: a 32 dp touch area. The bottom-right one is the lit handle; the others are small and quiet.
             for (corner in Corner.entries) {
                 val main = corner == Corner.BottomEnd

@@ -38,6 +38,8 @@ interface Feeds {
     val f1Pulse: StateFlow<F1LiveState>
     /** What [f1Live] has said lately, with when, for widgets held back to match the TV. */
     val f1History: LiveHistory
+    /** A finished F1 season looked back on, for PitWall between seasons; null until there is one. Fetches nothing while a season is under way. */
+    val f1Seasons: StateFlow<F1Seasons?>
     /** Prayer times by Aladhan [method] and Asr [school]; widgets with the same choices share one feed. */
     fun prayer(method: Int, school: Int): StateFlow<PrayerState>
 }

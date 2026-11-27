@@ -7,6 +7,8 @@ import com.ikverse.deskglow.data.F1LiveRepository
 import com.ikverse.deskglow.data.F1LiveState
 import com.ikverse.deskglow.data.F1LiveTimingFeed
 import com.ikverse.deskglow.data.F1Repository
+import com.ikverse.deskglow.data.F1Seasons
+import com.ikverse.deskglow.data.F1SeasonsRepository
 import com.ikverse.deskglow.data.F1State
 import com.ikverse.deskglow.data.Feeds
 import com.ikverse.deskglow.data.Http
@@ -154,9 +156,10 @@ class AppGraph(context: Context, http: Http = UrlConnectionHttp, feeds: Feeds? =
     val prayer = PrayerRepository(prefs, http, locate = locationFinder::locate, canLocate = { hasLocationAccess(app) })
     val f1 = F1Repository(prefs, http)
     val f1Live = F1LiveRepository(prefs, F1LiveTimingFeed, http)
+    val f1Seasons = F1SeasonsRepository(prefs, http)
     val fontLibrary = FontLibrary(app, prefs, http)
     val fonts = FontResolver(app, fontLibrary)
-    val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather, prayer, f1, f1Live)
+    val feeds: Feeds = feeds ?: LiveFeeds(app, scope, weather, prayer, f1, f1Live, f1Seasons)
 
     /** Looks for a newer release on GitHub and hands it to Android's installer. Nothing goes online until it is asked to check. */
     val updates by lazy {
@@ -196,6 +199,7 @@ private class LiveFeeds(
     private val prayerRepository: PrayerRepository,
     f1Repository: F1Repository,
     f1LiveRepository: F1LiveRepository,
+    f1SeasonsRepository: F1SeasonsRepository,
 ) : Feeds {
     // The last value is kept after a feed stops, so a screen that comes back shows it at once rather
     // than an empty placeholder while the feed starts up again.
@@ -218,6 +222,7 @@ private class LiveFeeds(
     private val live = f1LiveRepository.updates(f1).onEach { f1History.record(it, System.currentTimeMillis()) }.shared<F1LiveState>(F1LiveState.Waiting)
     override val f1Pulse: StateFlow<F1LiveState> = live
     override val f1Live: StateFlow<F1LiveState> = live
+    override val f1Seasons = f1SeasonsRepository.updates(f1).shared<F1Seasons?>(null)
 
     private val prayers = HashMap<Pair<Int, Int>, StateFlow<PrayerState>>()
 

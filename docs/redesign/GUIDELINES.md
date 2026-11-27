@@ -109,6 +109,10 @@ All in `ui/Components.kt`, `ui/Icons.kt`, `ui/editor/StylePicker.kt` and `widget
   mid-flight carries on from where it is.
 - No looping or idle animation anywhere on the display: it must render zero frames when nothing
   changes. Android's "Remove animations" setting must leave every flow usable.
+- A widget may animate a change as it happens (a row sliding to its new place, a flag's colour
+  running round the track, one screen fading into the next), once and for well under two seconds,
+  and never in the editor. PitWall's motion (`PitWallMotion.kt`) is the pattern; the cars on a live
+  track map are the one thing that moves all the time, and only while a session runs.
 
 ### Copy
 - Plain sentences, British spelling ("colour", "licence"), no exclamation marks, no jargon

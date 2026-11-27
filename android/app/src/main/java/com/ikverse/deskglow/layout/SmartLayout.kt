@@ -80,6 +80,8 @@ object SmartLayout {
         "stat" to Spec("S", Family.Chip, 80, 276, 40, 96),
         "date" to Spec("D", Family.Chip, 100, 400, 20, 60),
         "notifs" to Spec("N", Family.Chip, 100, 400, 24, 48),
+        // Fills the canvas and has a screen to itself, so it is never arranged; listed so it is not taken for an unknown widget.
+        "f1pitwall" to Spec("PW", Family.Table, 412, 848, 412, 848),
     )
     private val UNKNOWN = Spec("?", Family.Card, 32, 848, 24, 412)
     private val LETTER_TO_TYPE = SPECS.entries.associate { it.value.letter to it.key }

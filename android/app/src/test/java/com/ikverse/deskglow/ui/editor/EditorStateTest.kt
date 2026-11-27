@@ -647,4 +647,55 @@ class EditorStateTest {
         assertEquals(b, state.selectedId)
         assertEquals(SheetStop.Half, state.sheetStop)
     }
+
+    // ---- a widget that fills the canvas (PitWall) ----
+
+    private val pitWall = com.ikverse.deskglow.widgets.PitWallWidget
+
+    @Test
+    fun `a canvas-filling widget is added at the canvas's own size on an empty screen, either way up`() {
+        for (o in Orientation.values()) {
+            val empty = EditorState(Layout(emptyList()), o) {}
+            assertTrue(empty.add(pitWall))
+            assertEquals(Box(0, 0, o.width, o.height), empty.layout.items.single().box)
+        }
+    }
+
+    @Test
+    fun `on a screen with widgets it goes on a new screen of its own, or says why not`() {
+        val made = mutableListOf<Layout>()
+        val busy = EditorState(DefaultLayout.create(), ownScreen = { made += it; true }) {}
+        assertTrue(busy.add(pitWall))
+        assertEquals(DefaultLayout.create(), busy.layout)
+        assertEquals(Box(0, 0, Orientation.Portrait.width, Orientation.Portrait.height), made.single().items.single().box)
+        assertEquals(pitWall.id, made.single().items.single().type)
+
+        val atLimit = EditorState(DefaultLayout.create(), ownScreen = { false }) {}
+        assertFalse(atLimit.add(pitWall))
+        assertEquals("F1 PitWall needs a screen to itself. Delete a screen first.", atLimit.toast?.message)
+    }
+
+    @Test
+    fun `it is not resized or rearranged, and nothing is added beside it`() {
+        val state = EditorState(Layout(emptyList())) {}
+        state.add(pitWall)
+        val id = state.layout.items.single().id
+        val box = state.layout.items.single().box
+        state.nudge(id, -64, -64, resize = true)
+        assertEquals(box, state.layout.find(id)?.box)
+        state.smartArrange()
+        assertEquals("F1 PitWall fills this screen", state.toast?.message)
+        assertEquals(box, state.layout.find(id)?.box)
+        assertFalse(state.add(WeatherWidget))
+        assertEquals("F1 PitWall fills this screen. Add it on another screen.", state.toast?.message)
+    }
+
+    @Test
+    fun `copied to the other orientation it fills that canvas too`() {
+        val added = mutableListOf<Layout>()
+        val state = EditorState(Layout(emptyList()), screenTarget = ScreenTarget(add = { added += it; 0 }, remove = {}, count = { 1 }, read = { added.last() })) {}
+        state.add(pitWall)
+        state.copyToNewScreen()
+        assertEquals(Box(0, 0, Orientation.Landscape.width, Orientation.Landscape.height), added.single().items.single().box)
+    }
 }

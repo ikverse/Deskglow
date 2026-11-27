@@ -34,6 +34,7 @@ class FakeFeeds : Feeds {
     override val f1Live = MutableStateFlow<F1LiveState>(F1LiveState.Waiting)
     override val f1Pulse: StateFlow<F1LiveState> get() = f1Live
     override val f1History = LiveHistory()
+    override val f1Seasons = MutableStateFlow<com.ikverse.deskglow.data.F1Seasons?>(null)
     /** One prayer feed for every method, set directly by tests. */
     val prayers = MutableStateFlow<PrayerState>(PrayerState.NoLocation)
     override fun prayer(method: Int, school: Int) = prayers

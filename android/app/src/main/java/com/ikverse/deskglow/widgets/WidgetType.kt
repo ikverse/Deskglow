@@ -54,6 +54,9 @@ interface WidgetType {
     val height: Int
     val defaults: Settings
 
+    /** Fills the whole canvas: it is added at the canvas's own size, on a screen to itself, and cannot be resized. */
+    val fullCanvas: Boolean get() = false
+
     /** Whether it has small text beside its main text, and so a "Small text size" slider. */
     val smallText: Boolean get() = true
 
@@ -86,7 +89,7 @@ interface WidgetType {
 object Widgets {
     val all: List<WidgetType> = listOf(
         ClockWidget, DateWidget, NotificationsWidget, RingWidget, StatWidget, WeatherWidget, SunMoonWidget, EventWidget, MediaWidget,
-        PrayerWidget, AlarmWidget, F1WeekendWidget, F1ScheduleWidget, F1LiveWidget, F1StandingsWidget,
+        PrayerWidget, AlarmWidget, F1WeekendWidget, F1ScheduleWidget, F1LiveWidget, F1StandingsWidget, PitWallWidget,
     )
 
     fun find(id: String): WidgetType? = all.firstOrNull { it.id == id }

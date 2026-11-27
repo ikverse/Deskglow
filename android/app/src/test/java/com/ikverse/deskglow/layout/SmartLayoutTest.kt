@@ -17,8 +17,8 @@ import java.io.File
 import kotlin.random.Random
 
 class SmartLayoutTest {
-    /** One of every widget, plus two more stats, as a long list of everything a person might add. */
-    private val everything: List<WidgetItem> = (Widgets.all + listOf(Widgets.find("stat")!!, Widgets.find("stat")!!, Widgets.find("stat")!!)).mapIndexed { i, type ->
+    /** One of every widget that is arranged (one that fills the canvas has a screen to itself), plus two more stats, as a long list of everything a person might add. */
+    private val everything: List<WidgetItem> = (Widgets.all.filter { !it.fullCanvas } + listOf(Widgets.find("stat")!!, Widgets.find("stat")!!, Widgets.find("stat")!!)).mapIndexed { i, type ->
         WidgetItem("w${i + 1}", type.id, Box(0, 0, type.width, type.height), true, type.defaults)
     }
 

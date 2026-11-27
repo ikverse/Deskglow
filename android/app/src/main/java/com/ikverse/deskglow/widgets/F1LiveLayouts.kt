@@ -164,7 +164,7 @@ private fun StateChip(text: String, shade: Color, px: Float) {
 }
 
 @Composable
-private fun TeamBar(colour: Long?, dim: Boolean, width: Float, height: Float) {
+internal fun TeamBar(colour: Long?, dim: Boolean, width: Float, height: Float) {
     Box(
         Modifier.width(pxToDp(width)).height(pxToDp(height))
             .background(Color(colour ?: 0xFF8C8C8C).let { if (dim) it.copy(alpha = 0.45f) else it }, RoundedCornerShape(pxToDp(width * 0.5f))),
@@ -173,7 +173,7 @@ private fun TeamBar(colour: Long?, dim: Boolean, width: Float, height: Float) {
 
 /** The tyre's letter in a ring of its compound's colour; dimmed when every car is on the same one, so a different choice stands out. */
 @Composable
-private fun TyreMark(letter: Char, muted: Boolean, px: Float) {
+internal fun TyreMark(letter: Char, muted: Boolean, px: Float) {
     val shade = tyreColour(letter).let { if (muted) it.copy(alpha = 0.45f) else it }
     Box(Modifier.size(pxToDp(px * 1.35f)).border(pxToDp((px * 0.14f).coerceAtLeast(1f)), shade, CircleShape), contentAlignment = Alignment.Center) {
         Text(letter.toString(), color = shade, fontSize = pxToSp(px * 0.75f), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
@@ -1095,7 +1095,7 @@ private fun NoMap(modifier: Modifier, text: Float) {
 
 /** The outline, and on it the start line, the corner numbers and the cars. */
 @Composable
-private fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) {
+internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float) {
     val settings = b.settings
     val session = b.session
     val strokeShare = when (settings[F1LiveWidget.TRACK_WIDTH]) { "thin" -> 0.018f; "bold" -> 0.05f; else -> 0.03f }

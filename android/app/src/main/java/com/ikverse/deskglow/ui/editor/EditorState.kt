@@ -14,6 +14,7 @@ import com.ikverse.deskglow.layout.Retarget
 import com.ikverse.deskglow.layout.SmartLayout
 import com.ikverse.deskglow.layout.other
 import com.ikverse.deskglow.store.LayoutRepository
+import com.ikverse.deskglow.model.Box
 import com.ikverse.deskglow.model.Key
 import com.ikverse.deskglow.model.Layout
 import com.ikverse.deskglow.model.Orientation
@@ -58,6 +59,11 @@ class EditorState(
     private val beforeCopy: () -> Unit = {},
     /** Where "copy to a new screen" adds its screen; null when there is nowhere to add one. */
     private val screenTarget: ScreenTarget? = null,
+    /**
+     * Puts a layout on a new screen of this orientation and shows that screen, for a widget that needs a screen to
+     * itself; false when no more screens are allowed. Null when there is nowhere to add one.
+     */
+    private val ownScreen: ((Layout) -> Boolean)? = null,
     private val save: (Layout) -> Unit,
 ) {
     var layout by mutableStateOf(initial)
@@ -181,6 +187,14 @@ class EditorState(
         save(next)
     }
 
+    /** The widget that fills this screen, if one does: nothing else fits beside it, and it is not resized or rearranged. */
+    private fun fillingWidget(): WidgetItem? = layout.items.firstOrNull { it.visible && typeOf(it)?.fullCanvas == true }
+
+    /** This screen's canvas-filling widget alone, filling the other orientation's canvas; null when this screen has none. */
+    private fun fillingCopy(): Layout? = fillingWidget()?.let {
+        Layout(listOf(it.copy(id = "w1", box = Box(0, 0, orientation.other.width, orientation.other.height))))
+    }
+
     private fun visiblePlaced(except: String? = null) =
         layout.items.filter { it.visible && it.id != except }.map { Placed(it.id, it.box) }
 
@@ -274,6 +288,10 @@ class EditorState(
             toast = Toast("Add some widgets first")
             return
         }
+        fillingWidget()?.let {
+            toast = Toast("${titleOf(it)} fills this screen")
+            return
+        }
         val before = layout
         var result: SmartLayout.Result? = null
         // A press that would change nothing moves on to the next composition instead.
@@ -293,6 +311,8 @@ class EditorState(
     /** [corner]: which corner a resize drags. */
     fun beginDrag(id: String, resize: Boolean, corner: Corner = Corner.BottomEnd) {
         val item = layout.find(id) ?: return
+        // A widget that fills the canvas stays that size.
+        if (resize && typeOf(item)?.fullCanvas == true) return
         // In select mode a drag moves the gathered group, or just the one widget, and selects nothing.
         if (!selecting) select(id)
         val companions = if (!resize && id in groupIds && groupIds.size >= 2) groupIds else emptySet()
@@ -342,11 +362,12 @@ class EditorState(
     // ---- adding, deleting, hiding ----
 
     fun add(type: WidgetType): Boolean {
+        if (type.fullCanvas) return addFilling(type)
         val id = layout.nextId()
         val boxes = Packer.place(id, type.width, type.height, null, visiblePlaced(), orientation)
         pickerOpen = false
         if (boxes == null) {
-            toast = Toast(NO_ROOM)
+            toast = Toast(fillingWidget()?.let { "${titleOf(it)} fills this screen. Add it on another screen." } ?: NO_ROOM)
             return false
         }
         val item = WidgetItem(id, type.id, boxes.getValue(id), true, type.defaults)
@@ -354,6 +375,25 @@ class EditorState(
         justAdded = id
         selectAndOpen(id)
         return true
+    }
+
+    /**
+     * A widget that fills the canvas: on this screen when nothing else is on it, otherwise on a new screen of
+     * its own, which the editor then shows.
+     */
+    private fun addFilling(type: WidgetType): Boolean {
+        pickerOpen = false
+        val box = Box(0, 0, orientation.width, orientation.height)
+        if (layout.items.none { it.visible }) {
+            val id = layout.nextId()
+            commit(Layout(layout.items + WidgetItem(id, type.id, box, true, type.defaults)))
+            justAdded = id
+            selectAndOpen(id)
+            return true
+        }
+        val added = ownScreen?.invoke(Layout(listOf(WidgetItem("w1", type.id, box, true, type.defaults)))) ?: false
+        if (!added) toast = Toast("${type.label} needs a screen to itself. Delete a screen first.")
+        return added
     }
 
     /** A copy of a widget, with its settings, in the nearest free space and just after it in the list. Undo removes it. */
@@ -463,10 +503,13 @@ class EditorState(
         val screensBefore = screenTarget?.count()
         beforeCopy()
         val before = target.layout.value
-        val converted = Retarget.convert(layout, orientation, orientation.other)
-        target.update(converted.layout)
+        // A widget that fills the canvas fills the other one too, rather than being shrunk to fit it.
+        val filling = fillingCopy()
+        val converted = if (filling == null) Retarget.convert(layout, orientation, orientation.other) else null
+        target.update(filling ?: converted!!.layout)
         val name = orientation.other.name.lowercase()
-        val note = if (converted.hidden > 0) " ${converted.hidden} did not fit and ${if (converted.hidden == 1) "was" else "were"} hidden." else ""
+        val hidden = converted?.hidden ?: 0
+        val note = if (hidden > 0) " $hidden did not fit and ${if (hidden == 1) "was" else "were"} hidden." else ""
         toast = Toast("Copied to $name.$note", undo = {
             target.update(before)
             // The copy may have added empty screens to reach this screen's number: those go again, if still empty.
@@ -484,16 +527,19 @@ class EditorState(
     fun copyToNewScreen() {
         val target = screenTarget ?: return
         val name = orientation.other.name.lowercase()
-        val result = Retarget.arranged(layout, orientation, orientation.other)
-        val index = target.add(result.layout)
+        val filling = fillingCopy()
+        val result = if (filling == null) Retarget.arranged(layout, orientation, orientation.other) else null
+        val copied = filling ?: result!!.layout
+        val index = target.add(copied)
         if (index == null) {
             toast = Toast("The $name layout has as many screens as it can hold. Delete one first.")
             return
         }
-        val arrangement = result.arrangement?.let { " Arranged: $it." } ?: ""
-        val note = if (result.hidden > 0) " ${result.hidden} did not fit and ${if (result.hidden == 1) "was" else "were"} hidden." else ""
+        val arrangement = result?.arrangement?.let { " Arranged: $it." } ?: ""
+        val hidden = result?.hidden ?: 0
+        val note = if (hidden > 0) " $hidden did not fit and ${if (hidden == 1) "was" else "were"} hidden." else ""
         toast = Toast("Copied to $name as screen ${index + 1}.$arrangement$note", undo = {
-            if (target.count() == index + 1 && target.read(index) == result.layout) target.remove(index)
+            if (target.count() == index + 1 && target.read(index) == copied) target.remove(index)
         })
     }
 

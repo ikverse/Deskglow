@@ -202,6 +202,11 @@ class AppPrefs(context: Context) {
         get() = cached(FILE_F1_TRACK, KEY_F1_TRACK)
         set(value) = keep(FILE_F1_TRACK, KEY_F1_TRACK, value)
 
+    /** A finished F1 season looked back on: its races, final tables, past champions and the next calendar. */
+    var f1Seasons: String?
+        get() = files.read(FILE_F1_SEASONS)
+        set(value) = files.write(FILE_F1_SEASONS, value)
+
     /**
      * The classification of the last F1 session to finish, for the live-session widget. One saved by
      * an older way of reading the feed is not given back, so the result is fetched again: a version
@@ -259,6 +264,7 @@ class AppPrefs(context: Context) {
         const val FILE_F1 = "f1.json"
         const val FILE_F1_TRACK = "f1-track.json"
         const val FILE_F1_LIVE = "f1-live.json"
+        const val FILE_F1_SEASONS = "f1-history.json"
         const val KEY_BRIGHTNESS_MODE = "brightness_mode"
         const val KEY_BRIGHTNESS_LEVEL = "brightness_level"
         const val KEY_BURN_IN = "burn_in"
