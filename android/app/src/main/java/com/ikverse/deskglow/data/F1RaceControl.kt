@@ -31,6 +31,8 @@ internal class RaceControl(
     val penalties: Map<String, Int> = emptyMap(),
     /** The news, oldest first; only the last few are kept. */
     val events: List<LiveEvent> = emptyList(),
+    /** The marshal sectors under a yellow flag now, by number: "YELLOW" or "DOUBLE YELLOW". */
+    val sectorFlags: Map<Int, String> = emptyMap(),
 )
 
 private val CAR = Regex("""CAR (\d+) \(([A-Z]{3})\)""")
@@ -39,6 +41,17 @@ private val RESTART = Regex("""(?:START|RESUME)S? AT (\d{1,2}):(\d{2})""")
 private val RAIN = Regex("""RISK OF RAIN.*?(\d{1,3})\s?%""")
 
 private const val KEPT_EVENTS = 6
+
+/** How far apart in time a flag and a message about a car may be for the car to be named as the flag's cause. */
+private const val CAUSE_WITHIN_S = 60L
+
+/** Messages that name a car without saying it caused anything. */
+private val NOT_A_CAUSE = listOf("DELETED", "BLUE FLAG", "PENALTY", "TRACK LIMITS", "PIT LANE", "PIT EXIT", "NOTED", "NO FURTHER", "SERVED", "REPRIMAND")
+
+/** The car race control wrote about nearest in time to [at], within a minute either side; null when none was. */
+private fun causeNear(causes: List<Pair<Instant, String>>, at: Instant): String? =
+    causes.filter { java.time.Duration.between(it.first, at).abs().seconds <= CAUSE_WITHIN_S }
+        .minByOrNull { java.time.Duration.between(it.first, at).abs() }?.second
 
 /**
  * Reads the message list: the snapshot is an array, and a change before any snapshot is an object
@@ -58,6 +71,15 @@ internal fun readRaceControl(topic: JSONObject?, offset: ZoneOffset, since: Inst
     var rain: Int? = null
     val penalties = LinkedHashMap<String, Int>()
     val events = ArrayList<LiveEvent>()
+    val sectorFlags = LinkedHashMap<Int, String>()
+    // Each car race control wrote about (stopped, spun, in an incident), with when, to name what brought a flag out.
+    val causes = messages.mapNotNull { m ->
+        val text = m.optString("Message").uppercase()
+        val code = CAR.find(text)?.groupValues?.get(2) ?: return@mapNotNull null
+        if (NOT_A_CAUSE.any { it in text }) return@mapNotNull null
+        val at = runCatching { LocalDateTime.parse(m.optString("Utc")).toInstant(ZoneOffset.UTC) }.getOrNull() ?: return@mapNotNull null
+        at to code
+    }
 
     for (m in messages) {
         val text = m.optString("Message").uppercase()
@@ -70,7 +92,23 @@ internal fun readRaceControl(topic: JSONObject?, offset: ZoneOffset, since: Inst
         val code = car?.groupValues?.get(2)
         val number = car?.groupValues?.get(1)
 
+        val scope = m.optString("Scope")
+        val flag = m.optString("Flag").uppercase()
+        val sector = m.optInt("Sector", 0).takeIf { it > 0 }
+        // Which sectors are under yellow: set and cleared sector by sector, and all cleared by a green or clear for the whole track.
+        // A yellow already out in that sector, given again, is not news.
+        val already = sector != null && sectorFlags[sector] == flag
+        if (scope == "Sector" && sector != null) {
+            when (flag) {
+                "YELLOW", "DOUBLE YELLOW" -> sectorFlags[sector] = flag
+                "CLEAR", "GREEN" -> sectorFlags.remove(sector)
+            }
+        } else if (scope == "Track" && (flag == "CLEAR" || flag == "GREEN" || flag == "RED")) sectorFlags.clear()
+        fun caused(what: String) = causeNear(causes, at)?.let { "$what · [$it]" } ?: what
+
         when {
+            scope == "Sector" && sector != null && (flag == "YELLOW" || flag == "DOUBLE YELLOW") ->
+                if (!already) news(EventKind.Flag, caused("${if (flag == "DOUBLE YELLOW") "Double yellow" else "Yellow"} · sector $sector"))
             "DELAYED START" in text || "START DELAYED" in text -> { delayed = true; news(EventKind.Info, "Start delayed") }
             RESTART.containsMatchIn(text) -> {
                 val (h, min) = RESTART.find(text)!!.destructured
@@ -108,7 +146,7 @@ internal fun readRaceControl(topic: JSONObject?, offset: ZoneOffset, since: Inst
             "SAFETY CAR" in text -> news(EventKind.Flag, if ("IN THIS LAP" in text) "Safety car in this lap" else "Safety car")
             // Before the red flag: "CHEQUERED FLAG" has "RED FLAG" in it.
             "CHEQUERED" in text -> news(EventKind.Flag, "Chequered flag")
-            "RED FLAG" in text || (m.optString("Flag") == "RED" && m.optString("Scope") == "Track") -> news(EventKind.Red, "Red flag")
+            "RED FLAG" in text || (m.optString("Flag") == "RED" && m.optString("Scope") == "Track") -> news(EventKind.Red, caused("Red flag"))
             m.optString("Flag") == "CLEAR" && m.optString("Scope") == "Track" -> news(EventKind.Flag, "Track clear")
             "LOW GRIP" in text -> news(EventKind.Info, "Low grip")
             "CLIMATIC" in text -> news(EventKind.Info, "Conditions changing")
@@ -116,7 +154,7 @@ internal fun readRaceControl(topic: JSONObject?, offset: ZoneOffset, since: Inst
     }
     // A repeated line of news (the same car noted twice) reads as one.
     val distinct = events.filterIndexed { i, e -> i == 0 || e.text != events[i - 1].text }
-    return RaceControl(delayed, restart, label, rain, penalties, distinct.takeLast(KEPT_EVENTS))
+    return RaceControl(delayed, restart, label, rain, penalties, distinct.takeLast(KEPT_EVENTS), sectorFlags)
 }
 
 /** [hour]:[minute] at the track, on the day [sent] was in there: the next day if that is already well past. */

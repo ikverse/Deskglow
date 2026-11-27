@@ -23,7 +23,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.ikverse.deskglow.data.Crossing
 import com.ikverse.deskglow.data.F1Track
+import com.ikverse.deskglow.data.sectorOf
+import com.ikverse.deskglow.data.timingPoints
 import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.LiveRow
 import com.ikverse.deskglow.data.LiveSession
@@ -39,11 +42,14 @@ import kotlin.math.min
  * control's last words beside it. Upright: the same, stacked.
  */
 @Composable
-internal fun PitWallLiveFace(look: PitLook, session: LiveSession, live: Boolean, now: Instant, track: F1Track?, next: String?) {
+internal fun PitWallLiveFace(
+    look: PitLook, session: LiveSession, live: Boolean, now: Instant, track: F1Track?, next: String?,
+    crossings: Map<String, List<Crossing>> = session.crossings,
+) {
     val u = look.u
     val followed = followedRow(session, look.driver, look.team)?.code.orEmpty()
     val phase = session.phase(now)
-    val board = Board(mapSettings(look), session, live, phase, now, look.h24, look.driver, look.team, followed, next, null, track)
+    val board = Board(mapSettings(look), session, live, phase, now, look.h24, look.driver, look.team, followed, next, null, track, crossings)
     val dimmed = if (session.signalLost) Modifier.alpha(0.55f) else Modifier
     if (look.landscape) {
         Row(Modifier.fillMaxSize().then(dimmed)) {
@@ -76,7 +82,7 @@ internal fun PitWallLiveFace(look: PitLook, session: LiveSession, live: Boolean,
 private fun mapSettings(look: PitLook): Settings = Settings()
     .with(Common.COLOUR, look.colourArgb)
     .with(F1LiveWidget.ACCENT, look.accentArgb)
-    .with(F1LiveWidget.TRACK_LABELS, if (look.landscape) "all" else "leader")
+    .with(F1LiveWidget.TRACK_LABELS, "teams")
     .with(F1LiveWidget.TRACK_HIGHLIGHT, "driver")
     .with(F1LiveWidget.START_LINE, true)
     .with(F1LiveWidget.CORNERS, false)
@@ -137,8 +143,12 @@ private fun LiveMap(b: Board, look: PitLook, modifier: Modifier) {
             }
             return@BoxWithConstraints
         }
+        // With the sectors known, a yellow lights only the sectors it is out in; without them, the whole track as before.
+        val yellows = if (b.live && track.sectors.isNotEmpty()) b.session.sectorFlags else emptyMap()
+        val sectorYellow = yellows.isNotEmpty() && b.phase == LivePhase.Running
         FlagTrack(
-            track, b.status.shade.takeIf { b.live && b.status.filled }, look.colour.copy(alpha = 0.85f),
+            track, b.status.shade.takeIf { b.live && b.status.filled && !sectorYellow }, look.colour.copy(alpha = 0.85f),
+            sectors = track.sectors, lit = yellows,
             pulse = b.phase == LivePhase.Red || b.phase == LivePhase.SafetyCar, finish = b.session.finished, enter = look.entered,
             animate = look.animate, modifier = Modifier.fillMaxSize(),
         )
@@ -201,6 +211,8 @@ private fun OrderRow(r: LiveRow, b: Board, look: PitLook, row: Float, tyres: Boo
     }
 }
 
+private val SECTOR_IN = Regex("""sector (\d+)""")
+
 /** Race control's last three messages, newest first, drivers by their codes; between sessions, what comes next instead. */
 @Composable
 private fun Notes(b: Board, look: PitLook) {
@@ -214,10 +226,22 @@ private fun Notes(b: Board, look: PitLook) {
         }
         Text("Race control", color = Muted, fontSize = pxToSp(u * 11f), maxLines = 1)
         val events = b.session.events.takeLast(3).reversed().distinctBy { it.at to it.text }
+        val track = b.track
+        // A yellow race control gave no cause for: the car stopped in that sector, if one is.
+        val points = remember(b.crossings, track) {
+            val of = b.crossings.values.firstNotNullOfOrNull { it.lastOrNull()?.of } ?: 0
+            if (of > 1) timingPoints(b.crossings, of, track) else null
+        }
+        fun withCause(text: String): String {
+            if ('[' in text || track == null || points == null) return text
+            val sector = SECTOR_IN.find(text)?.groupValues?.get(1)?.toIntOrNull() ?: return text
+            val stopped = b.session.rows.firstOrNull { r -> r.out && !r.retired && b.crossings[r.number]?.let { sectorOf(track, it, points) } == sector }
+            return stopped?.let { "$text · [${it.code}]" } ?: text
+        }
         LazyColumn(Modifier.fillMaxWidth().weight(1f), userScrollEnabled = false) {
             items(events, key = { "${it.at.toEpochMilli()} ${it.text}" }) { e ->
                 Text(
-                    namedNews(e.text, "code", b.session.rows), color = if (e === events.first()) look.colour else Muted, fontSize = pxToSp(u * 12.5f),
+                    namedNews(withCause(e.text), "code", b.session.rows), color = if (e === events.first()) look.colour else Muted, fontSize = pxToSp(u * 12.5f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth().height(pxToDp(line))
                         .animateItem(fadeInSpec = pitSpec(look.animate, 350), placementSpec = pitPlacement(look.animate), fadeOutSpec = pitSpec(look.animate, 350)),

@@ -70,6 +70,13 @@ object PitWallWidget : WidgetType {
     /** Which screen the editor shows: "auto" (whatever the calendar says), "live", "weekend", "between" or "offseason". The display always follows the calendar. */
     val PREVIEW = TextKey("preview", "auto")
 
+    /** The least PitWall runs behind real life, in seconds, whatever the broadcast delay is set to. */
+    const val MIN_DELAY_S = 15
+
+    /** [MIN_DELAY_S], but for tests, whose clock does not run on in real time and so would never catch up with a held-back feed. */
+    @Volatile
+    internal var leastDelayS = MIN_DELAY_S
+
     override val id = "f1pitwall"
     override val label = "F1 PitWall"
     override val blurb = "The whole screen: live sessions on the track map, the next race, the season"
@@ -94,7 +101,8 @@ object PitWallWidget : WidgetType {
 
     override fun note(settings: Settings) =
         "Fills the screen, so it has a screen to itself. Live timing from Formula 1's own live-timing feed, which is unofficial and may stop working; " +
-            "on the map each car is placed from the last of the timing's mini-sectors it went through, so it is close but not exact. " +
+            "PitWall runs at least $MIN_DELAY_S seconds behind real life, or the broadcast delay set on the Home screen if that is longer, " +
+            "so each car on the map is played back between two of the timing's mini-sectors it is known to have passed: close, but not to the metre. " +
             "Calendar, results and past seasons from Jolpica; track outlines from MultiViewer. " +
             "The favourite driver and team, and the broadcast delay, are set under F1 on the Home screen. Not affiliated with Formula 1."
 
@@ -104,9 +112,12 @@ object PitWallWidget : WidgetType {
         val editing = LocalEditing.current
         // Held back to line up with the TV; the clock is set back with it, so countdowns and cars on the map match what is shown.
         val delaySeconds by LocalBroadcastDelay.current.collectAsStateWithLifecycle()
-        val delayMs = if (editing) 0L else delaySeconds * 1000L
+        // Never less than MIN_DELAY_S behind real life, as a stream is: the next timing point of nearly every car is
+        // then already in when the map draws it, so the cars are played back between known points, not guessed on.
+        val delayMs = if (editing) 0L else maxOf(delaySeconds, leastDelayS) * 1000L
         val held = remember(feeds.f1Live, delayMs) { feeds.f1Live.heldBack(delayMs, feeds.f1History) }
         val liveState by held.collectAsStateWithLifecycle(feeds.f1Live.value)
+        val latest by feeds.f1Live.collectAsStateWithLifecycle()
         val lag = Duration.ofMillis(delayMs)
         val calendar by feeds.f1.collectAsStateWithLifecycle()
         val seasons by feeds.f1Seasons.collectAsStateWithLifecycle()
@@ -164,7 +175,10 @@ object PitWallWidget : WidgetType {
                 Box(Modifier.fillMaxSize().padding(pxToDp(unit * settings[PADDING].coerceIn(0, 40)))) {
                     val sample = shown.sampleAt != null
                     when (val m = shown.mode) {
-                        is PitWallMode.Live -> PitWallLiveFace(look, m.session, true, now, trackFor(m.session, shown.data, live = true, sample), null)
+                        is PitWallMode.Live -> {
+                            val ahead = (latest as? com.ikverse.deskglow.data.F1LiveState.Live)?.session?.takeIf { it.key == m.session.key }?.crossings
+                            PitWallLiveFace(look, m.session, true, now, trackFor(m.session, shown.data, live = true, sample), null, ahead ?: m.session.crossings)
+                        }
                         is PitWallMode.Weekend -> {
                             val result = m.result
                             val next = m.next?.let { "${shortKind(it.kind)} in ${countdownText(now, it.start)}" }

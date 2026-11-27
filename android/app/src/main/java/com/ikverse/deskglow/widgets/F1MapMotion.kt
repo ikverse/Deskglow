@@ -4,24 +4,20 @@ import kotlin.math.exp
 import kotlin.math.floor
 
 /**
- * Smooth movement for the cars on the track map. The timing only says which mini-sector each car
- * went through last, so where a car should be ([place]'s target) jumps on each new mini-sector and
- * waits at the edge of the next one until the feed says it got there. Drawn as it is, a car stutters.
- * Instead each car keeps where it was last drawn and goes on from there at its own pace, closing on
- * the target over a fraction of a second: ahead of it, a car slows down rather than going back;
- * behind it, a car speeds up rather than jumping. Only a car far from where the timing puts it (one
- * just out on track, or after a gap in the feed) is moved there at once.
+ * The last smoothing of the cars on the track map. Where a car should be is worked out afresh on every frame
+ * (played back between its timing points, or carried on past the last one), and nearly always moves on
+ * smoothly by itself. It jumps only when the timing changes its mind: the next point comes in later or sooner
+ * than the car was carried on to. This closes such a jump over a moment instead: a car ahead of where it
+ * should be waits rather than going back, and one behind catches up. Only a car far off (one just out on
+ * track, or after a gap in the feed) is moved there at once.
  */
 internal class MapMotion {
     private class Shown(var fraction: Double, var atNanos: Long)
 
     private val shown = HashMap<String, Shown>()
 
-    /**
-     * Where to draw the car [number] at [nowNanos], 0 to 1 round the lap: [target] is where the timing
-     * puts it now, and [lapMs] how long it takes over a lap.
-     */
-    fun place(number: String, target: Float, lapMs: Long, nowNanos: Long): Float {
+    /** Where to draw the car [number] at [nowNanos], 0 to 1 round the lap, when it should be at [target]. */
+    fun place(number: String, target: Float, nowNanos: Long): Float {
         val goal = target.toDouble() - floor(target.toDouble())
         val was = shown[number]
         if (was == null) {
@@ -36,10 +32,8 @@ internal class MapMotion {
             was.fraction = goal
             return goal.toFloat()
         }
-        val pace = if (lapMs > 0) dtMs / lapMs else 0.0
-        val close = off * (1 - exp(-dtMs / CLOSE_MS))
-        // Never backwards: a car ahead of the timing waits for it.
-        val step = (pace + close).coerceAtLeast(0.0)
+        // Never backwards: a car ahead of where it should be waits for it.
+        val step = (off * (1 - exp(-dtMs / CLOSE_MS))).coerceAtLeast(0.0)
         was.fraction = (was.fraction + step).let { it - floor(it) }
         return was.fraction.toFloat()
     }
@@ -50,13 +44,13 @@ internal class MapMotion {
     }
 
     companion object {
-        /** About how long a car takes to close on where the timing puts it. */
-        const val CLOSE_MS = 600.0
+        /** About how long a car takes to close on where it should be: short, as it is nearly always there already. */
+        const val CLOSE_MS = 180.0
         /** A car further than this share of a lap from where the timing puts it is moved there at once. */
         const val SNAP_LAP_SHARE = 0.15
         /** After a pause this long between frames (the screen off, say), the cars are put where the timing puts them. */
         const val SNAP_GAP_MS = 3_000.0
-        /** The map is drawn at most this often while cars move: about 30 times a second. */
-        const val FRAME_NANOS = 30_000_000L
+        /** The map is drawn on every frame while cars move: about 60 times a second. */
+        const val FRAME_NANOS = 12_000_000L
     }
 }

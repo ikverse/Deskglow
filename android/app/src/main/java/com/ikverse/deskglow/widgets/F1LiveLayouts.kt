@@ -45,12 +45,15 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
+import com.ikverse.deskglow.data.Crossing
 import com.ikverse.deskglow.data.F1Corner
 import com.ikverse.deskglow.data.F1Track
 import com.ikverse.deskglow.data.LivePhase
 import com.ikverse.deskglow.data.LiveRow
 import com.ikverse.deskglow.data.LiveSession
 import com.ikverse.deskglow.data.gapText
+import com.ikverse.deskglow.data.playbackShare
+import com.ikverse.deskglow.data.timingPoints
 import com.ikverse.deskglow.data.standingColumns
 import com.ikverse.deskglow.model.Settings
 import java.time.Duration
@@ -79,6 +82,12 @@ internal class Board(
     val news: String?,
     /** The circuit's outline, for the track map; null when there is none to be had. */
     val track: F1Track? = null,
+    /**
+     * Each car's timing-point crossings, for playing the cars back on the map: the newest the feed has, which
+     * run ahead of [now] when the board is held back to the TV, so a car is drawn between two crossings
+     * already known rather than guessed on from the last.
+     */
+    val crossings: Map<String, List<Crossing>> = session.crossings,
 ) {
     val status: Status = if (session.signalLost) {
         Status("No signal", session.signalAt?.let { "${Duration.between(it, now).toMinutes().coerceAtLeast(1)} min ago" }.orEmpty(), Muted, false)
@@ -997,8 +1006,19 @@ private class MapFit(track: F1Track, width: Float, height: Float, strokeShare: F
     fun at(point: Pair<Float, Float>) = Offset(dx + point.first * scale, dy + point.second * scale)
 }
 
-/** One car as the map draws it. */
-private class MapCar(val row: LiveRow, val where: Offset, val big: Boolean, val faded: Boolean, val named: Boolean)
+/** One car as the map draws it, and the short fading tail behind it, newest first. */
+private class MapCar(val row: LiveRow, val where: Offset, val big: Boolean, val faded: Boolean, val named: Boolean, val tail: List<Offset> = emptyList())
+
+/** How many dots make a car's tail, and how far apart they are, as a share of the lap. */
+private const val TAIL_DOTS = 5
+private const val TAIL_STEP = 0.0035f
+
+/**
+ * The best-placed car of each team among [rows]: the one the map names when it names a car per team. A team is
+ * known by its name, or by its colour when the feed gave no name.
+ */
+internal fun teamLeaders(rows: List<LiveRow>): Set<String> =
+    rows.groupBy { it.team.ifEmpty { it.teamColour?.toString() ?: it.number } }.values.mapNotNull { team -> team.minByOrNull { it.position }?.number }.toSet()
 
 /**
  * The cars on the circuit's outline, each at the last mini-sector the timing put it through and on
@@ -1112,10 +1132,13 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
         "team" -> b.followed.isNotEmpty() && r.code == b.followed || teamMatches(b.team, r.team)
         else -> false
     }
+    // The best-placed car of each team, out of those on track: a team's other car is named once the first is in the pits.
+    val leaders = if (labels == "teams") teamLeaders(session.rows.filter { !it.inPit && !it.out && !it.knockedOut }) else emptySet()
     fun named(r: LiveRow) = when (labels) {
         "me" -> r.code == b.followed
         "leader" -> r.code == b.followed || r.position == 1
         "top3" -> r.position <= 3
+        "teams" -> r.number in leaders
         "all" -> true
         else -> false
     }
@@ -1133,6 +1156,12 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
     // read in the drawing only, so it redraws the map and nothing else. Not in the editor, whose time stands still.
     val moving = running.isNotEmpty() && !LocalEditing.current
     val motion = remember { MapMotion() }
+    // Which side of its car each name went last time, so names stay put rather than hopping from frame to frame.
+    val labelSides = remember { HashMap<String, Int>() }
+    // Where each timing point is round the lap, learned from every car's crossings so far.
+    val of = b.crossings.values.firstNotNullOfOrNull { it.lastOrNull()?.of } ?: 0
+    val points = remember(b.crossings, track, of) { if (of > 1) timingPoints(b.crossings, of, track) else null }
+    val pits = if (b.live) session.rows.filter { it.inPit && !it.out && !it.knockedOut } else emptyList()
     var frameNanos by remember { mutableLongStateOf(System.nanoTime()) }
     LaunchedEffect(moving) {
         if (!moving) return@LaunchedEffect
@@ -1183,12 +1212,27 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
             if (moving) motion.keepOnly(running.mapTo(HashSet()) { it.number })
             val cars = running.mapNotNull { r ->
                 val pace = r.lastLapMs ?: lapMs
-                val target = r.lapFraction(at, pace) ?: return@mapNotNull null
-                val fraction = if (moving) motion.place(r.number, target, pace, frame) else target
+                // Played back between the car's crossings, in time round the real lap; failing that, on from its last mini-sector, in length.
+                val played = points?.let { p -> b.crossings[r.number]?.let { playbackShare(it, p, at, pace) } }
+                val target = played ?: r.lapFraction(at, pace) ?: return@mapNotNull null
+                val fraction = if (moving) motion.place(r.number, target, frame) else target
+                fun spot(f: Float) = fit.at(if (played != null) track.pointAtTime(f) else track.pointAt(f))
                 val big = highlighted(r)
-                MapCar(r, fit.at(track.pointAt(fraction)), big, dim && !big, named(r))
+                val tail = if (moving) (1..TAIL_DOTS).map { spot(fraction - it * TAIL_STEP) } else emptyList()
+                MapCar(r, spot(fraction), big, dim && !big, named(r), tail)
             }.sortedWith(compareBy({ it.big }, { -it.row.position }))
             fun MapCar.radius() = if (big) radius * 1.45f else radius
+            // The cars in the pits, small and faint, in a row inside the track just before the line.
+            pits.forEachIndexed { i, car ->
+                val on = fit.at(track.pointAt(1f - 0.012f * (i + 1)))
+                val inward = (fit.centre - on).let { d -> d / d.getDistance().coerceAtLeast(0.001f) } * (fit.stroke * 2.2f)
+                drawCircle(Color(car.teamColour ?: 0xFF8C8C8C).copy(alpha = 0.55f), radius * 0.6f, on + inward)
+            }
+            cars.forEach { car ->
+                val shade = Color(car.row.teamColour ?: 0xFF8C8C8C)
+                val alpha = if (car.faded) 0.3f else 1f
+                car.tail.forEachIndexed { k, dot -> drawCircle(shade.copy(alpha = alpha * 0.32f * (1f - k / TAIL_DOTS.toFloat())), car.radius() * (0.8f - k * 0.1f), dot) }
+            }
             cars.forEach { car ->
                 val r = car.radius()
                 val alpha = if (car.faded) 0.3f else 1f
@@ -1207,17 +1251,23 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
                 val name = driverName(car.row, b.names)
                 val laid = measurer.measure(name, style)
                 val r = car.radius()
+                val sides: List<(Size) -> Offset> = listOf(
+                    { size -> car.where + Offset(r * 1.3f, -r * 1.1f - size.height / 2f) },
+                    { size -> car.where + Offset(-r * 1.3f - size.width, -r * 1.1f - size.height / 2f) },
+                    { size -> car.where + Offset(r * 1.3f, r * 1.1f - size.height / 2f) },
+                    { size -> car.where + Offset(-r * 1.3f - size.width, r * 1.1f - size.height / 2f) },
+                )
+                // The side it had last frame first, so it moves to another only when that one is taken.
+                val first = labelSides[car.row.number] ?: 0
+                val order = sides.indices.map { (first + it) % sides.size }
+                val box = Size(laid.size.width.toFloat(), laid.size.height.toFloat())
                 val placed = space.place(
-                    Size(laid.size.width.toFloat(), laid.size.height.toFloat()),
-                    listOf(
-                        { size -> car.where + Offset(r * 1.3f, -r * 1.1f - size.height / 2f) },
-                        { size -> car.where + Offset(-r * 1.3f - size.width, -r * 1.1f - size.height / 2f) },
-                        { size -> car.where + Offset(r * 1.3f, r * 1.1f - size.height / 2f) },
-                        { size -> car.where + Offset(-r * 1.3f - size.width, r * 1.1f - size.height / 2f) },
-                    ),
+                    box,
+                    order.map { sides[it] },
                     required = true,
                     blocked = { rect -> cars.any { it !== car && rect.touches(it.where, it.radius() * 1.25f) } },
                 ) ?: return@forEach
+                order.firstOrNull { (sides[it](box) - placed.topLeft).getDistance() < 0.5f }?.let { labelSides[car.row.number] = it }
                 drawText(if (placed.share == 1f) laid else measurer.measure(name, style.copy(fontSize = style.fontSize * placed.share)), topLeft = placed.topLeft)
             }
         }

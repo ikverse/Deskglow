@@ -53,6 +53,10 @@ class PitWallRenderTest {
 
     private val feeds = FakeFeeds()
 
+    // The tests' clock does not run on in real time, so PitWall is not held back behind it.
+    @org.junit.Before fun noDelay() { PitWallWidget.leastDelayS = 0 }
+    @org.junit.After fun usualDelay() { PitWallWidget.leastDelayS = PitWallWidget.MIN_DELAY_S }
+
     private fun settings(preview: String = "auto") = PitWallWidget.defaults.with(PitWallWidget.PREVIEW, preview).with(Common.TIME_FORMAT, "24")
 
     private fun show(orientation: Orientation, settings: Settings, editing: Boolean) {
@@ -183,6 +187,25 @@ class PitWallRenderTest {
         compose.waitForIdle()
         assertTrue(shows("PIA"))
         assertTrue(shows("NOR"))
+    }
+
+    @Test
+    @Config(qualifiers = "w848dp-h412dp-land-xxhdpi")
+    fun `a yellow lights its sector on the track, and race control says who it is for`() {
+        compose.mainClock.autoAdvance = false
+        at(F1LiveSample.AT.plusSeconds(3))
+        val track = F1LiveSample.track.copy(sectors = (1..16).map { com.ikverse.deskglow.data.F1Sector(it, (it - 1) / 16f) })
+        val session = F1LiveSample.race.copy(
+            track = track, flag = TrackFlag.Yellow, sectorFlags = mapOf(5 to "DOUBLE YELLOW", 6 to "YELLOW"),
+            events = F1LiveSample.race.events + LiveEvent(EventKind.Flag, "Double yellow · sector 5 · [COL]", F1LiveSample.AT),
+        )
+        feeds.f1Live.value = F1LiveState.Live(session)
+        show(Orientation.Landscape, settings(), editing = false)
+        compose.mainClock.advanceTimeBy(2_000)
+        save("pitwall-live-sector-yellow")
+        assertTrue(shows("Yellow flag"))
+        assertTrue(shows("Double yellow · sector 5 · COL"))
+        assertFalse(shows("[COL]"))
     }
 
     @Test

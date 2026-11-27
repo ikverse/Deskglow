@@ -77,15 +77,17 @@ class F1LiveTest {
     }
 
     @Test
-    fun `race control's news is in plain words, once, without the sector flags`() {
+    fun `race control's news is in plain words, once, with each sector's yellow once while it is out`() {
         val s = snapshot(topicsOf("f1live-sprint-delayed.json")).session()!!
         assertEquals(
-            listOf("[BEA] under investigation", "Rain risk 80%", "Conditions changing", "Start delayed", "Low grip", "Formation lap"),
+            listOf("Rain risk 80%", "Double yellow · sector 13", "Conditions changing", "Start delayed", "Low grip", "Formation lap"),
             s.events.map { it.text },
         )
+        // Given twice and never cleared, sector 13's double yellow is still out.
+        assertEquals(mapOf(13 to "DOUBLE YELLOW"), s.sectorFlags)
         // "Formation lap(s) behind safety car" is not a safety car.
         assertFalse(s.events.any { it.text.contains("afety") })
-        assertEquals(EventKind.Incident, s.events.first().kind)
+        assertEquals(EventKind.Info, s.events.first().kind)
     }
 
     @Test

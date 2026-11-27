@@ -37,7 +37,7 @@ object F1LiveWidget : WidgetType {
     val LAYOUT = TextKey("layout", "tower")
 
     // The track map's own choices.
-    /** Which cars are named on the map: "me" (the followed car), "leader" (it and the leader), "top3", "all" or "none". */
+    /** Which cars are named on the map: "me" (the followed car), "leader" (it and the leader), "top3", "teams" (each team's best-placed car), "all" or "none". */
     val TRACK_LABELS = TextKey("trackLabels", "me")
     /** Which cars are drawn bigger: "driver" (the followed car), "team" (both of the followed team's) or "none". */
     val TRACK_HIGHLIGHT = TextKey("trackHighlight", "driver")
@@ -86,7 +86,7 @@ object F1LiveWidget : WidgetType {
         if (layout == "tower") add(SliderField("Rows", ROWS, 3..22))
         if (layout == "tower") add(ChoiceField("Gap", GAP, listOf("auto" to "Automatic", "leader" to "To the leader", "ahead" to "To the car ahead")))
         if (track) {
-            add(ChoiceField("Car labels", TRACK_LABELS, listOf("me" to "My driver", "leader" to "My driver and leader", "top3" to "Top 3", "all" to "Everyone", "none" to "None")))
+            add(ChoiceField("Car labels", TRACK_LABELS, listOf("me" to "My driver", "leader" to "My driver and leader", "top3" to "Top 3", "teams" to "Each team's leading car", "all" to "Everyone", "none" to "None")))
             add(ChoiceField("Highlight", TRACK_HIGHLIGHT, listOf("driver" to "My driver", "team" to "My team", "none" to "None")))
             add(ToggleField("Dim other cars", TRACK_DIM))
             add(ChoiceField("Car size", CAR_SIZE, listOf("medium" to "Medium", "small" to "Small", "large" to "Large")))
@@ -138,6 +138,8 @@ object F1LiveWidget : WidgetType {
         val delayMs = if (editing) 0L else delaySeconds * 1000L
         val held = remember(feeds.f1Live, delayMs) { feeds.f1Live.heldBack(delayMs, feeds.f1History) }
         val state by held.collectAsStateWithLifecycle(feeds.f1Live.value)
+        // The feed as it is now, ahead of what is shown when held back: the map plays the cars back from its crossings.
+        val latest by feeds.f1Live.collectAsStateWithLifecycle()
         val lag = Duration.ofMillis(delayMs)
         val minute by feeds.minute.collectAsStateWithLifecycle()
         val app by LocalF1Favourite.current.collectAsStateWithLifecycle()
@@ -186,6 +188,7 @@ object F1LiveWidget : WidgetType {
                 Board(
                     styled, session, live, session.phase(now), now, h24, driver, team, followed?.code.orEmpty(), next,
                     newsToShow(session, noticed, now, settings[NAMES]).takeIf { live }, track,
+                    crossings = (latest as? F1LiveState.Live)?.session?.takeIf { it.key == session.key }?.crossings ?: session.crossings,
                 ),
                 constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(),
             )

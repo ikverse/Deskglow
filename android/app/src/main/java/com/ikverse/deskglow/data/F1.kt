@@ -64,8 +64,21 @@ data class F1Track(
     val aspect: Float,
     /** The numbered corners, in the same box as [points]; none in an outline saved before they were kept. */
     val corners: List<F1Corner> = emptyList(),
+    /**
+     * For each of [points], how far into a real lap (0 to 1 of its time) a car got there: slow through the
+     * corners, quick down the straights. Empty where the source gave none, or the outline was saved before
+     * these were kept.
+     */
+    val times: List<Float> = emptyList(),
+    /** Where each of the circuit's marshal sectors starts, the sectors race control's flags are given for. */
+    val sectors: List<F1Sector> = emptyList(),
+    /** How this outline was made; one made by an older [VERSION] lacks what newer ones keep, and is fetched again. */
+    val version: Int = VERSION,
 ) {
     fun isFor(race: F1Race) = season == seasonOf(race) && round == race.round
+
+    /** Whether there is a real lap's timing to go by. */
+    val timed: Boolean get() = times.size == points.size && points.size >= 2
 
     /** How far along the line each point is, from the first, as a share of the whole lap. */
     private val along: FloatArray by lazy {
@@ -94,10 +107,66 @@ data class F1Track(
         return (x0 + (x1 - x0) * t) to (y0 + (y1 - y0) * t)
     }
 
+    /** The share of the lap's length at [index] of [points]; [points].size is the whole lap. */
+    private fun alongAt(index: Int): Float = along[index]
+
+    /** The time into the reference lap at [index] of [points], 0 to 1; [points].size is the lap's end. */
+    private fun timeAt(index: Int): Float = if (index >= points.size) 1f else times[index]
+
+    /**
+     * The point a car reaches [fraction] of the way through a lap in time, going by the real lap's pace: so
+     * a car moving at an even rate through the lap's time slows into the corners and speeds down the
+     * straights. Without a real lap's timing, [fraction] is taken as a share of the length, as [pointAt] does.
+     */
+    fun pointAtTime(fraction: Float): Pair<Float, Float> = pointAt(distanceAtTime(fraction))
+
+    /** The share of the lap's length a car has covered [fraction] of the way through it in time. */
+    fun distanceAtTime(fraction: Float): Float {
+        if (!timed) return fraction - floor(fraction)
+        val f = fraction - floor(fraction)
+        var lo = 0
+        var hi = points.size
+        // The last point whose time is not past f.
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (timeAt(mid) <= f) lo = mid else hi = mid - 1
+        }
+        val i = lo.coerceAtMost(points.size - 1)
+        val t0 = timeAt(i)
+        val t1 = timeAt(i + 1)
+        val k = if (t1 > t0) ((f - t0) / (t1 - t0)).coerceIn(0f, 1f) else 0f
+        return alongAt(i) + (alongAt(i + 1) - alongAt(i)) * k
+    }
+
+    /** How far through a lap in time a car is when it has covered [distance] of its length: the inverse of [distanceAtTime]. */
+    fun timeAtDistance(distance: Float): Float {
+        if (!timed) return distance - floor(distance)
+        val d = distance - floor(distance)
+        val i = (along.indexOfFirst { it > d } - 1).coerceIn(0, points.size - 1)
+        val span = alongAt(i + 1) - alongAt(i)
+        val k = if (span > 0f) ((d - alongAt(i)) / span).coerceIn(0f, 1f) else 0f
+        return timeAt(i) + (timeAt(i + 1) - timeAt(i)) * k
+    }
+
+    /** The share of the lap's length at the point of the outline nearest ([x], [y]), in the outline's box. */
+    fun distanceNear(x: Float, y: Float): Float {
+        val i = points.indices.minByOrNull { val (px, py) = points[it]; (px - x) * (px - x) + (py - y) * (py - y) } ?: return 0f
+        return alongAt(i)
+    }
+
+    /** The marshal sector [number], as where it starts and where the next starts, in shares of the length; null if unknown. */
+    fun sectorSpan(number: Int): Pair<Float, Float>? {
+        val ordered = sectors.sortedBy { it.at }
+        val i = ordered.indexOfFirst { it.number == number }.takeIf { it >= 0 } ?: return null
+        return ordered[i].at to ordered[(i + 1) % ordered.size].at
+    }
+
     fun toJson(): String = JSONObject()
-        .put("season", season).put("round", round).put("aspect", aspect.toDouble())
+        .put("season", season).put("round", round).put("aspect", aspect.toDouble()).put("v", version)
         .put("points", JSONArray().apply { points.forEach { (x, y) -> put(x.toDouble()); put(y.toDouble()) } })
         .put("corners", JSONArray().apply { corners.forEach { put(JSONObject().put("n", it.number).put("x", it.x.toDouble()).put("y", it.y.toDouble())) } })
+        .put("times", JSONArray().apply { times.forEach { put(it.toDouble()) } })
+        .put("sectors", JSONArray().apply { sectors.forEach { put(JSONObject().put("n", it.number).put("at", it.at.toDouble())) } })
         .toString()
 
     companion object {
@@ -108,8 +177,15 @@ data class F1Track(
             val corners = j.optJSONArray("corners")?.let { a ->
                 (0 until a.length()).map { a.getJSONObject(it) }.map { F1Corner(it.getInt("n"), it.getDouble("x").toFloat(), it.getDouble("y").toFloat()) }
             }.orEmpty()
-            return F1Track(j.getInt("season"), j.getInt("round"), points, j.getDouble("aspect").toFloat(), corners)
+            val times = j.optJSONArray("times")?.let { a -> (0 until a.length()).map { a.getDouble(it).toFloat() } }.orEmpty()
+            val sectors = j.optJSONArray("sectors")?.let { a ->
+                (0 until a.length()).map { a.getJSONObject(it) }.map { F1Sector(it.getInt("n"), it.getDouble("at").toFloat()) }
+            }.orEmpty()
+            return F1Track(j.getInt("season"), j.getInt("round"), points, j.getDouble("aspect").toFloat(), corners, times, sectors, j.optInt("v", 1))
         }
+
+        /** Raised whenever an outline keeps something new, so ones saved before are fetched again. 2: the real lap's timing and the marshal sectors. */
+        const val VERSION = 2
 
         /** A plain ring, for when a circuit's outline cannot be had: the cars still go round it in order. */
         fun ring(): F1Track = F1Track(0, 0, (0 until 72).map { i ->
@@ -121,6 +197,9 @@ data class F1Track(
 
 /** A numbered corner of a circuit, where it is in its outline's box. */
 data class F1Corner(val number: Int, val x: Float, val y: Float)
+
+/** A marshal sector of a circuit: its number and where it starts, as a share of the lap's length from the line. */
+data class F1Sector(val number: Int, val at: Float)
 
 /**
  * The outline of the circuit F1's live feed calls [key], from MultiViewer, which files outlines by
@@ -184,7 +263,7 @@ class F1Repository(
             F1Roster.update(data)
             // The outline is a nicety: when it cannot be had, the widget goes without and it is tried again next time round.
             val race = trackRace(data, Instant.ofEpochMilli(clock()))
-            if (race != null && track?.isFor(race) != true) {
+            if (race != null && (track?.isFor(race) != true || (track?.version ?: 0) < F1Track.VERSION)) {
                 runCatching { fetchTrack(race) }.getOrNull()?.let {
                     track = it
                     prefs.f1Track = it.toJson()
@@ -370,7 +449,9 @@ internal fun parseTrack(body: String, season: Int, round: Int): F1Track? {
     if (count < 3) return null
     val angle = Math.toRadians(j.optDouble("rotation", 0.0))
     val stride = max(1, count / TRACK_POINTS)
-    val turned = (0 until count step stride).map { i ->
+    val kept = (0 until count step stride).toList()
+    val times = lapTimes(j, count, kept)
+    val turned = kept.map { i ->
         val x = xs.getDouble(i)
         val y = ys.getDouble(i)
         (x * cos(angle) - y * sin(angle)) to -(x * sin(angle) + y * cos(angle))
@@ -390,7 +471,35 @@ internal fun parseTrack(body: String, season: Int, round: Int): F1Track? {
         val ty = -(x * sin(angle) + y * cos(angle))
         F1Corner(c.optInt("number"), ((tx - left) / side).toFloat(), ((ty - top) / side).toFloat())
     }.filter { it.number > 0 }
-    return F1Track(season, round, points, (width / max(height, side * 0.01)).toFloat(), corners)
+    val track = F1Track(season, round, points, (width / max(height, side * 0.01)).toFloat(), corners, times)
+    val sectors = j.optJSONArray("marshalSectors")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty().mapNotNull { m ->
+        val at = m.optJSONObject("trackPosition") ?: return@mapNotNull null
+        val x = at.optDouble("x")
+        val y = at.optDouble("y")
+        if (x.isNaN() || y.isNaN() || m.optInt("number") <= 0) return@mapNotNull null
+        val tx = x * cos(angle) - y * sin(angle)
+        val ty = -(x * sin(angle) + y * cos(angle))
+        F1Sector(m.optInt("number"), track.distanceNear(((tx - left) / side).toFloat(), ((ty - top) / side).toFloat()))
+    }.sortedBy { it.number }
+    return track.copy(sectors = sectors)
+}
+
+/**
+ * The real lap's timing at the [kept] points, as shares of the lap's time: MultiViewer gives the seconds into a
+ * lap at each point and the lap's length. Empty when they are missing, too few, or do not run forward.
+ */
+private fun lapTimes(j: JSONObject, count: Int, kept: List<Int>): List<Float> {
+    val raw = j.optJSONArray("trackPositionTime") ?: return emptyList()
+    if (raw.length() != count) return emptyList()
+    val seconds = (0 until count).map { raw.optDouble(it) }
+    if (seconds.any { it.isNaN() }) return emptyList()
+    val last = seconds.last()
+    // The lap ends back at the line, a step after the last point.
+    val lap = j.optJSONObject("candidateLap")?.optDouble("lapTime")?.takeIf { !it.isNaN() && it > last } ?: (last + (last - seconds.first()) / (count - 1).coerceAtLeast(1))
+    if (lap <= 0.0) return emptyList()
+    val shares = kept.map { (seconds[it] - seconds.first()) / lap }
+    if (shares.zipWithNext().any { (a, b) -> b < a } || shares.last() >= 1.0) return emptyList()
+    return shares.map { it.toFloat() }
 }
 
 private const val TRACK_POINTS = 240

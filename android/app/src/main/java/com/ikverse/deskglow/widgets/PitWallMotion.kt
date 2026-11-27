@@ -44,6 +44,8 @@ import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.core.AnimationVector1D
+import com.ikverse.deskglow.data.F1Sector
 import com.ikverse.deskglow.data.F1Track
 import kotlin.math.min
 
@@ -179,7 +181,25 @@ private class Sweep {
 internal fun FlagTrack(
     track: F1Track, shade: Color?, plain: Color, pulse: Boolean, finish: Boolean, enter: Boolean, animate: Boolean,
     modifier: Modifier, strokeShare: Float = 0.03f,
+    /** The marshal sectors, drawn as faint marks across the line, and those under a yellow ("YELLOW" or "DOUBLE YELLOW"), lit. */
+    sectors: List<F1Sector> = emptyList(), lit: Map<Int, String> = emptyMap(),
 ) {
+    // A sector lights up as its flag comes out and fades as it goes in.
+    val glow = remember { HashMap<Int, Animatable<Float, AnimationVector1D>>() }
+    sectors.forEach { s -> glow.getOrPut(s.number) { Animatable(if (s.number in lit) 1f else 0f) } }
+    sectors.forEach { s ->
+        val on = s.number in lit
+        LaunchedEffect(s.number, on) {
+            val a = glow[s.number] ?: return@LaunchedEffect
+            if (!animate) a.snapTo(if (on) 1f else 0f)
+            else if (on) {
+                a.animateTo(1f, tween(250))
+                a.animateTo(0.55f, tween(300))
+                a.animateTo(1f, tween(300))
+            } else a.animateTo(0f, tween(600))
+        }
+    }
+    val ordered = remember(sectors) { sectors.sortedBy { it.at } }
     var steady by remember { mutableStateOf(shade) }
     val steadyStrength = remember { Animatable(1f) }
     val flag = remember { Sweep() }
@@ -230,6 +250,32 @@ internal fun FlagTrack(
                 val (path, stroke) = outline ?: return@onDrawBehind
                 val style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 steady?.let { drawPath(path, it.copy(alpha = it.alpha * steadyStrength.value), style = style) }
+                if (ordered.isNotEmpty()) {
+                    measure.setPath(path, false)
+                    val length = measure.length
+                    // Each sector under a yellow, lit from where it starts to where the next does; a double yellow a shade stronger.
+                    ordered.forEachIndexed { i, s ->
+                        val g = glow[s.number]?.value ?: 0f
+                        if (g <= 0f) return@forEachIndexed
+                        val start = s.at * length
+                        val end = ordered[(i + 1) % ordered.size].at.let { if (it <= s.at) it + 1f else it } * length
+                        val strong = if (lit[s.number] == "DOUBLE YELLOW") 1f else 0.8f
+                        part.reset()
+                        if (end <= length) measure.getSegment(start, end, part, true)
+                        else {
+                            measure.getSegment(start, length, part, true)
+                            measure.getSegment(0f, end - length, part, true)
+                        }
+                        drawPath(part, FlagYellow.copy(alpha = g * strong), style = Stroke(width = stroke * 1.15f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    }
+                    // Where each sector starts: a short faint mark across the line.
+                    ordered.forEach { s ->
+                        val at = measure.getPosition(s.at * length)
+                        val along = measure.getTangent(s.at * length)
+                        val across = androidx.compose.ui.geometry.Offset(-along.y, along.x) * (stroke * 1.25f)
+                        drawLine(plain.copy(alpha = 0.35f), at - across, at + across, strokeWidth = (stroke * 0.22f).coerceAtLeast(1f), cap = StrokeCap.Round)
+                    }
+                }
                 for (sweep in arrayOf(flag, passing)) {
                     val colour = sweep.colour ?: continue
                     measure.setPath(path, false)

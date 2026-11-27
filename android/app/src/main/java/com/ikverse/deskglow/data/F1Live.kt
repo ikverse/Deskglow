@@ -152,6 +152,10 @@ data class LiveSession(
     val circuit: Int? = null,
     /** The circuit's outline, once fetched: while the session is followed live, and kept with its result. */
     val track: F1Track? = null,
+    /** Each car's recent timing-point crossings, by car number, oldest first: what the track map plays back. Not kept with a result. */
+    val crossings: Map<String, List<Crossing>> = emptyMap(),
+    /** The marshal sectors under a yellow flag now, by number: "YELLOW" or "DOUBLE YELLOW". */
+    val sectorFlags: Map<Int, String> = emptyMap(),
 ) {
     val isRace: Boolean get() = type == "Race"
 
@@ -288,6 +292,9 @@ class LiveTiming {
     /** Each car's last mini-sector, by car number. */
     private val spots = HashMap<String, TrackSpot>()
 
+    /** Each car's recent mini-sector crossings, by car number; each list is replaced, never changed, so a session built from it can keep it. */
+    private val crossings = HashMap<String, List<Crossing>>()
+
     /**
      * The part of qualifying that was on when the status last changed: the next part starts a moment
      * before the status leaves "Finished", so the part now on is not always the one that finished.
@@ -316,7 +323,7 @@ class LiveTiming {
     fun session(): LiveSession? {
         val info = topics["SessionInfo"] ?: return null
         val news = control ?: readRaceControl(topics["RaceControlMessages"], offsetOf(info.optString("GmtOffset")), startOf(info)?.minus(MESSAGES_FROM)?.takeIf { topics["SessionStatus"]?.optString("Status") == "Inactive" }).also { control = it }
-        return parseLiveSession(topics, news, statusPart, HashMap(spots))
+        return parseLiveSession(topics, news, statusPart, HashMap(spots), HashMap(crossings))
     }
 
     /** Whether the session is over for good: checked without building the classification. */
@@ -329,7 +336,11 @@ class LiveTiming {
      * the line, and where all are timed (a lap just finished, or the session over) it waits for the next.
      */
     private fun noteSpots(change: JSONObject, full: Boolean, at: Instant) {
-        if (full) spots.clear()
+        if (full) {
+            spots.clear()
+            // A snapshot says nothing of when: the crossings before it may not run on into those after it.
+            crossings.clear()
+        }
         val lines = change.optJSONObject("Lines") ?: return
         val whole = topics["TimingData"]?.optJSONObject("Lines") ?: return
         for (number in lines.keys()) {
@@ -351,7 +362,13 @@ class LiveTiming {
                     furthest = max(furthest, counts.take(s).sum() + g)
                 }
             }
-            if (furthest >= 0) spots[number] = TrackSpot(furthest + 1, total, at)
+            if (furthest >= 0) {
+                spots[number] = TrackSpot(furthest + 1, total, at)
+                val was = crossings[number].orEmpty()
+                if (was.lastOrNull()?.let { it.passed == furthest + 1 && it.of == total } != true) {
+                    crossings[number] = (was + Crossing(furthest + 1, total, at)).takeLast(crossingsKept(total))
+                }
+            }
         }
     }
 
@@ -477,6 +494,7 @@ private fun headerOf(topics: Map<String, JSONObject>, statusPart: Int? = null): 
 
 internal fun parseLiveSession(
     topics: Map<String, JSONObject>, news: RaceControl? = null, statusPart: Int? = null, spots: Map<String, TrackSpot> = emptyMap(),
+    crossings: Map<String, List<Crossing>> = emptyMap(),
 ): LiveSession? {
     val header = headerOf(topics, statusPart) ?: return null
     val info = header.info
@@ -572,6 +590,8 @@ internal fun parseLiveSession(
         events = control.events,
         cutoff = if (part != null && noEntries != null && part < noEntries.length()) noEntries.optInt(part).takeIf { it > 0 } else null,
         circuit = info.optJSONObject("Meeting")?.optJSONObject("Circuit")?.optInt("Key")?.takeIf { it > 0 },
+        crossings = if (leftOver) emptyMap() else crossings,
+        sectorFlags = control.sectorFlags,
     )
 }
 
