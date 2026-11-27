@@ -187,6 +187,51 @@ class UpdateControllerTest {
     }
 
     @Test
+    fun `an install Android blocks is shown as blocked, and trying again opens the installer again`() = runTest {
+        val r = rig()
+        r.c.checkNow()
+        r.c.install()
+        r.c.report(InstallOutcome.Blocked("Play Protect said no."))
+        val blocked = assertIs<UpdateState.Blocked>(r.c.state.value)
+        assertEquals("Play Protect said no.", blocked.message)
+        assertEquals(newer, blocked.release)
+
+        r.c.install()
+        assertIs<UpdateState.Handed>(r.c.state.value)
+        assertEquals(2, r.launcher.log.count { it.startsWith("launch") })
+    }
+
+    @Test
+    fun `backing out of Android's installer leaves the update on offer without an error`() = runTest {
+        val r = rig()
+        r.c.checkNow()
+        r.c.install()
+        r.c.report(InstallOutcome.Cancelled)
+        assertIs<UpdateState.Available>(r.c.state.value)
+    }
+
+    @Test
+    fun `an install that fails for another reason keeps the update on offer with the reason`() = runTest {
+        val r = rig()
+        r.c.checkNow()
+        r.c.install()
+        r.c.report(InstallOutcome.Failed("There is not enough free storage."))
+        val failed = assertIs<UpdateState.Failed>(r.c.state.value)
+        assertEquals("There is not enough free storage.", failed.message)
+        assertEquals(newer, failed.release)
+    }
+
+    @Test
+    fun `a report with no install handed over is ignored`() = runTest {
+        val r = rig()
+        r.c.report(InstallOutcome.Blocked("Late news."))
+        assertIs<UpdateState.Idle>(r.c.state.value)
+        r.c.checkNow()
+        r.c.report(InstallOutcome.Blocked("Still nothing handed over."))
+        assertIs<UpdateState.Available>(r.c.state.value)
+    }
+
+    @Test
     fun `install does nothing when no update is on offer`() = runTest {
         val r = rig()
         r.c.install()

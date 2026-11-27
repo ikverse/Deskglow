@@ -454,6 +454,7 @@ fun updateSummary(state: UpdateState): String = when (state) {
     is UpdateState.Downloading -> "Downloading version ${state.release.version}"
     is UpdateState.NeedsPermission -> "Version ${state.release.version} needs your OK to install"
     is UpdateState.Handed -> "Version ${state.release.version} is ready to install"
+    is UpdateState.Blocked -> "Version ${state.release.version} was blocked by Android"
     is UpdateState.Failed -> state.release?.let { "Version ${it.version} is ready to install" } ?: "Version ${BuildConfig.VERSION_NAME}"
     else -> "Version ${BuildConfig.VERSION_NAME}"
 }
@@ -470,6 +471,7 @@ fun UpdatesScreen(graph: AppGraph, onBack: () -> Unit) {
         is UpdateState.Downloading -> s.release
         is UpdateState.NeedsPermission -> s.release
         is UpdateState.Handed -> s.release
+        is UpdateState.Blocked -> s.release
         is UpdateState.Failed -> s.release
         else -> null
     }
@@ -497,11 +499,18 @@ fun UpdatesScreen(graph: AppGraph, onBack: () -> Unit) {
                     Small("Allow installs from Deskglow on the page that opened, then come back and tap Install again.")
                 }
                 AppButton(
-                    if (s is UpdateState.Downloading) "Downloading…" else "Install",
+                    when (s) {
+                        is UpdateState.Downloading -> "Downloading…"
+                        is UpdateState.Blocked -> "Try again"
+                        else -> "Install"
+                    },
                     { scope.launch { graph.updates.install() } },
                     Modifier.fillMaxWidth(), kind = ButtonKind.Primary, enabled = !busy,
                 )
             }
+        }
+        (state as? UpdateState.Blocked)?.let { blocked ->
+            Section { Text(blocked.message, fontSize = Type.Small, color = Palette.Danger, lineHeight = 19.sp) }
         }
         (state as? UpdateState.Failed)?.let { failed ->
             Section { Text(failed.message, fontSize = Type.Small, color = Palette.Danger, lineHeight = 19.sp) }

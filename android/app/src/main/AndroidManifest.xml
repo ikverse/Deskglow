@@ -121,6 +121,11 @@
                 android:resource="@xml/dream_info" />
         </service>
 
+        <!-- Hears from Android's installer how an update install ended. Only Android's reply to Deskglow's own request reaches it. -->
+        <receiver
+            android:name=".update.InstallResultReceiver"
+            android:exported="false" />
+
         <!-- Lets the installer read the downloaded update from the app's cache, and nothing else. -->
         <provider
             android:name="androidx.core.content.FileProvider"

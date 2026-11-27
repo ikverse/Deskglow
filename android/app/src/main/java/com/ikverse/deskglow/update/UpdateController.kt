@@ -23,6 +23,9 @@ sealed interface UpdateState {
     /** Android's installer is open on the file. If the user backs out, the update is still on offer. */
     data class Handed(val release: Release) : UpdateState
 
+    /** Android's installer refused, most likely Google Play Protect. [message] says what to do; the update stays on offer. */
+    data class Blocked(val release: Release, val message: String) : UpdateState
+
     /** [release] is kept when trying again could work (a download that broke), and null when it could not (a file that failed the check). */
     data class Failed(val message: String, val release: Release?) : UpdateState
 }
@@ -105,6 +108,7 @@ class UpdateController(
             is UpdateState.Available -> start.release
             is UpdateState.NeedsPermission -> start.release
             is UpdateState.Handed -> start.release
+            is UpdateState.Blocked -> start.release
             is UpdateState.Failed -> start.release ?: return
             else -> return
         }
@@ -135,6 +139,19 @@ class UpdateController(
             throw e
         } finally {
             busy.unlock()
+        }
+    }
+
+    /**
+     * Android's installer has ended the install that [install] handed it. Only meaningful while an install is handed over:
+     * a report that arrives with nothing handed over (the app was restarted in between) is ignored.
+     */
+    fun report(outcome: InstallOutcome) {
+        val handed = current.value as? UpdateState.Handed ?: return
+        current.value = when (outcome) {
+            InstallOutcome.Cancelled -> UpdateState.Available(handed.release, now())
+            is InstallOutcome.Blocked -> UpdateState.Blocked(handed.release, outcome.message)
+            is InstallOutcome.Failed -> UpdateState.Failed(outcome.message, handed.release)
         }
     }
 

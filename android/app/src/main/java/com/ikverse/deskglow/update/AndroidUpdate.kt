@@ -1,14 +1,19 @@
 package com.ikverse.deskglow.update
 
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.PackageInfo
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
-import androidx.core.content.FileProvider
+import com.ikverse.deskglow.graph
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 
 /** The updater's pieces that need Android: the package manager for the keys, and the intents that open the installer. */
@@ -60,17 +65,43 @@ class AndroidInstallLauncher(private val context: Context) : InstallLauncher {
         }
     }
 
+    /**
+     * Gives [file] to Android's package installer as an install session, rather than opening it in whatever app handles
+     * APK files. Android then reports how the install ended, to [InstallResultReceiver], so a refusal is not silent.
+     */
     override fun launch(file: File) {
-        val uri = FileProvider.getUriForFile(context, authority(context), file)
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val installer = context.packageManager.packageInstaller
+        // Sessions left behind by earlier attempts that were never finished.
+        installer.mySessions.forEach { runCatching { installer.abandonSession(it.sessionId) } }
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        params.setAppPackageName(context.packageName)
+        var sessionId = -1
         try {
-            context.startActivity(intent)
-        } catch (_: ActivityNotFoundException) {
-            throw UpdateException("This phone has no installer that can open the update.")
+            sessionId = installer.createSession(params)
+            installer.openSession(sessionId).use { session ->
+                file.inputStream().use { input ->
+                    session.openWrite("deskglow.apk", 0, file.length()).use { out ->
+                        input.copyTo(out)
+                        session.fsync(out)
+                    }
+                }
+                session.commit(resultSender())
+            }
+        } catch (e: IOException) {
+            if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
+            throw UpdateException("The update file could not be handed to Android's installer.")
+        } catch (e: SecurityException) {
+            if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
+            throw UpdateException("Android would not let Deskglow start the install.")
         }
     }
+
+    /** Where Android sends the outcome. Mutable, because Android adds the status to it. */
+    private fun resultSender(): IntentSender = PendingIntent.getBroadcast(
+        context, 0,
+        Intent(context, InstallResultReceiver::class.java).setPackage(context.packageName),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+    ).intentSender
 
     companion object {
         /** The file provider named in the manifest, which lets Android's installer read the downloaded file. */
@@ -78,5 +109,28 @@ class AndroidInstallLauncher(private val context: Context) : InstallLauncher {
 
         /** Where downloads go: the app's cache, so Android can reclaim it and nothing else can read it. */
         fun downloadDir(context: Context) = File(context.cacheDir, "updates")
+    }
+}
+
+/**
+ * Hears from Android's installer. When it needs the user's say, it opens the confirmation screen; when it refuses, it tells
+ * the updater, which shows why. A successful install replaces the app, so there is nothing to do for it.
+ */
+class InstallResultReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+        when (status) {
+            PackageInstaller.STATUS_SUCCESS -> Unit
+            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                @Suppress("DEPRECATION")
+                val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
+                try {
+                    context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (_: ActivityNotFoundException) {
+                    context.graph.updates.report(InstallOutcome.Failed("This phone has no installer screen that can confirm the update."))
+                }
+            }
+            else -> context.graph.updates.report(InstallOutcome.fromStatus(status, intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)))
+        }
     }
 }
