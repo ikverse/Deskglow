@@ -17,21 +17,32 @@ class AndroidApkInspector(private val context: Context) : ApkInspector {
     private val pm: PackageManager get() = context.packageManager
 
     override fun installed(): ApkFacts = try {
-        facts(pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES))
+        facts(pm.getPackageInfo(context.packageName, KEYS))
     } catch (_: PackageManager.NameNotFoundException) {
         // Cannot happen for the running app; an empty set of keys makes every file fail the check.
         ApkFacts(context.packageName, 0L, emptySet())
     }
 
     override fun inspect(file: File): ApkFacts? = try {
-        pm.getPackageArchiveInfo(file.path, PackageManager.GET_SIGNING_CERTIFICATES)?.let(::facts)
+        pm.getPackageArchiveInfo(file.path, KEYS)?.let(::facts)
     } catch (_: Exception) {
         null
     }
 
+    /** The keys from the newer signing info, or else from the older list of signatures (all a downloaded file gives before Android 13). */
+    @Suppress("DEPRECATION")
     private fun facts(info: PackageInfo): ApkFacts {
-        val signers = info.signingInfo?.apkContentsSigners.orEmpty().map { sha256(it.toByteArray()) }.toSet()
-        return ApkFacts(info.packageName, info.longVersionCode, signers)
+        val keys = info.signingInfo?.apkContentsSigners?.takeIf { it.isNotEmpty() } ?: info.signatures.orEmpty()
+        return ApkFacts(info.packageName, info.longVersionCode, keys.map { sha256(it.toByteArray()) }.toSet())
+    }
+
+    private companion object {
+        /**
+         * Android 9 to 12 read a downloaded file's keys only when asked with the older flag, leaving its signing info
+         * empty when asked with the newer one alone; so both are asked for.
+         */
+        @Suppress("DEPRECATION")
+        const val KEYS = PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
     }
 
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
