@@ -41,8 +41,9 @@ object F1LiveTimingFeed : LiveTimingSource {
     const val BASE = "https://livetiming.formula1.com/signalrcore"
     override fun open(topics: List<String>): LiveConnection =
         try {
-            SseConnection(BASE, topics)
+            SseConnection(BASE, topics).also { liveLog("streaming (server-sent events)") }
         } catch (e: TransportUnavailable) {
+            liveLog("no stream offered: long polling")
             LongPollConnection(BASE, topics)
         }
 }
@@ -51,6 +52,14 @@ object F1LiveTimingFeed : LiveTimingSource {
 private class TransportUnavailable : Exception()
 
 private const val RECORD_END = '\u001e'
+
+/**
+ * A line in the phone's log about following the live feed (tag "DeskglowLive"), so a slow start or a dropped
+ * connection can be looked into from a computer. Quietly nothing where there is no Android log (tests).
+ */
+internal fun liveLog(message: String) {
+    runCatching { android.util.Log.i("DeskglowLive", message) }
+}
 
 /** The cookies and plain requests every SignalR transport needs. The load balancer pins a connection to one server by a cookie, so each answer's cookies go back with the next request. */
 private class Wire {

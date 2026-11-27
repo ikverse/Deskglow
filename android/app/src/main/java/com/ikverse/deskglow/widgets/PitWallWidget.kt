@@ -64,6 +64,8 @@ object PitWallWidget : WidgetType {
     val ROWS = IntKey("rows", 10)
     /** How far everything is kept in from the edges, in canvas units, clear of a screen's rounded corners. */
     val PADDING = IntKey("padding", 16)
+    /** The marshal sectors marked across the track. A sector under a yellow lights up either way. */
+    val SECTOR_MARKS = FlagKey("sectorMarks", true)
     val SHOW_REVIEW = FlagKey("showReview", true)
     val SHOW_HONOUR = FlagKey("showHonour", true)
     val SHOW_CALENDAR = FlagKey("showCalendar", true)
@@ -91,6 +93,7 @@ object PitWallWidget : WidgetType {
         add(ChoiceField("Preview in the editor", PREVIEW, listOf("auto" to "Automatic", "live" to "Live session", "weekend" to "Race weekend", "between" to "Between races", "offseason" to "Off-season")))
         add(SliderField("Rows in the order", ROWS, 5..12))
         add(ToggleField("Highlight my driver and team", HIGHLIGHT))
+        add(ToggleField("Sector marks on the track", SECTOR_MARKS))
         add(ShowField("Off-season", listOf(SHOW_REVIEW to "Season in review", SHOW_HONOUR to "Past champions", SHOW_CALENDAR to "Next calendar")))
         add(SliderField("Edge padding", PADDING, 0..40))
         add(Common.timeFormatField())
@@ -181,6 +184,11 @@ object PitWallWidget : WidgetType {
                         }
                         is PitWallMode.Weekend -> {
                             val result = m.result
+                            val on = m.on
+                            if (on != null) {
+                                PitWallConnectingFace(look, m.race.name, sessionName(on.kind), shown.data?.track?.takeIf { it.isFor(m.race) })
+                                return@Box
+                            }
                             val next = m.next?.let { "${shortKind(it.kind)} in ${countdownText(now, it.start)}" }
                             if (result != null) PitWallLiveFace(look, result, false, now, trackFor(result, shown.data, live = false, sample), next)
                             else if (shown.data != null) PitWallBetweenFace(look, m.race, shown.data, null, now, shown.data.track)
@@ -195,6 +203,14 @@ object PitWallWidget : WidgetType {
                 }
             }
         }
+    }
+
+    private fun sessionName(kind: String) = when (kind) {
+        "FP1" -> "Practice 1"
+        "FP2" -> "Practice 2"
+        "FP3" -> "Practice 3"
+        "Sprint Quali" -> "Sprint Qualifying"
+        else -> kind
     }
 
     /** Which of PitWall's screens [scene] is drawn as; a change of this is what fades over. */

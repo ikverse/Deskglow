@@ -35,7 +35,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -1121,7 +1123,8 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
     val strokeShare = when (settings[F1LiveWidget.TRACK_WIDTH]) { "thin" -> 0.018f; "bold" -> 0.05f; else -> 0.03f }
     val flagShade = b.status.shade.takeIf { b.live && b.status.filled && settings[F1LiveWidget.TRACK_FLAG] }
     val lineColour = flagShade ?: b.colour.copy(alpha = 0.28f)
-    val measurer = rememberTextMeasurer()
+    // Enough room to keep every name measured from one frame to the next.
+    val measurer = rememberTextMeasurer(cacheSize = 48)
     val carShare = when (settings[F1LiveWidget.CAR_SIZE]) { "small" -> 0.022f; "large" -> 0.042f; else -> 0.03f }
     val highlight = settings[F1LiveWidget.TRACK_HIGHLIGHT]
     val labels = settings[F1LiveWidget.TRACK_LABELS]
@@ -1163,9 +1166,11 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
     val points = remember(b.crossings, track, of) { if (of > 1) timingPoints(b.crossings, of, track) else null }
     val pits = if (b.live) session.rows.filter { it.inPit && !it.out && !it.knockedOut } else emptyList()
     var frameNanos by remember { mutableLongStateOf(System.nanoTime()) }
+    // A steady 30 frames a second: every one of them drawn in time looks smoother than an uneven 60, which a
+    // phone like the Note 9 cannot keep up with while it draws the whole screen.
     LaunchedEffect(moving) {
         if (!moving) return@LaunchedEffect
-        while (true) withFrameNanos { if (it - frameNanos >= MapMotion.FRAME_NANOS) frameNanos = it }
+        while (true) withFrameNanos { t -> if (t - frameNanos >= MapMotion.FRAME_NANOS) frameNanos = t }
     }
     // When this second's time came in, so the cars can be carried on from it until the next.
     val tickedAt = remember(b.now) { System.nanoTime() }
@@ -1195,8 +1200,10 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
             }
             MapStill(fit, outline, ink, corners)
         }
-        TrackOutline(track, lineColour, Modifier.fillMaxSize(), strokeShare)
-        Canvas(Modifier.fillMaxSize()) {
+        // What does not move is drawn once into a layer of its own and only put back on each frame: the
+        // outline, the start line and the corner numbers. Only the cars are drawn afresh as they move.
+        TrackOutline(track, lineColour, Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }, strokeShare)
+        Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
             val fit = still.fit
             if (fit.scale <= 0f) return@Canvas
             if (startLine) {
@@ -1206,6 +1213,10 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
             still.corners.forEach { (number, p) ->
                 drawText(measurer.measure(number, cornerStyle.copy(fontSize = cornerStyle.fontSize * p.share)), topLeft = p.topLeft)
             }
+        }
+        Canvas(Modifier.fillMaxSize().graphicsLayer()) {
+            val fit = still.fit
+            if (fit.scale <= 0f) return@Canvas
             val radius = min(size.width, size.height) * carShare
             val frame = if (moving) frameNanos else tickedAt
             val at = if (moving) b.now.plusMillis(((frame - tickedAt) / 1_000_000).coerceIn(0, 2_000)) else b.now
@@ -1242,7 +1253,11 @@ internal fun TrackMap(b: Board, track: F1Track, modifier: Modifier, text: Float)
             }
             // Names kept off the line, the corner numbers, every other car and each other: the followed car's first, then by position.
             val space = LabelSpace(still.ink.copy())
+            // A car on top of one already named goes unnamed: two names squeezed into one spot read as neither.
+            val namedAt = ArrayList<Offset>()
             cars.filter { it.named }.sortedWith(compareBy({ it.row.code != b.followed }, { it.row.position })).forEach { car ->
+                if (namedAt.any { (it - car.where).getDistance() < car.radius() * 2.2f }) return@forEach
+                namedAt += car.where
                 val me = car.row.code == b.followed
                 val style = TextStyle(
                     color = (if (me) b.accent else b.colour).copy(alpha = if (car.faded) 0.45f else 1f),

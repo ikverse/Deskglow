@@ -182,7 +182,7 @@ internal fun FlagTrack(
     track: F1Track, shade: Color?, plain: Color, pulse: Boolean, finish: Boolean, enter: Boolean, animate: Boolean,
     modifier: Modifier, strokeShare: Float = 0.03f,
     /** The marshal sectors, drawn as faint marks across the line, and those under a yellow ("YELLOW" or "DOUBLE YELLOW"), lit. */
-    sectors: List<F1Sector> = emptyList(), lit: Map<Int, String> = emptyMap(),
+    sectors: List<F1Sector> = emptyList(), lit: Map<Int, String> = emptyMap(), marks: Boolean = true,
 ) {
     // A sector lights up as its flag comes out and fades as it goes in.
     val glow = remember { HashMap<Int, Animatable<Float, AnimationVector1D>>() }
@@ -268,8 +268,8 @@ internal fun FlagTrack(
                         }
                         drawPath(part, FlagYellow.copy(alpha = g * strong), style = Stroke(width = stroke * 1.15f, cap = StrokeCap.Round, join = StrokeJoin.Round))
                     }
-                    // Where each sector starts: a short faint mark across the line.
-                    ordered.forEach { s ->
+                    // Where each sector starts: a short faint mark across the line, unless they are switched off.
+                    if (marks) ordered.forEach { s ->
                         val at = measure.getPosition(s.at * length)
                         val along = measure.getTangent(s.at * length)
                         val across = androidx.compose.ui.geometry.Offset(-along.y, along.x) * (stroke * 1.25f)

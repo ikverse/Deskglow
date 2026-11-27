@@ -50,7 +50,7 @@ internal class MapMotion {
         const val SNAP_LAP_SHARE = 0.15
         /** After a pause this long between frames (the screen off, say), the cars are put where the timing puts them. */
         const val SNAP_GAP_MS = 3_000.0
-        /** The map is drawn on every frame while cars move: about 60 times a second. */
-        const val FRAME_NANOS = 12_000_000L
+        /** The map is drawn on every other frame while cars move: a steady 30 times a second. */
+        const val FRAME_NANOS = 28_000_000L
     }
 }

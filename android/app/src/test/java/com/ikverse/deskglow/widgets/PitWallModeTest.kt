@@ -120,4 +120,16 @@ class PitWallModeTest {
         assertEquals(PitWallMode.Empty, pitWallMode(null, F1LiveState.Waiting, at("2027-01-05T00:00:00Z")))
         assertTrue(pitWallMode(null, F1LiveState.Live(session("2026-10-09T02:30:00Z")), at("2026-10-09T02:40:00Z")) is PitWallMode.Live)
     }
+
+    @Test
+    fun `a session on by the calendar whose timing has not come through is shown as connecting`() {
+        // Japan's first practice runs 02:30 to 03:30; the feed has said nothing of it yet.
+        val waiting = mode("2026-10-09T02:40:00Z", F1LiveState.Result(session("2026-10-04T12:00:00Z", finished = true))) as PitWallMode.Weekend
+        assertEquals("FP1", waiting.on?.kind)
+        // Its own result in, it is over whatever the calendar says.
+        val over = mode("2026-10-09T03:20:00Z", F1LiveState.Result(session("2026-10-09T02:30:00Z", finished = true))) as PitWallMode.Weekend
+        assertNull(over.on)
+        // Before it starts, nothing is on.
+        assertNull((mode("2026-10-09T02:27:00Z") as PitWallMode.Weekend).on)
+    }
 }

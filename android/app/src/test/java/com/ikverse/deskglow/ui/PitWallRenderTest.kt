@@ -236,4 +236,26 @@ class PitWallRenderTest {
         assertTrue(shows("COL stopped on track"))
         assertTrue(shows("RUS"))
     }
+
+    @Test
+    fun `a session on with no timing yet says it is connecting, not the session before's result`() {
+        at(Instant.parse("2026-10-09T02:40:00Z"))
+        feeds.f1.value = F1State.Ready(F1Samples.data)
+        show(Orientation.Portrait, settings(), editing = false)
+        assertTrue(shows("Connecting to live timing"))
+        assertTrue(shows("Japanese GP · Practice 1"))
+    }
+
+    @Test
+    @Config(qualifiers = "w848dp-h412dp-land-xxhdpi")
+    fun `the sector marks can be switched off, and a yellow still lights its sector`() {
+        compose.mainClock.autoAdvance = false
+        at(F1LiveSample.AT.plusSeconds(3))
+        val track = F1LiveSample.track.copy(sectors = (1..16).map { com.ikverse.deskglow.data.F1Sector(it, (it - 1) / 16f) })
+        feeds.f1Live.value = F1LiveState.Live(F1LiveSample.race.copy(track = track, flag = TrackFlag.Yellow, sectorFlags = mapOf(5 to "DOUBLE YELLOW")))
+        show(Orientation.Landscape, settings().with(PitWallWidget.SECTOR_MARKS, false), editing = false)
+        compose.mainClock.advanceTimeBy(2_000)
+        save("pitwall-live-no-sector-marks")
+        assertTrue(shows("Yellow flag"))
+    }
 }

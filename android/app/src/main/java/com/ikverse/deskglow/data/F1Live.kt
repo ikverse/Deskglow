@@ -938,6 +938,7 @@ class F1LiveRepository(
                 val heard = seen.at
                 val outcome = runCatching { follow(races, window, detail, seen) }
                 outcome.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+                outcome.exceptionOrNull()?.let { liveLog("connection lost: $it; trying again in ${retry / 1000} s") }
                 if (outcome.isFailure) {
                     // Dropped: say so over what was last seen, and try again.
                     seen.shown?.let { send(F1LiveState.Live(it.copy(signalAt = seen.at, signalLost = true))) }
@@ -1020,7 +1021,11 @@ class F1LiveRepository(
     private suspend fun ProducerScope<F1LiveState>.follow(races: List<F1Race>, window: F1Session, detail: StateFlow<Boolean>, seen: Seen): Followed {
         val full = detail.value
         val timing = LiveTiming()
+        val began = clock()
+        liveLog("following ${window.kind} of ${window.start}, ${if (full) "all" else "the few"} topics")
         val connection = source.open(if (full) LIVE_TOPICS else LITE_TOPICS)
+        liveLog("connected in ${clock() - began} ms")
+        var firstShown = true
         val poller = Executors.newSingleThreadExecutor()
         val changed = Channel<Unit>(Channel.CONFLATED)
         val builder = launch {
@@ -1040,6 +1045,10 @@ class F1LiveRepository(
                         }
                     }
                     val shown = session.copy(signalAt = seen.at, track = outline.track?.takeIf { outline.circuit == circuit })
+                    if (firstShown) {
+                        firstShown = false
+                        liveLog("first live session shown ${clock() - began} ms after starting to connect")
+                    }
                     seen.shown = shown
                     send(F1LiveState.Live(shown))
                 }

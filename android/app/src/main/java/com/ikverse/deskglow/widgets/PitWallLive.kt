@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -20,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,6 +81,27 @@ internal fun PitWallLiveFace(
     }
 }
 
+/**
+ * A session on by the calendar whose live timing has not come through yet: the weekend, the session and the
+ * circuit, and that it is connecting, rather than the session before's result as if nothing were on.
+ */
+@Composable
+internal fun PitWallConnectingFace(look: PitLook, meeting: String, session: String, track: F1Track?) {
+    val u = look.u
+    Column(Modifier.fillMaxSize()) {
+        Text("$meeting · $session", color = Muted, fontSize = pxToSp(u * 13f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            "Connecting to live timing…", color = look.colour, fontSize = pxToSp(u * 22f), fontWeight = FontWeight.SemiBold, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.height(pxToDp(u * 36f)).wrapContentHeight(),
+        )
+        if (track != null) {
+            Box(Modifier.fillMaxWidth().weight(1f).padding(vertical = pxToDp(u * 12f))) {
+                DrawnOutline(track, look.colour.copy(alpha = 0.28f), false, Modifier.fillMaxSize(), strokeShare = 0.03f)
+            }
+        }
+    }
+}
+
 /** The track map's choices, which it reads as the live-session widget's settings: every car named on a wide screen, the followed one and the leader on a tall one. */
 private fun mapSettings(look: PitLook): Settings = Settings()
     .with(Common.COLOUR, look.colourArgb)
@@ -110,7 +134,9 @@ private fun LiveHeader(b: Board, look: PitLook) {
         )
         Row(Modifier.fillMaxWidth().height(pxToDp(u * 36f)), verticalAlignment = Alignment.CenterVertically) {
             if (lead.isNotEmpty()) {
-                RollingText(lead, look.colour, u * 26f, look.animate, weight = FontWeight.SemiBold)
+                // The lap rolls over as it changes; a clock counting down each second just ticks, as rolling it would
+                // redraw the screen for a quarter of every second, between the frames the cars on the map need.
+                RollingText(lead, look.colour, u * 26f, look.animate && session.isRace, weight = FontWeight.SemiBold)
                 if (rest.isNotEmpty()) {
                     Spacer(Modifier.width(pxToDp(u * 6f)))
                     Text(rest, color = Muted, fontSize = pxToSp(u * 14f), maxLines = 1, softWrap = false)
@@ -148,9 +174,11 @@ private fun LiveMap(b: Board, look: PitLook, modifier: Modifier) {
         val sectorYellow = yellows.isNotEmpty() && b.phase == LivePhase.Running
         FlagTrack(
             track, b.status.shade.takeIf { b.live && b.status.filled && !sectorYellow }, look.colour.copy(alpha = 0.85f),
-            sectors = track.sectors, lit = yellows,
+            sectors = track.sectors, lit = yellows, marks = look.settings[PitWallWidget.SECTOR_MARKS],
             pulse = b.phase == LivePhase.Red || b.phase == LivePhase.SafetyCar, finish = b.session.finished, enter = look.entered,
-            animate = look.animate, modifier = Modifier.fillMaxSize(),
+            animate = look.animate,
+            // Drawn into a layer of its own, redrawn only as a flag changes, not on every frame the cars move.
+            modifier = Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
         )
         TrackMap(b, track, Modifier.fillMaxSize(), u * if (look.landscape) 18f else 16f)
     }
