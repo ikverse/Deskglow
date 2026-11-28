@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,7 +92,7 @@ internal fun PitWallLiveFace(
 internal fun PitWallConnectingFace(look: PitLook, meeting: String, session: String, track: F1Track?) {
     val u = look.u
     Column(Modifier.fillMaxSize()) {
-        Text("$meeting · $session", color = Muted, fontSize = pxToSp(u * 13f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        WeekendTitle(meeting, session, look)
         Text(
             "Connecting to live timing…", color = look.colour, fontSize = pxToSp(u * 22f), fontWeight = FontWeight.SemiBold, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.height(pxToDp(u * 36f)).wrapContentHeight(),
@@ -100,6 +103,24 @@ internal fun PitWallConnectingFace(look: PitLook, meeting: String, session: Stri
             }
         }
     }
+}
+
+/** "Qatar GP · Practice 2": the place in white, "GP" in the accent colour (F1 red unless changed), the session after it in grey. */
+@Composable
+private fun WeekendTitle(meeting: String, session: String, look: PitLook) {
+    val u = look.u
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, fontSize = pxToSp(u * 18f))) {
+                // The place in white, and "GP" after it in the accent colour; a name without it is all white.
+                val name = meeting.removeSuffix(" GP")
+                withStyle(SpanStyle(color = look.colour)) { append(name) }
+                if (name != meeting) withStyle(SpanStyle(color = look.accent)) { append(" GP") }
+            }
+            if (session.isNotEmpty()) withStyle(SpanStyle(color = Muted, fontSize = pxToSp(u * 15f))) { append(if (meeting.isEmpty()) session else " · $session") }
+        },
+        maxLines = 1, overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /** The track map's choices, which it reads as the live-session widget's settings: every car named on a wide screen, the followed one and the leader on a tall one. */
@@ -128,10 +149,7 @@ private fun LiveHeader(b: Board, look: PitLook) {
     val lead = if (b.live && session.isRace && '/' in progress) progress.substringBefore('/') else progress
     val rest = if (lead != progress) "/ " + progress.substringAfter('/') else ""
     Column(Modifier.fillMaxWidth()) {
-        Text(
-            listOf(session.meeting, session.name).filter { it.isNotEmpty() }.joinToString(" · "), color = Muted, fontSize = pxToSp(u * 13f),
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
+        WeekendTitle(session.meeting, session.name, look)
         Row(Modifier.fillMaxWidth().height(pxToDp(u * 36f)), verticalAlignment = Alignment.CenterVertically) {
             if (lead.isNotEmpty()) {
                 // The lap rolls over as it changes; a clock counting down each second just ticks, as rolling it would
@@ -245,14 +263,14 @@ private val SECTOR_IN = Regex("""sector (\d+)""")
 @Composable
 private fun Notes(b: Board, look: PitLook) {
     val u = look.u
-    val line = u * 17f
-    Column(Modifier.fillMaxWidth().height(pxToDp(u * 16f + line * 3))) {
+    val line = u * 22f
+    Column(Modifier.fillMaxWidth().height(pxToDp(u * 20f + line * 3))) {
         if (!b.live) {
-            Text("Next", color = Muted, fontSize = pxToSp(u * 11f), maxLines = 1)
-            Text(b.next ?: "Nothing scheduled", color = look.colour, fontSize = pxToSp(u * 13f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Next", color = Muted, fontSize = pxToSp(u * 13f), maxLines = 1)
+            Text(b.next ?: "Nothing scheduled", color = look.colour, fontSize = pxToSp(u * 16f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             return@Column
         }
-        Text("Race control", color = Muted, fontSize = pxToSp(u * 11f), maxLines = 1)
+        Text("Race control", color = Muted, fontSize = pxToSp(u * 13f), maxLines = 1)
         val events = b.session.events.takeLast(3).reversed().distinctBy { it.at to it.text }
         val track = b.track
         // A yellow race control gave no cause for: the car stopped in that sector, if one is.
@@ -269,7 +287,7 @@ private fun Notes(b: Board, look: PitLook) {
         LazyColumn(Modifier.fillMaxWidth().weight(1f), userScrollEnabled = false) {
             items(events, key = { "${it.at.toEpochMilli()} ${it.text}" }) { e ->
                 Text(
-                    namedNews(withCause(e.text), "code", b.session.rows), color = if (e === events.first()) look.colour else Muted, fontSize = pxToSp(u * 12.5f),
+                    namedNews(withCause(e.text), "code", b.session.rows), color = if (e === events.first()) look.colour else Muted, fontSize = pxToSp(u * 16f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth().height(pxToDp(line))
                         .animateItem(fadeInSpec = pitSpec(look.animate, 350), placementSpec = pitPlacement(look.animate), fadeOutSpec = pitSpec(look.animate, 350)),
