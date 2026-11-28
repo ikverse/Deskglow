@@ -10,6 +10,7 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import com.ikverse.deskglow.graph
 import java.io.File
@@ -75,6 +76,7 @@ class AndroidInstallLauncher(private val context: Context) : InstallLauncher {
         installer.mySessions.forEach { runCatching { installer.abandonSession(it.sessionId) } }
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(context.packageName)
+        params.setSize(file.length())
         var sessionId = -1
         try {
             sessionId = installer.createSession(params)
@@ -96,11 +98,14 @@ class AndroidInstallLauncher(private val context: Context) : InstallLauncher {
         }
     }
 
-    /** Where Android sends the outcome. Mutable, because Android adds the status to it. */
+    /**
+     * Where Android sends the outcome. Mutable, because Android adds the status to it; the flag only exists from Android 12,
+     * and older phones (the Note 9 runs Android 10) have no immutable default to opt out of.
+     */
     private fun resultSender(): IntentSender = PendingIntent.getBroadcast(
         context, 0,
         Intent(context, InstallResultReceiver::class.java).setPackage(context.packageName),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+        PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0,
     ).intentSender
 
     companion object {
